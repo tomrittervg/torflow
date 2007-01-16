@@ -1,10 +1,9 @@
 #!/usr/bin/python
+# Metatroller. 
 
 """
 Metatroller - Tor Meta controller
 """
-
-# Metatroller.
 
 
 import TorCtl
@@ -15,7 +14,7 @@ import struct
 import traceback
 import re
 import random
-from TorCtl import plog
+from TorUtil import *
 
 routers = {} # indexed by idhex
 name_to_key = {}
@@ -67,25 +66,23 @@ def choose_entry_uniform(path):
     r = random.choice(sorted_g)
     while r.idhex in path:
         r = random.choice(sorted_g)
-    return r.idhex
+    return r
 
 def choose_middle_uniform(path):
     r = random.choice(sorted_r)
     while r.idhex in path:
         r = random.choice(sorted_r)
-    return r.idhex
+    return r
 
 def choose_exit_uniform(path, target_ip, target_port):
     allowed = []
-    print target_ip, target_port
     for r in sorted_r:
         if r.will_exit_to(target_ip, target_port):
-            plog("DEBUG", r.name + " will exit")
             allowed.append(r)
     r = random.choice(allowed)
     while r.idhex in path:
         r = random.choice(allowed)
-    return r.idhex
+    return r
  
 def read_routers(c, nslist):
     bad_key = 0
@@ -108,7 +105,6 @@ def read_routers(c, nslist):
                      +ns.idhex+" has no descriptor")
             pass
         except:
-            #print sys.exc_info()[1]
             traceback.print_exception(*sys.exc_info())
             continue
     sorted_r.sort(cmp, lambda sr: sr.bw)
@@ -120,8 +116,6 @@ def read_routers(c, nslist):
             if r.guard and r.valid:
                 total_g_bw += r.bw
                 sorted_g.append(r)
-
-    plog("DEBUG", str(bad_key) + " bad keys")
 
 # Make eventhandler
 class SnakeHandler(TorCtl.EventHandler):

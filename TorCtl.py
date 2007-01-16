@@ -1,10 +1,10 @@
 #!/usr/bin/python
 # TorCtl.py -- Python module to interface with Tor Control interface.
-# Copyright 2005 Nick Mathewson -- See LICENSE for licensing information.
-#$Id: TorCtl.py 6882 2005-11-19 19:42:31Z nickm $
+# Copyright 2005 Nick Mathewson
+# Copyright 2007 Mike Perry. See LICENSE file.
 
 """
-TorCtl -- Library to control Tor processes.  See TorCtlDemo.py for example use.
+TorCtl -- Library to control Tor processes.
 """
 
 import os
@@ -18,139 +18,10 @@ import traceback
 import socket
 import binascii
 import types
-
-# XXX: Make a TorUtil.py
-class _Enum:
-    # Helper: define an ordered dense name-to-number 1-1 mapping.
-    def __init__(self, start, names):
-        self.nameOf = {}
-        idx = start
-        for name in names:
-            setattr(self,name,idx)
-            self.nameOf[idx] = name
-            idx += 1
-
-class _Enum2:
-    # Helper: define an ordered sparse name-to-number 1-1 mapping.
-    def __init__(self, **args):
-        self.__dict__.update(args)
-        self.nameOf = {}
-        for k,v in args.items():
-            self.nameOf[v] = k
-
-def _quote(s):
-    return re.sub(r'([\r\n\\\"])', r'\\\1', s)
-
-def _escape_dots(s, translate_nl=1):
-    if translate_nl:
-        lines = re.split(r"\r?\n", s)
-    else:
-        lines = s.split("\r\n")
-    if lines and not lines[-1]:
-        del lines[-1]
-    for i in xrange(len(lines)):
-        if lines[i].startswith("."):
-            lines[i] = "."+lines[i]
-    lines.append(".\r\n")
-    return "\r\n".join(lines)
-
-def _unescape_dots(s, translate_nl=1):
-    lines = s.split("\r\n")
-
-    for i in xrange(len(lines)):
-        if lines[i].startswith("."):
-            lines[i] = lines[i][1:]
-
-    if lines and lines[-1]:
-        lines.append("")
-
-    if translate_nl:
-        return "\n".join(lines)
-    else:
-        return "\r\n".join(lines)
-
-class _BufSock:
-    def __init__(self, s):
-        self._s = s
-        self._buf = []
-
-    def readline(self):
-        if self._buf:
-            idx = self._buf[0].find('\n')
-            if idx >= 0:
-                result = self._buf[0][:idx+1]
-                self._buf[0] = self._buf[0][idx+1:]
-                return result
-
-        while 1:
-            s = self._s.recv(128)
-            if not s:
-                raise TorCtlClosed()
-            idx = s.find('\n')
-            if idx >= 0:
-                self._buf.append(s[:idx+1])
-                result = "".join(self._buf)
-                rest = s[idx+1:]
-                if rest:
-                    self._buf = [ rest ]
-                else:
-                    del self._buf[:]
-                return result
-            else:
-                self._buf.append(s)
-
-    def write(self, s):
-        self._s.send(s)
-
-    def close(self):
-        self._s.close()
-
-def secret_to_key(secret, s2k_specifier):
-    """Used to generate a hashed password string. DOCDOC."""
-    c = ord(s2k_specifier[8])
-    EXPBIAS = 6
-    count = (16+(c&15)) << ((c>>4) + EXPBIAS)
-
-    d = sha.new()
-    tmp = s2k_specifier[:8]+secret
-    slen = len(tmp)
-    while count:
-        if count > slen:
-            d.update(tmp)
-            count -= slen
-        else:
-            d.update(tmp[:count])
-            count = 0
-    return d.digest()
-
-def urandom_rng(n):
-    """Try to read some entropy from the platform entropy source."""
-    f = open('/dev/urandom', 'rb')
-    try:
-        return f.read(n)
-    finally:
-        f.close()
-
-def s2k_gen(secret, rng=None):
-    """DOCDOC"""
-    if rng is None:
-        if hasattr(os, "urandom"):
-            rng = os.urandom
-        else:
-            rng = urandom_rng
-    spec = "%s%s"%(rng(8), chr(96))
-    return "16:%s"%(
-        binascii.b2a_hex(spec + secret_to_key(secret, spec)))
-
-def s2k_check(secret, k):
-    """DOCDOC"""
-    assert k[:3] == "16:"
-
-    k =  binascii.a2b_hex(k[3:])
-    return secret_to_key(secret, k[:9]) == k[9:]
+from TorUtil import *
 
 # Types of "EVENT" message.
-EVENT_TYPE = _Enum2(
+EVENT_TYPE = Enum2(
                     CIRC="CIRC",
                     STREAM="STREAM",
                     ORCONN="ORCONN",
@@ -162,13 +33,6 @@ EVENT_TYPE = _Enum2(
                     NOTICE="NOTICE",
                     WARN="WARN",
                     ERR="ERR")
-
-loglevel = "DEBUG"
-loglevels = {"DEBUG" : 0, "INFO" : 1, "NOTICE" : 2, "WARN" : 3, "ERROR" : 4}
-
-def plog(level, msg): # XXX: Timestamps
-    if(loglevels[level] >= loglevels[loglevel]):
-        print level + ": " + msg
 
 class TorCtlError(Exception):
     "Generic error raised by TorControl code."
@@ -197,7 +61,7 @@ class ExitPolicyLine:
             self.ip = 0
             self.netmask = 0
         else:
-            if ip_mask.find("/") == -1:
+            if not "/" in ip_mask:
                 self.netmask = 0xFFFFFFFF
                 ip = ip_mask
             else:
@@ -241,7 +105,6 @@ class Router:
         for line in self.exitpolicy:
             ret = line.check(ip, port)
             if ret != -1:
-                if ret: plog("DEBUG", "Match: "+str(ret)+" for "+self.name)
                 return ret
         plog("NOTICE", "No matching exit line for "+self.name)
         return 0
@@ -253,9 +116,12 @@ class Circuit:
         self.path = [] # routers
         self.exit = 0
 
-
-class _ConnectionBase:
-    def __init__(self):
+class Connection:
+    """A Connection represents a connection to the Tor process."""
+    def __init__(self, sock):
+        """Create a Connection to communicate with the Tor process over the
+           socket 'sock'.
+        """
         self._s = None
         self._handler = None
         self._handleFn = None
@@ -267,11 +133,8 @@ class _ConnectionBase:
         self._closeHandler = None
         self._eventThread = None
         self._eventQueue = Queue.Queue()
-
-    def set_event_handler(self, handler):
-        """Cause future events from the Tor process to be sent to 'handler'.
-        """
-        raise NotImplemented
+        self._s = BufSock(sock)
+        self._debugFile = None
 
     def set_close_handler(self, handler):
         """Call 'handler' when the Tor process has closed its connection or
@@ -292,10 +155,6 @@ class _ConnectionBase:
             self._closed = 1
         finally:
             self._sendLock.release()
-
-#    def _read_reply(self):
-#        """DOCDOC"""
-#        raise NotImplementd
 
     def launch_thread(self, daemon=1):
         """Launch a background thread to handle messages from the Tor process."""
@@ -416,16 +275,6 @@ class _ConnectionBase:
         return reply
 
 
-class Connection(_ConnectionBase):
-    """A Connection represents a connection to the Tor process."""
-    def __init__(self, sock):
-        """Create a Connection to communicate with the Tor process over the
-           socket 'sock'.
-        """
-        _ConnectionBase.__init__(self)
-        self._s = _BufSock(sock)
-        self._debugFile = None
-
     def debug(self, f):
         """DOCDOC"""
         self._debugFile = f
@@ -464,7 +313,7 @@ class Connection(_ConnectionBase):
                     if line in (".\r\n", ".\n"):
                         break
                     more.append(line)
-                lines.append((code, s, _unescape_dots("".join(more))))
+                lines.append((code, s, unescape_dots("".join(more))))
         isEvent = (lines and lines[0][0][0] == '6')
         return (isEvent, lines)
 
@@ -535,7 +384,7 @@ class Connection(_ConnectionBase):
         """
         if not kvlist:
             return
-        msg = " ".join(["%s=%s"%(k,_quote(v)) for k,v in kvlist])
+        msg = " ".join(["%s=%s"%(k,quote(v)) for k,v in kvlist])
         self._sendAndRecv("SETCONF %s\r\n"%msg)
 
     def reset_options(self, keylist):
@@ -609,7 +458,7 @@ class Connection(_ConnectionBase):
            Recognized event names are listed in section 3.3 of the control-spec
         """
         if extended:
-            print ("SETEVENTS EXTENDED %s\r\n" % " ".join(events))
+            plog ("DEBUG", "SETEVENTS EXTENDED %s\r\n" % " ".join(events))
             self._sendAndRecv("SETEVENTS EXTENDED %s\r\n" % " ".join(events))
         else:
             self._sendAndRecv("SETEVENTS %s\r\n" % " ".join(events))
@@ -662,17 +511,17 @@ class Connection(_ConnectionBase):
         circ = Circuit()
         if pathlen == 1:
             circ.exit = exit_chooser(circ.path)
-            circ.path = [circ.exit]
+            circ.path = [circ.exit.idhex]
             circ.cid = self.extend_circuit(0, circ.path)
         else:
-            circ.path.append(entry_chooser(circ.path))
+            circ.path.append(entry_chooser(circ.path).idhex)
             for i in xrange(1, pathlen-1):
-                circ.path.append(middle_chooser(circ.path))
-            circ.path.append(exit_chooser(circ.path))
+                circ.path.append(middle_chooser(circ.path).idhex)
+            circ.exit = exit_chooser(circ.path)
+            circ.path.append(circ.exit.idhex)
             circ.cid = self.extend_circuit(0, circ.path)
         circ.created_at = datetime.datetime.now()
         return circ
- 
 
     def redirect_stream(self, streamid, newaddr, newport=""):
         """DOCDOC"""
@@ -696,7 +545,7 @@ class Connection(_ConnectionBase):
                           %(circid, reason, "".join(flags)))
 
     def post_descriptor(self, desc):
-        self._sendAndRecv("+POSTDESCRIPTOR\r\n%s"%_escape_dots(desc))
+        self._sendAndRecv("+POSTDESCRIPTOR\r\n%s"%escape_dots(desc))
 
 def parse_ns_body(data):
     "Parse the body of an NS event or command."
@@ -756,7 +605,7 @@ class EventHandler:
             ident,status,path,reason,remote = m.groups()
             ident = int(ident)
             if path:
-                if path.find("REASON=") != -1:
+                if "REASON=" in path:
                     remote = reason
                     reason = path
                     path=[]
@@ -777,11 +626,17 @@ class EventHandler:
             if remote: remote = remote[15:]
             args = ident, status, circ, target_host, int(target_port), reason, remote
         elif evtype == "ORCONN":
-            m = re.match(r"(\S+)\s+(\S+)", body)
+            m = re.match(r"(\S+)\s+(\S+)(\s\S+)?(\s\S+)?", body)
             if not m:
                 raise ProtocolError("ORCONN event misformatted.")
-            target, status = m.groups()
-            args = status, target
+            target, status, reason, ncircs = m.groups()
+            if reason and not ncircs:
+                if "NCIRCS=" in reason:
+                    ncircs = reason
+                    reason = None
+            if ncircs: ncircs = int(ncircs[7:])
+            if reason: reason = reason[8:]
+            args = status, target, reason, ncircs
         elif evtype == "BW":
             m = re.match(r"(\d+)\s+(\d+)", body)
             if not m:
@@ -831,7 +686,7 @@ class EventHandler:
         """
         raise NotImplemented
 
-    def or_conn_status(self, eventtype, status, target):
+    def or_conn_status(self, eventtype, status, target, reason, ncircs):
         """Called when an OR connection's status changes if listening to
            ORCONNSTATUS events. 'status' is a member of OR_CONN_STATUS; target
            is the OR in question.
@@ -889,6 +744,13 @@ str(target_port)]
 
     def new_desc(self, eventtype, identities):
         print " ".join((eventtype, " ".join(identities)))
+   
+    def or_conn_status(self, eventtype, status, target, reason, ncircs):
+        if reason: reason = "REASON="+reason
+        else: reason = ""
+        if ncircs: ncircs = "NCIRCS="+str(ncircs)
+        else: ncircs = ""
+        print " ".join((eventtype, target, status, reason, ncircs))
 
 def parseHostAndPort(h):
     """Given a string of the form 'address:port' or 'address' or
@@ -948,8 +810,10 @@ def run_example(host,port):
     #set_option(s,"bandwidthburstbytes 100000")
     #set_option(s,"runasdaemon 1")
     #set_events(s,[EVENT_TYPE.WARN])
+#    c.set_events([EVENT_TYPE.ORCONN], True)
     c.set_events([EVENT_TYPE.STREAM, EVENT_TYPE.CIRC,
-                  EVENT_TYPE.NS, EVENT_TYPE.NEWDESC], True)
+                  EVENT_TYPE.NS, EVENT_TYPE.NEWDESC,
+                  EVENT_TYPE.ORCONN], True)
 
     th.join()
     return
