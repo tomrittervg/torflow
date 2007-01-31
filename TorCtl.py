@@ -122,7 +122,6 @@ class Connection:
         """Create a Connection to communicate with the Tor process over the
            socket 'sock'.
         """
-        self._s = None
         self._handler = None
         self._handleFn = None
         self._sendLock = threading.RLock()
@@ -626,17 +625,34 @@ class EventHandler:
             if remote: remote = remote[15:]
             args = ident, status, circ, target_host, int(target_port), reason, remote
         elif evtype == "ORCONN":
-            m = re.match(r"(\S+)\s+(\S+)(\s\S+)?(\s\S+)?", body)
+            m = re.match(r"(\S+)\s+(\S+)(\s\S+)?(\s\S+)?(\s\S+)?(\s\S+)?(\s\S+)?", body)
             if not m:
                 raise ProtocolError("ORCONN event misformatted.")
-            target, status, reason, ncircs = m.groups()
+            target, status, age, read, wrote, reason, ncircs = m.groups()
+
+            # XXX: Special hacks for bandwidth stat research
+            if status == "READ": 
+                read = " READ=" + str(age)
+                age = 0
+            if status == "WRITE":
+                wrote = " WRITTEN=" + str(age)
+                age = 0
+
+
             if reason and not ncircs:
                 if "NCIRCS=" in reason:
                     ncircs = reason
                     reason = None
-            if ncircs: ncircs = int(ncircs[7:])
+            if ncircs: ncircs = int(ncircs[8:])
+            else: ncircs = 0
             if reason: reason = reason[8:]
-            args = status, target, reason, ncircs
+            if age: age = int(age[5:])
+            else: age = 0
+            if read: read = int(read[6:])
+            else: read = 0
+            if wrote: wrote = int(wrote[9:])
+            else: wrote = 0
+            args = status, target, age, read, wrote, reason, ncircs
         elif evtype == "BW":
             m = re.match(r"(\d+)\s+(\d+)", body)
             if not m:
@@ -686,7 +702,8 @@ class EventHandler:
         """
         raise NotImplemented
 
-    def or_conn_status(self, eventtype, status, target, reason, ncircs):
+    def or_conn_status(self, eventtype, status, target, age, read, wrote, 
+                       reason, ncircs):
         """Called when an OR connection's status changes if listening to
            ORCONNSTATUS events. 'status' is a member of OR_CONN_STATUS; target
            is the OR in question.
@@ -745,12 +762,19 @@ str(target_port)]
     def new_desc(self, eventtype, identities):
         print " ".join((eventtype, " ".join(identities)))
    
-    def or_conn_status(self, eventtype, status, target, reason, ncircs):
+    def or_conn_status(self, eventtype, status, target, age, read, wrote, 
+                       reason, ncircs):
+        if age: age = "AGE="+str(age)
+        else: age = ""
+        if read: read = "READ="+str(read)
+        else: read = ""
+        if wrote: wrote = "WRITTEN="+str(wrote)
+        else: wrote = ""
         if reason: reason = "REASON="+reason
         else: reason = ""
         if ncircs: ncircs = "NCIRCS="+str(ncircs)
         else: ncircs = ""
-        print " ".join((eventtype, target, status, reason, ncircs))
+        print " ".join((eventtype, target, status, age, read, wrote, reason, ncircs))
 
 def parseHostAndPort(h):
     """Given a string of the form 'address:port' or 'address' or

@@ -1,0 +1,166 @@
+Index: src/or/control.c
+===================================================================
+--- src/or/control.c	(revision 9468)
++++ src/or/control.c	(working copy)
+@@ -3279,21 +3279,21 @@
+ {
+   switch (r) {
+     case END_OR_CONN_REASON_DONE:
+-      return "REASON=DONE";
++      return " REASON=DONE";
+     case END_OR_CONN_REASON_TCP_REFUSED:
+-      return "REASON=CONNECTREFUSED";
++      return " REASON=CONNECTREFUSED";
+     case END_OR_CONN_REASON_OR_IDENTITY:
+-      return "REASON=IDENTITY";
++      return " REASON=IDENTITY";
+     case END_OR_CONN_REASON_TLS_CONNRESET:
+-      return "REASON=CONNECTRESET";
++      return " REASON=CONNECTRESET";
+     case END_OR_CONN_REASON_TLS_TIMEOUT:
+-      return "REASON=TIMEOUT";
++      return " REASON=TIMEOUT";
+     case END_OR_CONN_REASON_TLS_NO_ROUTE:
+-      return "REASON=NOROUTE";
++      return " REASON=NOROUTE";
+     case END_OR_CONN_REASON_TLS_IO_ERROR:
+-      return "REASON=IOERROR";
++      return " REASON=IOERROR";
+     case END_OR_CONN_REASON_TLS_MISC:
+-      return "REASON=MISC";
++      return " REASON=MISC";
+     case 0:
+       return "";
+     default:
+@@ -3323,6 +3323,9 @@
+     const char *status;
+     char name[128];
+     char ncircs_buf[32] = {0}; /* > 8 + log10(2^32)=10 + 2 */
++    char age_buf[32] = {0}; /* > 8 + log10(2^32)=10 + 2 */
++    char read_buf[42] = {0}; /* > 8 + log10(2^64)=20 + 2 */
++    char wrote_buf[42] = {0}; /* > 8 + log10(2^64)=20 + 2 */
+     switch (tp)
+       {
+       case OR_CONN_EVENT_LAUNCHED: status = "LAUNCHED"; break;
+@@ -3330,30 +3333,46 @@
+       case OR_CONN_EVENT_FAILED: status = "FAILED"; break;
+       case OR_CONN_EVENT_CLOSED: status = "CLOSED"; break;
+       case OR_CONN_EVENT_NEW: status = "NEW"; break;
++      case OR_CONN_EVENT_READ: status = "READ"; break;
++      case OR_CONN_EVENT_WRITE: status = "WRITE"; break;
+       default:
+         log_warn(LD_BUG, "Unrecognized status code %d", (int)tp);
+         return 0;
+       }
+     ncircs = connection_or_count_pending_circs(conn);
+     ncircs += conn->n_circuits;
+-    if (ncircs && (tp == OR_CONN_EVENT_FAILED || tp == OR_CONN_EVENT_CLOSED)) {
+-        tor_snprintf(ncircs_buf, sizeof(ncircs_buf), "%sNCIRCS=%d",
+-                reason ? " " : "", ncircs);
++    if(tp == OR_CONN_EVENT_READ || tp == OR_CONN_EVENT_WRITE) {
++        // XXX: Bloody fucking hack, but the odds of this being
++        // approved for the official dist are slim to none
++        tor_snprintf(read_buf, sizeof(read_buf), "%d", reason);
++        reason = 0;
+     }
++    if (tp == OR_CONN_EVENT_FAILED || tp == OR_CONN_EVENT_CLOSED) {
++        tor_snprintf(age_buf, sizeof(age_buf), "AGE=%d",
++              (int)(time(NULL) - conn->_base.timestamp_created));
++        tor_snprintf(read_buf, sizeof(read_buf), " READ=%Zu",
++                conn->_base.bytes_read);
++        tor_snprintf(wrote_buf, sizeof(wrote_buf), " WRITTEN=%Zu",
++                conn->_base.bytes_written);
++        if (ncircs)
++            tor_snprintf(ncircs_buf, sizeof(ncircs_buf), " NCIRCS=%d", ncircs);
++    }
+ 
+     if (EVENT_IS_INTERESTING1S(EVENT_OR_CONN_STATUS)) {
+       orconn_target_get_name(0, name, sizeof(name), conn);
+       send_control1_event_extended(EVENT_OR_CONN_STATUS, SHORT_NAMES,
+-                          "650 ORCONN %s %s@%s%s\r\n",
+-                          name, status,
+-                          or_conn_end_reason_to_string(reason), ncircs_buf);
++              "650 ORCONN %s %s@%s%s%s%s%s\r\n",
++              name, status,
++              age_buf, read_buf, wrote_buf,
++              or_conn_end_reason_to_string(reason), ncircs_buf);
+     }
+     if (EVENT_IS_INTERESTING1L(EVENT_OR_CONN_STATUS)) {
+-      orconn_target_get_name(1, name, sizeof(name), conn);
+-      send_control1_event_extended(EVENT_OR_CONN_STATUS, LONG_NAMES,
+-                          "650 ORCONN %s %s@%s%s\r\n",
+-                          name, status,
+-                          or_conn_end_reason_to_string(reason), ncircs_buf);
++        orconn_target_get_name(1, name, sizeof(name), conn);
++        send_control1_event_extended(EVENT_OR_CONN_STATUS, LONG_NAMES,
++              "650 ORCONN %s %s@%s%s%s%s%s\r\n",
++              name, status,
++              age_buf, read_buf, wrote_buf,
++              or_conn_end_reason_to_string(reason), ncircs_buf);
+     }
+   }
+   return 0;
+Index: src/or/or.h
+===================================================================
+--- src/or/or.h	(revision 9468)
++++ src/or/or.h	(working copy)
+@@ -710,6 +710,8 @@
+                                  * could write? */
+   time_t timestamp_created; /**< When was this connection_t created? */
+ 
++  size_t bytes_read; /**< Total number of bytes read off this connection */
++  size_t bytes_written; /**< Total number of bytes written to this connection*/
+   uint32_t addr; /**< IP of the other side of the connection; used to identify
+                   * routers, along with port. */
+   uint16_t port; /**< If non-zero, port  on the other end
+@@ -2246,6 +2248,8 @@
+   OR_CONN_EVENT_FAILED       = 2,
+   OR_CONN_EVENT_CLOSED       = 3,
+   OR_CONN_EVENT_NEW          = 4,
++  OR_CONN_EVENT_READ         = 5,
++  OR_CONN_EVENT_WRITE         = 6
+ } or_conn_status_event_t;
+ 
+ void control_update_global_event_mask(void);
+Index: src/or/connection.c
+===================================================================
+--- src/or/connection.c	(revision 9468)
++++ src/or/connection.c	(working copy)
+@@ -1578,10 +1578,18 @@
+     if (n_read > 0) {
+       rep_hist_note_bytes_read(n_read, now);
+       connection_read_bucket_decrement(conn, n_read);
++      conn->bytes_read += n_read;
++      if(connection_speaks_cells(conn))
++          control_event_or_conn_status(TO_OR_CONN(conn), OR_CONN_EVENT_READ, 
++                  n_read);
+     }
+     if (n_written > 0) {
+       rep_hist_note_bytes_written(n_written, now);
+       global_write_bucket -= n_written;
++      conn->bytes_written += n_written;
++      if(connection_speaks_cells(conn))
++          control_event_or_conn_status(TO_OR_CONN(conn), OR_CONN_EVENT_WRITE, 
++                  n_written);
+     }
+   }
+ 
+@@ -1774,10 +1782,18 @@
+     if (n_written > 0) {
+       rep_hist_note_bytes_written(n_written, now);
+       global_write_bucket -= n_written;
++      conn->bytes_written += n_written;
++      if(connection_speaks_cells(conn))
++          control_event_or_conn_status(TO_OR_CONN(conn), OR_CONN_EVENT_WRITE, 
++                  n_written);
+     }
+     if (n_read > 0) {
+       rep_hist_note_bytes_read(n_read, now);
+       connection_read_bucket_decrement(conn, n_read);
++      conn->bytes_read += n_read;
++      if(connection_speaks_cells(conn))
++          control_event_or_conn_status(TO_OR_CONN(conn), OR_CONN_EVENT_READ, 
++                  n_read);
+     }
+   }
+ 
