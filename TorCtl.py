@@ -54,6 +54,21 @@ class NetworkStatus:
     "Filled in during NS events"
     pass
 
+class NodeSelector:
+    "Interface for node selection policies"
+    def __init__(self, target_ip, target_port):
+        self.to_ip = target_ip
+        self.to_port = target_port
+
+    def entry_chooser(self, path):
+        raise NotImplemented
+
+    def middle_chooser(self, path):
+        raise NotImplemented
+
+    def exit_chooser(self, path):
+        raise NotImplemented
+
 class ExitPolicyLine:
     def __init__(self, match, ip_mask, port_low, port_high):
         self.match = match
@@ -506,17 +521,17 @@ class Connection:
             raise ProtocolError("Bad extended line %r",msg)
         return int(m.group(1))
 
-    def build_circuit(self, pathlen, entry_chooser, middle_chooser, exit_chooser):
+    def build_circuit(self, pathlen, nodesel):
         circ = Circuit()
         if pathlen == 1:
-            circ.exit = exit_chooser(circ.path)
+            circ.exit = nodesel.exit_chooser(circ.path)
             circ.path = [circ.exit.idhex]
             circ.cid = self.extend_circuit(0, circ.path)
         else:
-            circ.path.append(entry_chooser(circ.path).idhex)
+            circ.path.append(nodesel.entry_chooser(circ.path).idhex)
             for i in xrange(1, pathlen-1):
-                circ.path.append(middle_chooser(circ.path).idhex)
-            circ.exit = exit_chooser(circ.path)
+                circ.path.append(nodesel.middle_chooser(circ.path).idhex)
+            circ.exit = nodesel.exit_chooser(circ.path)
             circ.path.append(circ.exit.idhex)
             circ.cid = self.extend_circuit(0, circ.path)
         circ.created_at = datetime.datetime.now()
