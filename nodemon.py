@@ -16,16 +16,21 @@ import random
 from TorUtil import *
 import sched, time
 import thread
+import copy
 
 class Reason:
     def __init__(self, reason): self.reason = reason
     ncircs = 0
     count = 0
 
-class RouterReasons:
-    # reason strings to Reason
-    def __init__(self, target): 
-        self.name = target
+class RouterStats(TorCtl.Router):
+    # Behold, a "Promotion Constructor"!
+    # Also allows null superclasses! Python is awesome
+    def __init__(self, r=None): 
+        if r:
+            self.__dict__ = r.__dict__
+        else:
+            self.down = 0
         self.reasons = {} # For a fun time, move this outside __init__
     tot_ncircs = 0
     tot_count = 0
@@ -45,7 +50,31 @@ control_host = "127.0.0.1"
 control_port = 9051
 max_detach = 3
 
+def read_routers(c, nslist):
+    bad_key = 0
+    errors_lock.acquire()
+    for ns in nslist:
+        try:
+            key_to_name[ns.idhex] = ns.name
+            name_to_key[ns.name] = ns.idhex
+            r = RouterStats(c.get_router(ns))
+            if ns.name in errors:
+                if errors[ns.name].idhex != r.idhex:
+                    plog("NOTICE", "Router "+r.name+" has multiple keys: "
+                         +errors[ns.name].idhex+" and "+r.idhex)
+            errors[r.name] = r # XXX: We get names only from ORCONN :(
+        except TorCtl.ErrorReply:
+            bad_key += 1
+            if "Running" in ns.flags:
+                plog("INFO", "Running router "+ns.name+"="
+                     +ns.idhex+" has no descriptor")
+            pass
+        except:
+            traceback.print_exception(*sys.exc_info())
+            continue
+    errors_lock.release()
 
+ 
 # Make eventhandler
 class NodeHandler(TorCtl.EventHandler):
     def __init__(self, c):
@@ -59,13 +88,17 @@ class NodeHandler(TorCtl.EventHandler):
             if target not in key_to_name:
                 target = "AllClients:HASH"
             else: target = key_to_name[target]
-        elif target not in name_to_key: 
+        elif target not in name_to_key:
+            plog("DEBUG", "IP? " + target)
             target = "AllClients:IP"
 
         if status == "READ" or status == "WRITE":
             #plog("DEBUG", "Read: " + str(read) + " wrote: " + str(wrote))
             errors_lock.acquire()
-            if target not in errors: errors[target] = RouterReasons(target)
+            if target not in errors:
+                plog("NOTICE", "Buh?? No "+target)
+                errors[target] = RouterStats()
+                errors[target].name = target
             errors[target].running_read += read
             errors[target].running_wrote += wrote
             errors_lock.release()
@@ -73,7 +106,12 @@ class NodeHandler(TorCtl.EventHandler):
             
         if status == "CLOSED" or status == "FAILED":
             errors_lock.acquire()
-            if target not in errors: errors[target] = RouterReasons(target)
+            if target not in errors:
+                plog("NOTICE", "Buh?? No "+target)
+                errors[target] = RouterStats()
+                errors[target].name = target
+            if status == "FAILED" and not errors[target].down:
+                status = status + "(Running)"
             reason = status+":"+reason
             if reason not in errors[target].reasons:
                 errors[target].reasons[reason] = Reason(reason)
@@ -101,16 +139,11 @@ class NodeHandler(TorCtl.EventHandler):
                            reason, ncircs)))
 
     def ns(self, eventtype, nslist):
-        for ns in nslist:
-            key_to_name[ns.idhex] = ns.name
-            name_to_key[ns.name] = ns.idhex
-    
+        read_routers(self.c, nslist)
+ 
     def new_desc(self, eventtype, identities):
-        for i in identities:
-            nslist = self.c.get_network_status("id/"+i)
-            for ns in nslist: # should be only 1, but eh
-                key_to_name[ns.idhex] = ns.name
-                name_to_key[ns.name] = ns.idhex
+        for i in identities: # Is this too slow?
+            read_routers(self.c, self.c.get_network_status("id/"+i))
 
 def bw_stats(key, f):
     routers = errors.values()
@@ -132,26 +165,30 @@ def save_stats(s):
     #    3. Routers sorted by tot bytes
     bw_stats(lambda x: x.tot_read+x.tot_wrote, file("./data/r_by_tbytes", "w"))
     #    4. Routers sorted by downstream bw
-    bw_stats(lambda x: x.tot_read/(x.tot_age+0.005), 
+    bw_stats(lambda x: x.tot_read/(x.tot_age+0.005),
              file("./data/r_by_rbw", "w"))
     #    5. Routers sorted by upstream bw
     bw_stats(lambda x: x.tot_wrote/(x.tot_age+0.005), file("./data/r_by_wbw", "w"))
     #    6. Routers sorted by total bw
-    bw_stats(lambda x: (x.tot_read+x.tot_wrote)/(x.tot_age+0.005), 
+    bw_stats(lambda x: (x.tot_read+x.tot_wrote)/(x.tot_age+0.005),
              file("./data/r_by_tbw", "w"))
 
-    bw_stats(lambda x: x.running_read, 
+    bw_stats(lambda x: x.running_read,
             file("./data/r_by_rrunbytes", "w"))
-    bw_stats(lambda x: x.running_wrote, 
+    bw_stats(lambda x: x.running_wrote,
             file("./data/r_by_wrunbytes", "w"))
-    bw_stats(lambda x: x.running_read+x.running_wrote, 
+    bw_stats(lambda x: x.running_read+x.running_wrote,
             file("./data/r_by_trunbytes", "w"))
-    
     
     
     f = file("./data/reasons", "w")
     routers = errors.values()
-    routers.sort(lambda x, y: cmp(y.tot_ncircs, x.tot_ncircs))
+    def notlambda(x, y):
+        if y.tot_ncircs or x.tot_ncircs:
+            return cmp(y.tot_ncircs, x.tot_ncircs)
+        else:    
+            return cmp(y.tot_count, x.tot_count)
+    routers.sort(notlambda)
 
     for r in routers:
         f.write(r.name+" " +str(r.tot_ncircs)+"/"+str(r.tot_count)+"\n")
@@ -167,10 +204,8 @@ def save_stats(s):
 def startmon(c):
     global key_to_name, name_to_key
     nslist = c.get_network_status()
-    for ns in nslist:
-        key_to_name[ns.idhex] = ns.name
-        name_to_key[ns.name] = ns.idhex
-
+    read_routers(c, nslist)
+    
     s=sched.scheduler(time.time, time.sleep)
 
     s.enter(60, 1, save_stats, (s,))

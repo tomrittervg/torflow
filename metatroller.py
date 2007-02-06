@@ -41,8 +41,8 @@ max_detach = 3
 # Technically we could just add member vars as we need them, but this
 # is a bit more clear
 class MetaRouter(TorCtl.Router):
-    def __init__(self, router):
-        # XXX: Copy router stuff over
+    def __init__(self, router): # Promotion constructor :)
+        self.__dict__ = router.__dict__
         self.failed = 0
         self.suspected = 0
         self.circ_selections = 0
@@ -51,10 +51,11 @@ class MetaRouter(TorCtl.Router):
         self.reason_failed = {}
 
 class MetaCircuit(TorCtl.Circuit):
-    def __init__(self, circuit):
-        # XXX: Copy circuit stuff over
+    def __init__(self, circuit): # Promotion
+        self.__dict__ = circuit.__dict__
         self.detached_cnt = 0
         self.used_cnt = 0
+        self.created_at = 0
     
 class Stream:
     def __init__(self):
@@ -90,7 +91,7 @@ def read_routers(c, nslist):
         try:
             key_to_name[ns.idhex] = ns.name
             name_to_key[ns.name] = ns.idhex
-            r = c.get_router(ns)
+            r = MetaRouter(c.get_router(ns))
             if ns.idhex in routers:
                 if routers[ns.idhex].name != r.name:
                     plog("NOTICE", "Router "+r.idhex+" changed names from "
@@ -107,7 +108,7 @@ def read_routers(c, nslist):
         except:
             traceback.print_exception(*sys.exc_info())
             continue
-    sorted_r.sort(cmp, lambda sr: sr.bw)
+    sorted_r.sort(lambda x, y: cmp(y.bw, x.bw))
 
     global total_r_bw, total_g_bw # lame....
     for r in sorted_r:
@@ -146,11 +147,12 @@ str(target_port)]
                     attach_circ = circ
                     break
             else:
-                attach_circ = self.c.build_circuit(3, choose_entry_uniform,
+                attach_circ = MetaCircuit(
+                                self.c.build_circuit(3, choose_entry_uniform,
                                       choose_middle_uniform,
                                       lambda path:
                                           choose_exit_uniform(path,
-                                          target_host, target_port))
+                                          target_host, target_port)))
                 circuits[attach_circ.cid] = attach_circ
             # TODO: attach
         elif status == "DETACHED":

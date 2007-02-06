@@ -416,7 +416,7 @@ class Connection:
             rj = re.search(r"^reject (\S+):([^-]+)(?:-(\d+))?", line)
             bw = re.search(r"^bandwidth \d+ \d+ (\d+)", line)
             if re.search(r"^opt hibernating 1", line):
-                dead = 1
+                dead = 1 # XXX: Technically this may be stale..
             if ac:
                 exitpolicy.append(ExitPolicyLine(1, *ac.groups()))
             elif rj:
