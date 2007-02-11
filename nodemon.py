@@ -6,17 +6,13 @@ Nodemon - Tor node monitor
 """
 
 import TorCtl
-import atexit
 import sys
 import socket
-import struct
 import traceback
 import re
-import random
 from TorUtil import *
 import sched, time
 import thread
-import copy
 
 class Reason:
     def __init__(self, reason): self.reason = reason
@@ -26,7 +22,7 @@ class Reason:
 class RouterStats(TorCtl.Router):
     # Behold, a "Promotion Constructor"!
     # Also allows null superclasses! Python is awesome
-    def __init__(self, r=None): 
+    def __init__(self, r=None):
         if r:
             self.__dict__ = r.__dict__
         else:
@@ -186,7 +182,7 @@ def save_stats(s):
     def notlambda(x, y):
         if y.tot_ncircs or x.tot_ncircs:
             return cmp(y.tot_ncircs, x.tot_ncircs)
-        else:    
+        else:
             return cmp(y.tot_count, x.tot_count)
     routers.sort(notlambda)
 
@@ -217,11 +213,13 @@ def main(argv):
     s.connect((control_host,control_port))
     c = TorCtl.get_connection(s)
     c.set_event_handler(NodeHandler(c))
-    th = c.launch_thread()
+    c.launch_thread()
     c.authenticate()
     c.set_events([TorCtl.EVENT_TYPE.ORCONN,
                   TorCtl.EVENT_TYPE.NS,
                   TorCtl.EVENT_TYPE.NEWDESC], True)
     startmon(c)
 
-main(sys.argv)
+
+if __name__ == '__main__':
+    main(sys.argv)

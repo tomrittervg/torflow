@@ -18,6 +18,7 @@ import traceback
 import socket
 import binascii
 import types
+import time
 from TorUtil import *
 
 # Types of "EVENT" message.
@@ -50,6 +51,10 @@ class ErrorReply(TorCtlError):
     "Raised when Tor controller returns an error"
     pass
 
+class NotImplemented(TorCtlError):
+    "Raised when user doesn't implement EventHandler event"
+    pass
+
 class NetworkStatus:
     "Filled in during NS events"
     pass
@@ -61,13 +66,13 @@ class NodeSelector:
         self.to_port = target_port
 
     def entry_chooser(self, path):
-        raise NotImplemented
+        raise NotImplemented()
 
     def middle_chooser(self, path):
-        raise NotImplemented
+        raise NotImplemented()
 
     def exit_chooser(self, path):
-        raise NotImplemented
+        raise NotImplemented()
 
 class ExitPolicyLine:
     def __init__(self, match, ip_mask, port_low, port_high):
@@ -251,6 +256,7 @@ class Connection:
         # Here's where the result goes...
         result = []
 
+        plog("DEBUG", "Sending: "+msg)
         if self._closedEx is not None:
             raise self._closedEx
         elif self._closed:
@@ -682,7 +688,7 @@ class EventHandler:
         elif evtype == "NEWDESC":
             args = (body.split(" "),)
         elif evtype == "ADDRMAP":
-            m = re.match(r'(\S+)\s+(\S+)\s+(\"[^"]+\"|\w+)')
+            m = re.match(r'(\S+)\s+(\S+)\s+(\"[^"]+\"|\w+)', body)
             if not m:
                 raise ProtocolError("BANDWIDTH event misformatted.")
             fromaddr, toaddr, when = m.groups()
@@ -703,7 +709,7 @@ class EventHandler:
         """Called when we get an event type we don't recognize.  This
            is almost alwyas an error.
         """
-        raise NotImplemented
+        raise NotImplemented()
 
     def circ_status(self, eventtype, circID, status, path, reason, remote):
         """Called when a circuit status changes if listening to CIRCSTATUS
@@ -711,14 +717,14 @@ class EventHandler:
            circuit ID, and 'path' is the circuit's path so far as a list of
            names.
         """
-        raise NotImplemented
+        raise NotImplemented()
 
     def stream_status(self, eventtype, streamID, status, circID, target_host, target_port, reason, remote):
         """Called when a stream status changes if listening to STREAMSTATUS
            events.  'status' is a member of STREAM_STATUS; streamID is a
            numeric stream ID, and 'target' is the destination of the stream.
         """
-        raise NotImplemented
+        raise NotImplemented()
 
     def or_conn_status(self, eventtype, status, target, age, read, wrote, 
                        reason, ncircs):
@@ -726,33 +732,33 @@ class EventHandler:
            ORCONNSTATUS events. 'status' is a member of OR_CONN_STATUS; target
            is the OR in question.
         """
-        raise NotImplemented
+        raise NotImplemented()
 
     def bandwidth(self, eventtype, read, written):
         """Called once a second if listening to BANDWIDTH events.  'read' is
            the number of bytes read; 'written' is the number of bytes written.
         """
-        raise NotImplemented
+        raise NotImplemented()
 
     def new_desc(self, eventtype, identities):
         """Called when Tor learns a new server descriptor if listenting to
            NEWDESC events.
         """
-        raise NotImplemented
+        raise NotImplemented()
 
     def msg(self, eventtype, severity, message):
         """Called when a log message of a given severity arrives if listening
            to INFO_MSG, NOTICE_MSG, WARN_MSG, or ERR_MSG events."""
-        raise NotImplemented
+        raise NotImplemented()
 
     def ns(self, eventtype, nslist):
-        raise NotImplemented
+        raise NotImplemented()
 
     def address_mapped(self, eventtype, fromAddr, toAddr, expiry=None):
         """Called when Tor adds a mapping for an address if listening
            to ADDRESSMAPPED events.
         """
-        raise NotImplemented
+        raise NotImplemented()
 
 
 class DebugEventHandler(EventHandler):

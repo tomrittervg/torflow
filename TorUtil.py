@@ -18,6 +18,7 @@ import traceback
 import socket
 import binascii
 import types
+import sha
 
 __all__ = ["Enum", "Enum2", "quote", "escape_dots", "unescape_dots",
             "BufSock", "secret_to_key", "urandom_rng", "s2k_gen", "s2k_check",

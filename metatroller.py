@@ -9,7 +9,6 @@ import TorCtl
 import atexit
 import sys
 import socket
-import struct
 import traceback
 import re
 import random
@@ -95,9 +94,10 @@ class Stream:
 #    - VersionRange (Less than, greater than, in-range)
 #    - OSSelector (ex Yes: Linux, *BSD; No: Windows, Solaris)
 #    - OceanPhobicRestrictor (avoids Pacific Ocean or two atlantic crossings)
-#      - Mathematical proof of predecessor expectation
+#      or ContinentRestrictor (avoids doing more than N continent crossings)
+#      - Mathematical/empirical study of predecessor expectation
 #        - If middle node is on the same continent as exit, exit learns nothing
-#        - else, exit knows the continent of origin of user
+#        - else, exit has a bias on the continent of origin of user
 #          - Language and browser accept string determine this anyway
 #    - ExitCountry
 #    - AllCountry
@@ -157,7 +157,7 @@ class UniformSelector(TorCtl.NodeSelector):
 
         # FIXME: This should apply to ORDEREXITS (for speedracer?)
         if self.all_exits:
-            min_bw = self.min_bw
+            minbw = self.min_bw
             pct_fast = self.pct_fast
             pct_skip = self.pct_skip
             self.min_bw = self.pct_skip = 0
@@ -172,7 +172,7 @@ class UniformSelector(TorCtl.NodeSelector):
             r = self.pick_r(allowed)
 
         if self.all_exits:
-            self.min_bw = min_bw
+            self.min_bw = minbw
             self.pct_fast = pct_fast
             self.pct_skip = pct_skip
  
@@ -332,21 +332,21 @@ class SnakeHandler(TorCtl.EventHandler):
                 plog("WARN", "Remap id "+str(streamID)+" not found")
             else:
                 if not re.match(r"\d+.\d+.\d+.\d+", target_host):
-                   target_host = "255.255.255.255"
-                   plog("NOTICE", "Non-IP remap for "+str(streamID)+" to "
+                    target_host = "255.255.255.255"
+                    plog("NOTICE", "Non-IP remap for "+str(streamID)+" to "
                                    + target_host)
                 streams[streamID].host = target_host
                 streams[streamID].port = target_port
 
     def ns(self, eventtype, nslist):
         read_routers(self.c, nslist)
-        plog("DEBUG", "Read " + str(len(nslist)) + " NS dox => " 
+        plog("DEBUG", "Read " + str(len(nslist)) + eventtype + " => " 
              + str(len(sorted_r)) + " routers")
     
     def new_desc(self, eventtype, identities):
         for i in identities: # Is this too slow?
             read_routers(self.c, self.c.get_network_status("id/"+i))
-        plog("DEBUG", "Read " + str(len(identities)) + " desc => " 
+        plog("DEBUG", "Read " + str(len(identities)) + eventtype + " => " 
              + str(len(sorted_r)) + " routers")
         
 
@@ -471,7 +471,7 @@ def main(argv):
     s.connect((control_host,control_port))
     c = TorCtl.get_connection(s)
     c.set_event_handler(SnakeHandler(c))
-    th = c.launch_thread()
+    c.launch_thread()
     c.authenticate()
     c.set_events([TorCtl.EVENT_TYPE.STREAM,
                   TorCtl.EVENT_TYPE.NS,
@@ -479,4 +479,5 @@ def main(argv):
                   TorCtl.EVENT_TYPE.NEWDESC], True)
     listenloop(c)
 
-main(sys.argv)
+if __name__ == '__main__':
+    main(sys.argv)
