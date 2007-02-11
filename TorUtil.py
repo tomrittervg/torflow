@@ -21,7 +21,7 @@ import types
 
 __all__ = ["Enum", "Enum2", "quote", "escape_dots", "unescape_dots",
             "BufSock", "secret_to_key", "urandom_rng", "s2k_gen", "s2k_check",
-            "plog"]
+            "plog", "ListenSocket"]
 
 class Enum:
     # Helper: define an ordered dense name-to-number 1-1 mapping.
@@ -87,8 +87,9 @@ class BufSock:
 
         while 1:
             s = self._s.recv(128)
-            if not s:
-                raise TorCtlClosed()
+            if not s: return None
+            # XXX: This really does need an exception
+            #    raise ConnectionClosed()
             idx = s.find('\n')
             if idx >= 0:
                 self._buf.append(s[:idx+1])
@@ -107,6 +108,39 @@ class BufSock:
 
     def close(self):
         self._s.close()
+
+# SocketServer.TCPServer is nuts.. 
+class ListenSocket:
+    def __init__(self, listen_ip, port):
+        msg = None
+        self.s = None
+        for res in socket.getaddrinfo(listen_ip, port, socket.AF_UNSPEC,
+                          socket.SOCK_STREAM, 0, socket.AI_PASSIVE):
+            af, socktype, proto, canonname, sa = res
+            try:
+                self.s = socket.socket(af, socktype, proto)
+                self.s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            except socket.error, msg:
+                self.s = None
+                continue
+            try:
+                self.s.bind(sa)
+                self.s.listen(1)
+            except socket.error, msg:
+                self.s.close()
+                self.s = None
+                continue
+            break
+        if self.s is None:
+            raise socket.error(msg)
+
+    def accept(self):
+        conn, addr = self.s.accept()
+        return conn
+
+    def close(self):
+        self.s.close()
+
 
 def secret_to_key(secret, s2k_specifier):
     """Used to generate a hashed password string. DOCDOC."""

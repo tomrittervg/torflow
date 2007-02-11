@@ -513,12 +513,14 @@ class Connection:
         """
         if circid is None:
             circid = "0"
-        lines = self._sendAndRecv("EXTENDCIRCUIT %s %s\r\n"
+        plog("DEBUG", "Extending circuit")
+        lines = self._sendAndRecv("EXTENDCIRCUIT %d %s\r\n"
                                   %(circid, ",".join(hops)))
         tp,msg,_ = lines[0]
         m = re.match(r'EXTENDED (\S*)', msg)
         if not m:
             raise ProtocolError("Bad extended line %r",msg)
+        plog("DEBUG", "Circuit extended")
         return int(m.group(1))
 
     def build_circuit(self, pathlen, nodesel):
@@ -540,22 +542,23 @@ class Connection:
     def redirect_stream(self, streamid, newaddr, newport=""):
         """DOCDOC"""
         if newport:
-            self._sendAndRecv("REDIRECTSTREAM %s %s %s\r\n"%(streamid, newaddr, newport))
+            self._sendAndRecv("REDIRECTSTREAM %d %s %s\r\n"%(streamid, newaddr, newport))
         else:
-            self._sendAndRecv("REDIRECTSTREAM %s %s\r\n"%(streamid, newaddr))
+            self._sendAndRecv("REDIRECTSTREAM %d %s\r\n"%(streamid, newaddr))
 
     def attach_stream(self, streamid, circid):
         """DOCDOC"""
-        self._sendAndRecv("ATTACHSTREAM %s %s\r\n"%(streamid, circid))
+        plog("DEBUG", "Attaching stream: "+str(streamid)+" to "+str(circid))
+        self._sendAndRecv("ATTACHSTREAM %d %d\r\n"%(streamid, circid))
 
     def close_stream(self, streamid, reason=0, flags=()):
         """DOCDOC"""
-        self._sendAndRecv("CLOSESTREAM %s %s %s\r\n"
+        self._sendAndRecv("CLOSESTREAM %d %s %s\r\n"
                           %(streamid, reason, "".join(flags)))
 
     def close_circuit(self, circid, reason=0, flags=()):
         """DOCDOC"""
-        self._sendAndRecv("CLOSECIRCUIT %s %s %s\r\n"
+        self._sendAndRecv("CLOSECIRCUIT %d %s %s\r\n"
                           %(circid, reason, "".join(flags)))
 
     def post_descriptor(self, desc):
@@ -777,7 +780,7 @@ str(target_port)]
     def new_desc(self, eventtype, identities):
         print " ".join((eventtype, " ".join(identities)))
    
-    def or_conn_status(self, eventtype, status, target, age, read, wrote, 
+    def or_conn_status(self, eventtype, status, target, age, read, wrote,
                        reason, ncircs):
         if age: age = "AGE="+str(age)
         else: age = ""
