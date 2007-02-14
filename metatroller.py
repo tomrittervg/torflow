@@ -28,7 +28,6 @@ total_g_bw = 0
 circuits = {} # map from ID # to circuit object
 streams = {} # map from stream id to circuit
 
-
 version = "0.1.0-dev"
 
 # TODO: Move these to config file
@@ -91,7 +90,7 @@ class Stream:
 #  - Restrictors (puts self.r_is_ok() into list):
 #    - Subnet16
 #    - AvoidWastingExits
-#    - VersionRange (Less than, greater than, in-range)
+#    - VersionRange (Less than, greater than, in-range, not-equal)
 #    - OSSelector (ex Yes: Linux, *BSD; No: Windows, Solaris)
 #    - OceanPhobicRestrictor (avoids Pacific Ocean or two atlantic crossings)
 #      or ContinentRestrictor (avoids doing more than N continent crossings)
@@ -183,8 +182,8 @@ def read_routers(c, nslist):
     bad_key = 0
     for ns in nslist:
         try:
-            key_to_name[ns.idhex] = ns.name
-            name_to_key[ns.name] = ns.idhex
+            key_to_name[ns.idhex] = ns.nickname
+            name_to_key[ns.nickname] = ns.idhex
             r = MetaRouter(c.get_router(ns))
             if ns.idhex in routers:
                 if routers[ns.idhex].name != r.name:
@@ -196,7 +195,7 @@ def read_routers(c, nslist):
         except TorCtl.ErrorReply:
             bad_key += 1
             if "Running" in ns.flags:
-                plog("NOTICE", "Running router "+ns.name+"="
+                plog("NOTICE", "Running router "+ns.nickname+"="
                      +ns.idhex+" has no descriptor")
             pass
         except:
@@ -241,112 +240,140 @@ class SnakeHandler(TorCtl.EventHandler):
         for circ in circuits.itervalues():
             if circ.built and circ.cid not in badcircs:
                 if circ.exit.will_exit_to(stream.host, stream.port):
-                    self.c.attach_stream(stream.sid, circ.cid)
-                    stream.pending_circ = circ # Only one stream possible here
-                    circ.pending_streams.append(stream)
+                    try:
+                        self.c.attach_stream(stream.sid, circ.cid)
+                        stream.pending_circ = circ # Only one possible here
+                        circ.pending_streams.append(stream)
+                    except TorCtl.ErrorReply, e:
+                        # No need to retry here. We should get the failed
+                        # event for either the circ or stream next
+                        plog("NOTICE", "Error attaching stream: "+str(e.args))
+                        return
                     break
         else:
-            circ = MetaCircuit(self.c.build_circuit(pathlen,
-                                 UniformSelector(stream.host, stream.port)))
+            circ = None
+            while circ == None:
+                try:
+                    circ = MetaCircuit(self.c.build_circuit(pathlen,
+                                    UniformSelector(stream.host, stream.port)))
+                except TorCtl.ErrorReply, e:
+                    # FIXME: How come some routers are non-existant? Shouldn't
+                    # we have gotten an NS event to notify us they
+                    # disappeared?
+                    plog("NOTICE", "Error building circ: "+str(e.args))
             for u in unattached_streams:
-                plog("DEBUG", "Attach pending build: "+str(u.sid))
+                plog("DEBUG",
+                     "Attaching "+str(u.sid)+" pending build of "+str(circ.cid))
                 u.pending_circ = circ
             circ.pending_streams.extend(unattached_streams)
             circuits[circ.cid] = circ
         global last_exit # Last attempted exit
         last_exit = circ.exit
 
-    def circ_status(self, eventtype, circID, status, path, reason, remote):
-        output = [eventtype, str(circID), status]
-        if path: output.append(",".join(path))
-        if reason: output.append("REASON=" + reason)
-        if remote: output.append("REMOTE_REASON=" + remote)
+    def circ_status(self, c):
+        output = [c.event_name, str(c.circ_id), c.status]
+        if c.path: output.append(",".join(c.path))
+        if c.reason: output.append("REASON=" + c.reason)
+        if c.remote_reason: output.append("REMOTE_REASON=" + c.remote_reason)
         plog("DEBUG", " ".join(output))
         # Circuits we don't control get built by Tor
-        if circID not in circuits:
-            plog("DEBUG", "Ignoring circ " + str(circID))
+        if c.circ_id not in circuits:
+            plog("DEBUG", "Ignoring circ " + str(c.circ_id))
             return
-        if status == "FAILED" or status == "CLOSED":
-            circ = circuits[circID]
-            del circuits[circID]
+        if c.status == "FAILED" or c.status == "CLOSED":
+            circ = circuits[c.circ_id]
+            del circuits[c.circ_id]
             for stream in circ.pending_streams:
                 plog("DEBUG", "Finding new circ for " + str(stream.sid))
                 self.attach_stream_any(stream, stream.detached_from)
-        elif status == "BUILT":
-            circuits[circID].built = True
-            for stream in circuits[circID].pending_streams:
-                self.c.attach_stream(stream.sid, circID)
-                circuits[circID].used_cnt += 1
+        elif c.status == "BUILT":
+            circuits[c.circ_id].built = True
+            for stream in circuits[c.circ_id].pending_streams:
+                self.c.attach_stream(stream.sid, c.circ_id)
+                circuits[c.circ_id].used_cnt += 1
 
-    def stream_status(self, eventtype, streamID, status, circID, target_host, target_port, reason, remote):
-        output = [eventtype, str(streamID), status, str(circID), target_host,
-                  str(target_port)]
-        if reason: output.append("REASON=" + reason)
-        if remote: output.append("REMOTE_REASON=" + remote)
+    def stream_status(self, s):
+        output = [s.event_name, str(s.strm_id), s.status, str(s.circ_id),
+                  s.target_host, str(s.target_port)]
+        if s.reason: output.append("REASON=" + s.reason)
+        if s.remote_reason: output.append("REMOTE_REASON=" + s.remote_reason)
         plog("DEBUG", " ".join(output))
-        if not re.match(r"\d+.\d+.\d+.\d+", target_host):
-            target_host = "255.255.255.255" # ignore DNS for exit policy check
-        if status == "NEW" or status == "NEWRESOLVE":
+        if not re.match(r"\d+.\d+.\d+.\d+", s.target_host):
+            s.target_host = "255.255.255.255" # ignore DNS for exit policy check
+        if s.status == "NEW" or s.status == "NEWRESOLVE":
             global circuits
-            streams[streamID] = Stream(streamID, target_host, target_port)
+            streams[s.strm_id] = Stream(s.strm_id, s.target_host, s.target_port)
 
-            self.attach_stream_any(streams[streamID],
-                                   streams[streamID].detached_from)
-        elif status == "DETACHED":
+            self.attach_stream_any(streams[s.strm_id],
+                                   streams[s.strm_id].detached_from)
+        elif s.status == "DETACHED":
             global circuits
-            if streamID not in streams:
-                plog("WARN", "Detached stream "+str(streamID)+" not found")
-                streams[streamID] = Stream(streamID, target_host, target_port)
+            if s.strm_id not in streams:
+                plog("WARN", "Detached stream "+str(s.strm_id)+" not found")
+                streams[s.strm_id] = Stream(s.strm_id, s.target_host,
+                                            s.target_port)
             # FIXME Stats (differentiate Resolved streams also..)
-            if not circID:
-                plog("WARN", "Stream "+str(streamID)+" detached from no circuit!")
+            if not s.circ_id:
+                plog("WARN", "Stream "+str(s.strm_id)+" detached from no circuit!")
             else:
-                streams[streamID].detached_from.append(circID)
+                streams[s.strm_id].detached_from.append(s.circ_id)
 
             
-            if streams[streamID] in streams[streamID].pending_circ.pending_streams:
-                streams[streamID].pending_circ.pending_streams.remove(streams[streamID])
-            streams[streamID].pending_circ = None
-            self.attach_stream_any(streams[streamID],
-                                   streams[streamID].detached_from)
-        elif status == "SUCCEEDED":
-            if streamID not in streams:
-                plog("NOTICE", "Succeeded stream "+str(streamID)+" not found")
+            if streams[s.strm_id] in streams[s.strm_id].pending_circ.pending_streams:
+                streams[s.strm_id].pending_circ.pending_streams.remove(streams[s.strm_id])
+            streams[s.strm_id].pending_circ = None
+            self.attach_stream_any(streams[s.strm_id],
+                                   streams[s.strm_id].detached_from)
+        elif s.status == "SUCCEEDED":
+            if s.strm_id not in streams:
+                plog("NOTICE", "Succeeded stream "+str(s.strm_id)+" not found")
                 return
-            streams[streamID].circ = streams[streamID].pending_circ
-            streams[streamID].circ.pending_streams.remove(streams[streamID])
-            streams[streamID].pending_circ = None
-            streams[streamID].circ.used_cnt += 1
-        elif status == "FAILED" or status == "CLOSED":
+            streams[s.strm_id].circ = streams[s.strm_id].pending_circ
+            streams[s.strm_id].circ.pending_streams.remove(streams[s.strm_id])
+            streams[s.strm_id].pending_circ = None
+            streams[s.strm_id].circ.used_cnt += 1
+        elif s.status == "FAILED" or s.status == "CLOSED":
             # FIXME stats
-            if status == "FAILED": # We get failed and closed for each stream
+            if s.strm_id not in streams:
+                plog("NOTICE", "Failed stream "+str(s.strm_id)+" not found")
                 return
-            if streamID not in streams:
-                plog("NOTICE", "Failed stream "+str(streamID)+" not found")
-                return
-            if streams[streamID].pending_circ:
-                streams[streamID].pending_circ.pending_streams.remove(streams[streamID])
-            del streams[streamID]
-        elif status == "REMAP":
-            if streamID not in streams:
-                plog("WARN", "Remap id "+str(streamID)+" not found")
-            else:
-                if not re.match(r"\d+.\d+.\d+.\d+", target_host):
-                    target_host = "255.255.255.255"
-                    plog("NOTICE", "Non-IP remap for "+str(streamID)+" to "
-                                   + target_host)
-                streams[streamID].host = target_host
-                streams[streamID].port = target_port
 
-    def ns(self, eventtype, nslist):
-        read_routers(self.c, nslist)
-        plog("DEBUG", "Read " + str(len(nslist)) + eventtype + " => " 
+            if not s.circ_id:
+                plog("WARN", "Stream "+str(s.strm_id)+" failed from no circuit!")
+
+            # We get failed and closed for each stream. OK to return 
+            # and let the closed do the cleanup
+            # (FIXME: be careful about double stats)
+            if s.status == "FAILED":
+                # Avoid busted circuits that will not resolve or carry
+                # traffic. FIXME: Failed count before doing this?
+                if s.circ_id in circuits: del circuits[s.circ_id]
+                else: plog("WARN","Failed stream on unknown circ "+str(s.circ_id))
+                return
+
+            if streams[s.strm_id].pending_circ:
+                streams[s.strm_id].pending_circ.pending_streams.remove(streams[s.strm_id])
+            del streams[s.strm_id]
+        elif s.status == "REMAP":
+            if s.strm_id not in streams:
+                plog("WARN", "Remap id "+str(s.strm_id)+" not found")
+            else:
+                if not re.match(r"\d+.\d+.\d+.\d+", s.target_host):
+                    s.target_host = "255.255.255.255"
+                    plog("NOTICE", "Non-IP remap for "+str(s.strm_id)+" to "
+                                   + s.target_host)
+                streams[s.strm_id].host = s.target_host
+                streams[s.strm_id].port = s.target_port
+
+    def ns(self, n):
+        read_routers(self.c, n.nslist)
+        plog("DEBUG", "Read " + str(len(n.nslist))+" NS => " 
              + str(len(sorted_r)) + " routers")
     
-    def new_desc(self, eventtype, identities):
-        for i in identities: # Is this too slow?
+    def new_desc(self, d):
+        for i in d.idlist: # Is this too slow?
             read_routers(self.c, self.c.get_network_status("id/"+i))
-        plog("DEBUG", "Read " + str(len(identities)) + eventtype + " => " 
+        plog("DEBUG", "Read " + str(len(d.idlist))+" Desc => " 
              + str(len(sorted_r)) + " routers")
         
 
@@ -470,6 +497,7 @@ def main(argv):
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     s.connect((control_host,control_port))
     c = TorCtl.get_connection(s)
+    c.debug(file("control.log", "w"))
     c.set_event_handler(SnakeHandler(c))
     c.launch_thread()
     c.authenticate()

@@ -19,7 +19,7 @@ my $USER_AGENT = "Mozilla/5.0 (Windows; U; Windows NT 5.1; de; rv:1.8.1) Gecko/2
 #baseline md5s of html
 my $SOCKS_PROXY = "127.0.0.1:9050";
 
-my @TO_SCAN = ("ssl", "urls");
+my @TO_SCAN = ("ssl");
 my $ALLOW_NEW_SSL_IPS = 1;
 
 # doc and ppt may also be good ones to check.. They are frequently vulnerable

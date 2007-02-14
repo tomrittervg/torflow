@@ -9,15 +9,9 @@ TorUtil -- Support functions for TorCtl.py and metatroller
 
 import os
 import re
-import struct
 import sys
-import threading
-import Queue
-import datetime
-import traceback
 import socket
 import binascii
-import types
 import sha
 
 __all__ = ["Enum", "Enum2", "quote", "escape_dots", "unescape_dots",
@@ -195,4 +189,5 @@ loglevels = {"DEBUG" : 0, "INFO" : 1, "NOTICE" : 2, "WARN" : 3, "ERROR" : 4}
 def plog(level, msg): # XXX: Timestamps
     if(loglevels[level] >= loglevels[loglevel]):
         print level + ": " + msg
+        sys.stdout.flush()
 
