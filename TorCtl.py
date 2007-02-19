@@ -98,11 +98,11 @@ class StreamEvent:
         self.remote_reason = remote_reason
 
 class ORConnEvent:
-    def __init__(self, event_name, status, router_name, age, read_bytes,
+    def __init__(self, event_name, status, endpoint, age, read_bytes,
                  wrote_bytes, reason, ncircs):
         self.event_name = event_name
         self.status = status
-        self.router_name = router_name
+        self.endpoint = endpoint
         self.age = age
         self.read_bytes = read_bytes
         self.wrote_bytes = wrote_bytes
@@ -722,23 +722,12 @@ class EventHandler:
             event = StreamEvent(evtype, ident, status, circ, target_host,
                                       int(target_port), reason, remote)
         elif evtype == "ORCONN":
-            m = re.match(r"(\S+)\s+(\S+)(\s\S+)?(\s\S+)?(\s\S+)?(\s\S+)?(\s\S+)?", body)
+            m = re.match(r"(\S+)\s+(\S+)(\sAGE=\S+)?(\sREAD=\S+)?(\sWRITTEN=\S+)?(\sREASON=\S+)?(\sNCIRCS=\S+)?", body)
             if not m:
                 raise ProtocolError("ORCONN event misformatted.")
             target, status, age, read, wrote, reason, ncircs = m.groups()
 
-            # XXX: Special hacks for bandwidth stat research
-            if status == "READ":
-                read = " READ=" + str(age)
-                age = 0
-            if status == "WRITE":
-                wrote = " WRITTEN=" + str(age)
-                age = 0
-
-            if reason and not ncircs:
-                if "NCIRCS=" in reason:
-                    ncircs = reason
-                    reason = None
+            #plog("DEBUG", "ORCONN: "+body)
             if ncircs: ncircs = int(ncircs[8:])
             else: ncircs = 0
             if reason: reason = reason[8:]
@@ -876,7 +865,7 @@ class DebugEventHandler(EventHandler):
         else: reason = ""
         if orconn_event.ncircs: ncircs = "NCIRCS="+str(orconn_event.ncircs)
         else: ncircs = ""
-        print " ".join((orconn_event.event_name, orconn_event.router_name,
+        print " ".join((orconn_event.event_name, orconn_event.endpoint,
                         orconn_event.status, age, read, wrote, reason, ncircs))
 
     def msg(self, log_event):

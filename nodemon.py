@@ -51,18 +51,18 @@ def read_routers(c, nslist):
     errors_lock.acquire()
     for ns in nslist:
         try:
-            key_to_name[ns.idhex] = ns.name
-            name_to_key[ns.name] = ns.idhex
+            key_to_name[ns.idhex] = ns.nickname
+            name_to_key[ns.nickname] = ns.idhex
             r = RouterStats(c.get_router(ns))
-            if ns.name in errors:
-                if errors[ns.name].idhex != r.idhex:
+            if ns.nickname in errors:
+                if errors[ns.nickname].idhex != r.idhex:
                     plog("NOTICE", "Router "+r.name+" has multiple keys: "
-                         +errors[ns.name].idhex+" and "+r.idhex)
+                         +errors[ns.nickname].idhex+" and "+r.idhex)
             errors[r.name] = r # XXX: We get names only from ORCONN :(
         except TorCtl.ErrorReply:
             bad_key += 1
             if "Running" in ns.flags:
-                plog("INFO", "Running router "+ns.name+"="
+                plog("INFO", "Running router "+ns.nickname+"="
                      +ns.idhex+" has no descriptor")
             pass
         except:
@@ -77,68 +77,68 @@ class NodeHandler(TorCtl.EventHandler):
         TorCtl.EventHandler.__init__(self)
         self.c = c
 
-    def or_conn_status(self, eventtype, status, target, age, read, wrote,
-                       reason, ncircs):
+    def or_conn_status(self, o):
         # XXX: Count all routers as one?
-        if re.search(r"^\$", target):
-            if target not in key_to_name:
-                target = "AllClients:HASH"
-            else: target = key_to_name[target]
-        elif target not in name_to_key:
-            plog("DEBUG", "IP? " + target)
-            target = "AllClients:IP"
+        if re.search(r"^\$", o.endpoint):
+            if o.endpoint not in key_to_name:
+                o.endpoint = "AllClients:HASH"
+            else: o.endpoint = key_to_name[o.endpoint]
+        elif o.endpoint not in name_to_key:
+            plog("DEBUG", "IP? " + o.endpoint)
+            o.endpoint = "AllClients:IP"
 
-        if status == "READ" or status == "WRITE":
+        if o.status == "READ" or o.status == "WRITE":
             #plog("DEBUG", "Read: " + str(read) + " wrote: " + str(wrote))
             errors_lock.acquire()
-            if target not in errors:
-                plog("NOTICE", "Buh?? No "+target)
-                errors[target] = RouterStats()
-                errors[target].name = target
-            errors[target].running_read += read
-            errors[target].running_wrote += wrote
+            if o.endpoint not in errors:
+                plog("NOTICE", "Buh?? No "+o.endpoint)
+                errors[o.endpoint] = RouterStats()
+                errors[o.endpoint].name = o.endpoint
+            errors[o.endpoint].running_read += o.read_bytes
+            errors[o.endpoint].running_wrote += o.wrote_bytes
             errors_lock.release()
 
             
-        if status == "CLOSED" or status == "FAILED":
+        if o.status == "CLOSED" or o.status == "FAILED":
             errors_lock.acquire()
-            if target not in errors:
-                plog("NOTICE", "Buh?? No "+target)
-                errors[target] = RouterStats()
-                errors[target].name = target
-            if status == "FAILED" and not errors[target].down:
-                status = status + "(Running)"
-            reason = status+":"+reason
-            if reason not in errors[target].reasons:
-                errors[target].reasons[reason] = Reason(reason)
-            errors[target].reasons[reason].ncircs += ncircs
-            errors[target].reasons[reason].count += 1
-            errors[target].tot_ncircs += ncircs
-            errors[target].tot_count += 1
-            if age: errors[target].tot_age += age
-            if read: errors[target].tot_read += read
-            if wrote: errors[target].tot_wrote += wrote
+            if o.endpoint not in errors:
+                plog("NOTICE", "Buh?? No "+o.endpoint)
+                errors[o.endpoint] = RouterStats()
+                errors[o.endpoint].name = o.endpoint
+            if o.status == "FAILED" and not errors[o.endpoint].down:
+                o.status = o.status + "(Running)"
+            o.reason = o.status+":"+o.reason
+            if o.reason not in errors[o.endpoint].reasons:
+                errors[o.endpoint].reasons[o.reason] = Reason(o.reason)
+            errors[o.endpoint].reasons[o.reason].ncircs += o.ncircs
+            errors[o.endpoint].reasons[o.reason].count += 1
+            errors[o.endpoint].tot_ncircs += o.ncircs
+            errors[o.endpoint].tot_count += 1
+            if o.age: errors[o.endpoint].tot_age += o.age
+            if o.read_bytes: errors[o.endpoint].tot_read += o.read_bytes
+            if o.wrote_bytes: errors[o.endpoint].tot_wrote += o.wrote_bytes
             errors_lock.release()
         else: return
-        if age: age = "AGE="+str(age)
+
+        if o.age: age = "AGE="+str(o.age)
         else: age = ""
-        if read: read = "READ="+str(read)
+        if o.read_bytes: read = "READ="+str(o.read_bytes)
         else: read = ""
-        if wrote: wrote = "WRITTEN="+str(wrote)
+        if o.wrote_bytes: wrote = "WRITTEN="+str(o.wrote_bytes)
         else: wrote = ""
-        if reason: reason = "REASON="+reason
+        if o.reason: reason = "REASON="+o.reason
         else: reason = ""
-        if ncircs: ncircs = "NCIRCS="+str(ncircs)
+        if o.ncircs: ncircs = "NCIRCS="+str(o.ncircs)
         else: ncircs = ""
         plog("DEBUG",
-                " ".join((eventtype, target, status, age, read, wrote,
+                " ".join((o.event_name, o.endpoint, o.status, age, read, wrote,
                            reason, ncircs)))
 
-    def ns(self, eventtype, nslist):
-        read_routers(self.c, nslist)
+    def ns(self, n):
+        read_routers(self.c, n.nslist)
  
-    def new_desc(self, eventtype, identities):
-        for i in identities: # Is this too slow?
+    def new_desc(self, d):
+        for i in d.idlist: # Is this too slow?
             read_routers(self.c, self.c.get_network_status("id/"+i))
 
 def bw_stats(key, f):
