@@ -14,16 +14,14 @@ import re
 import random
 import datetime
 import threading
+import struct
 from TorUtil import *
 
 routers = {} # indexed by idhex
 name_to_key = {}
 key_to_name = {}
 
-total_r_bw = 0
 sorted_r = []
-sorted_g = []
-total_g_bw = 0
 
 circuits = {} # map from ID # to circuit object
 streams = {} # map from stream id to circuit
@@ -33,7 +31,7 @@ version = "0.1.0-dev"
 # TODO: Move these to config file
 # TODO: Option to ignore guard flag
 control_host = "127.0.0.1"
-control_port = 9051
+control_port = 9061
 meta_host = "127.0.0.1"
 meta_port = 9052
 max_detach = 3
@@ -85,132 +83,195 @@ class Stream:
         self.host = host
         self.port = port
 
-# TODO: Obviously we need other node selector implementations
-#  - BwWeightedSelector
-#  - Restrictors (puts self.r_is_ok() into list):
-#    - Subnet16
-#    - AvoidWastingExits
-#    - VersionRange (Less than, greater than, in-range, not-equal)
-#    - OSSelector (ex Yes: Linux, *BSD; No: Windows, Solaris)
-#    - OceanPhobicRestrictor (avoids Pacific Ocean or two atlantic crossings)
-#      or ContinentRestrictor (avoids doing more than N continent crossings)
-#      - Mathematical/empirical study of predecessor expectation
-#        - If middle node is on the same continent as exit, exit learns nothing
-#        - else, exit has a bias on the continent of origin of user
-#          - Language and browser accept string determine this anyway
-#    - ExitCountry
-#    - AllCountry
+# TODO: We still need more path support implementations
+#  - BwWeightedGenerator
+#  - NodeRestrictions:
+#    - Uptime
+#    - GeoIP
+#      - NodeCountry
+#  - PathRestrictions
+#    - Family
+#    - GeoIP:
+#      - OceanPhobicRestrictor (avoids Pacific Ocean or two atlantic crossings)
+#        or ContinentRestrictor (avoids doing more than N continent crossings)
+#        - Mathematical/empirical study of predecessor expectation
+#          - If middle node on the same continent as exit, exit learns nothing
+#          - else, exit has a bias on the continent of origin of user
+#            - Language and browser accept string determine this anyway
 
-class UniformSelector(TorCtl.NodeSelector):
-    "Uniform node selection"
+class PercentileRestriction(TorCtl.NodeRestriction):
+    """If used, this restriction MUST be FIRST in the RestrictionList."""
+    def __init__(self, pct_skip, pct_fast, r_list):
+        self.pct_skip = pct_skip
+        self.pct_fast = pct_fast
+        self.sorted_r = r_list
+        self.position = 0
 
-    next_exit_by_port = {} # class member (aka C++ 'static')
-
-    def __init__(self, host, port):
-        if not port:
-            plog("DEBUG", "Using resolve: "+host+":"+str(resolve_port))
-            port = resolve_port
-        TorCtl.NodeSelector.__init__(self, host, port)
-        self.pct_fast = percent_fast
-        self.pct_skip = percent_skip
-        self.min_bw = min_bw
-        self.order_exits = order_exits
-        self.all_exits = use_all_exits
+    def reset(self, r_list):
+        self.sorted_r = r_list
+        self.position = 0
         
     def r_is_ok(self, r):
-        if r.bw < self.min_bw or not r.valid or not r.fast:
-            return False
-        else:
-            return True
+        ret = True
+        if self.position == len(self.sorted_r):
+            self.position = 0
+            plog("WARN", "Resetting PctFastRestriction")
+        if self.position != self.sorted_r.index(r): # XXX expensive?
+            plog("WARN", "Router"+r.name+" at mismatched index: "
+                         +self.position+" vs "+self.sorted_r.index(r))
+        
+        if self.position < len(self.sorted_r)*self.pct_skip/100:
+            ret = False
+        elif self.position > len(self.sorted_r)*self.pct_fast/100:
+            ret = False
+        
+        self.position += 1
+        return ret
+        
+class OSRestriction(TorCtl.NodeRestriction):
+    def __init__(self, ok, bad=[]):
+        self.ok = ok
+        self.bad = bad
 
-    def pick_r(self, r_list):
-        idx = random.randint(len(r_list)*self.pct_skip/100,
-                             len(r_list)*self.pct_fast/100)
-        return r_list[idx]
+    def r_is_ok(self, r):
+        for y in self.ok:
+            if re.search(y, r.os):
+                return True
+        for b in self.bad:
+            if re.search(b, r.os):
+                return False
+        if self.ok: return False
+        if self.bad: return True
 
-    def entry_chooser(self, path):
-        r = self.pick_r(sorted_g)
-        while not self.r_is_ok(r) or r.idhex in path:
-            r = self.pick_r(sorted_g)
-        return r
+class ConserveExitsRestriction(TorCtl.NodeRestriction):
+    def r_is_ok(self, r): return not "Exit" in r.flags
 
-    def middle_chooser(self, path):
-        r = self.pick_r(sorted_r)
-        while not self.r_is_ok(r) or r.idhex in path:
-            r = self.pick_r(sorted_r)
-        return r
+class FlagsRestriction(TorCtl.NodeRestriction):
+    def __init__(self, mandatory, forbidden=[]):
+        self.mandatory = mandatory
+        self.forbidden = forbidden
 
-    def exit_chooser(self, path):
-        if self.order_exits:
-            if self.to_port not in self.next_exit_by_port or self.next_exit_by_port[self.to_port] >= len(sorted_r):
-                self.next_exit_by_port[self.to_port] = 0
-                
-            r = sorted_r[self.next_exit_by_port[self.to_port]]
-            self.next_exit_by_port[self.to_port] += 1
-            while not r.will_exit_to(self.to_ip, self.to_port):
-                r = sorted_r[self.next_exit_by_port[self.to_port]]
-                self.next_exit_by_port[self.to_port] += 1
-                if self.next_exit_by_port[self.to_port] >= len(sorted_r):
-                    self.next_exit_by_port[self.to_port] = 0
-            return r
+    def r_is_ok(self, router):
+        for m in self.mandatory:
+            if not m in router.flags: return False
+        for f in self.forbidden:
+            if f in router.flags: return False
+        return True
+        
 
-        # FIXME: This should apply to ORDEREXITS (for speedracer?)
-        if self.all_exits:
-            minbw = self.min_bw
-            pct_fast = self.pct_fast
-            pct_skip = self.pct_skip
-            self.min_bw = self.pct_skip = 0
-            self.pct_fast = 100
+class MinBWRestriction(TorCtl.NodeRestriction):
+    def __init__(self, minbw):
+        self.min_bw = minbw
+
+    def r_is_ok(self, router): return router.bw >= self.min_bw
      
-        allowed = []
-        for r in sorted_r:
-            if self.r_is_ok(r) and not r.badexit and r.will_exit_to(self.to_ip, self.to_port):
-                allowed.append(r)
-        r = self.pick_r(allowed)
-        while r.idhex in path:
-            r = self.pick_r(allowed)
+class VersionIncludeRestriction(TorCtl.NodeRestriction):
+    def __init__(self, eq):
+        self.eq = map(TorCtl.RouterVersion, eq)
+    
+    def r_is_ok(self, router):
+        for e in self.eq:
+            if e == router.version:
+                return True
+        return False
 
-        if self.all_exits:
-            self.min_bw = minbw
-            self.pct_fast = pct_fast
-            self.pct_skip = pct_skip
- 
-        return r
 
- 
-def read_routers(c, nslist):
-    bad_key = 0
-    for ns in nslist:
-        try:
-            key_to_name[ns.idhex] = ns.nickname
-            name_to_key[ns.nickname] = ns.idhex
-            r = MetaRouter(c.get_router(ns))
-            if ns.idhex in routers:
-                if routers[ns.idhex].name != r.name:
-                    plog("NOTICE", "Router "+r.idhex+" changed names from "
-                         +routers[ns.idhex].name+" to "+r.name)
-                sorted_r.remove(routers[ns.idhex])
-            routers[ns.idhex] = r
-            sorted_r.append(r)
-        except TorCtl.ErrorReply:
-            bad_key += 1
-            if "Running" in ns.flags:
-                plog("NOTICE", "Running router "+ns.nickname+"="
-                     +ns.idhex+" has no descriptor")
-            pass
-        except:
-            traceback.print_exception(*sys.exc_info())
-            continue
-    sorted_r.sort(lambda x, y: cmp(y.bw, x.bw))
+class VersionExcludeRestriction(TorCtl.NodeRestriction):
+    def __init__(self, exclude):
+        self.exclude = map(TorCtl.RouterVersion, exclude)
+    
+    def r_is_ok(self, router):
+        for e in self.exclude:
+            if e == router.version:
+                return False
+        return True
 
-    global total_r_bw, total_g_bw # lame....
-    for r in sorted_r:
-        if not r.down:
-            total_r_bw += r.bw
-            if r.guard and r.valid:
-                total_g_bw += r.bw
-                sorted_g.append(r)
+class VersionRangeRestriction(TorCtl.NodeRestriction):
+    def __init__(self, gr_eq, less_eq=None):
+        self.gr_eq = TorCtl.RouterVersion(gr_eq)
+        if less_eq: self.less_eq = TorCtl.RouterVersion(less_eq)
+        else: self.less_eq = None
+    
 
+    def r_is_ok(self, router):
+        return (not self.gr_eq or router.version >= self.gr_eq) and \
+                (not self.less_eq or router.version <= self.less_eq)
+
+class ExitPolicyRestriction(TorCtl.NodeRestriction):
+    def __init__(self, to_ip, to_port):
+        self.to_ip = to_ip
+        self.to_port = to_port
+
+    def r_is_ok(self, r):
+        return r.will_exit_to(self.to_ip, self.to_port)
+
+class AndRestriction(TorCtl.NodeRestriction):
+    def __init__(self, a, b):
+        self.a = a
+        self.b = b
+
+    def r_is_ok(self, r): return self.a.r_is_ok(r) and self.b.r_is_ok(r)
+
+class OrRestriction(TorCtl.NodeRestriction):
+    def __init__(self, a, b):
+        self.a = a
+        self.b = b
+
+    def r_is_ok(self, r): return self.a.r_is_ok(r) or self.b.r_is_ok(r)
+
+class NotRestriction(TorCtl.NodeRestriction):
+    def __init__(self, a):
+        self.a = a
+
+    def r_is_ok(self, r): return not self.a.r_is_ok(r)
+
+class Subnet16Restriction(TorCtl.PathRestriction):
+    def r_is_ok(self, path, router):
+        mask16 = struct.unpack(">I", socket.inet_aton("255.255.0.0"))[0]
+        ip16 = router.ip & mask16
+        for r in path:
+            if ip16 == (r.ip & mask16):
+                return False
+        return True
+
+class UniqueRestriction(TorCtl.PathRestriction):
+    def r_is_ok(self, path, r): return not r in path
+
+class UniformGenerator(TorCtl.NodeGenerator):
+    def next_r(self):
+        while not self.all_chosen():
+            r = random.choice(self.routers)
+            self.mark_chosen(r)
+            yield r
+
+class OrderedExitGenerator(TorCtl.NodeGenerator):
+    next_exit_by_port = {} # class member (aka C++ 'static')
+    def __init__(self, restriction_list, to_port):
+        self.to_port = to_port
+        TorCtl.NodeGenerator.__init__(self, restriction_list)
+
+    def rewind(self):
+        TorCtl.NodeGenerator.rewind(self)
+        if self.to_port not in self.next_exit_by_port or not self.next_exit_by_port[self.to_port]:
+            self.next_exit_by_port[self.to_port] = 0
+            self.last_idx = len(self.routers)
+        else:
+            self.last_idx = self.next_exit_by_port[self.to_port]
+   
+    # Just in case: 
+    def mark_chosen(self, r): raise NotImplemented()
+    def all_chosen(self): raise NotImplemented()
+
+    def next_r(self):
+        while True: # A do..while would be real nice here..
+            if self.next_exit_by_port[self.to_port] >= len(sorted_r):
+                self.next_exit_by_port[self.to_port] = 0
+            r = self.routers[self.next_exit_by_port[self.to_port]]
+            self.next_exit_by_port[self.to_port] += 1
+            yield r
+            if self.last_idx == self.next_exit_by_port[self.to_port]:
+                break
+        
 # TODO: Make passive mode so people can get aggregate node reliability 
 # stats for normal usage without us attaching streams
 
@@ -219,6 +280,53 @@ class SnakeHandler(TorCtl.EventHandler):
     def __init__(self, c):
         TorCtl.EventHandler.__init__(self)
         self.c = c
+        nslist = c.get_network_status()
+        self.read_routers(nslist)
+        plog("INFO", "Read "+str(len(sorted_r))+"/"+str(len(nslist))+" routers")
+        self.path_rstr = TorCtl.PathRestrictionList(
+                 [Subnet16Restriction(), UniqueRestriction()])
+        self.entry_rstr = TorCtl.NodeRestrictionList(
+            [PercentileRestriction(percent_skip, percent_fast, sorted_r),
+             ConserveExitsRestriction(),
+             FlagsRestriction(["Guard", "Valid", "Running"], [])], sorted_r)
+        self.mid_rstr = TorCtl.NodeRestrictionList(
+            [PercentileRestriction(percent_skip, percent_fast, sorted_r),
+             ConserveExitsRestriction(),
+             FlagsRestriction(["Valid", "Running"], [])], sorted_r)
+        self.exit_rstr = TorCtl.NodeRestrictionList(
+            [PercentileRestriction(percent_skip, percent_fast, sorted_r),
+             FlagsRestriction(["Valid", "Running", "Exit"], ["BadExit"])],
+             sorted_r)
+        self.path_selector = TorCtl.PathSelector(
+             UniformGenerator(self.entry_rstr),
+             UniformGenerator(self.mid_rstr),
+             OrderedExitGenerator(self.exit_rstr, 80), self.path_rstr)
+
+    def read_routers(self, nslist):
+        bad_key = 0
+        for ns in nslist:
+            try:
+                key_to_name[ns.idhex] = ns.nickname
+                name_to_key[ns.nickname] = ns.idhex
+                r = MetaRouter(self.c.get_router(ns))
+                if ns.idhex in routers:
+                    if routers[ns.idhex].name != r.name:
+                        plog("NOTICE", "Router "+r.idhex+" changed names from "
+                             +routers[ns.idhex].name+" to "+r.name)
+                    sorted_r.remove(routers[ns.idhex])
+                routers[ns.idhex] = r
+                sorted_r.append(r)
+            except TorCtl.ErrorReply:
+                bad_key += 1
+                if "Running" in ns.flags:
+                    plog("NOTICE", "Running router "+ns.nickname+"="
+                         +ns.idhex+" has no descriptor")
+                pass
+            except:
+                traceback.print_exception(*sys.exc_info())
+                continue
+    
+        sorted_r.sort(lambda x, y: cmp(y.bw, x.bw))
 
     def attach_stream_any(self, stream, badcircs):
         # Newnym, and warn if not built plus pending
@@ -253,9 +361,12 @@ class SnakeHandler(TorCtl.EventHandler):
         else:
             circ = None
             while circ == None:
+                self.exit_rstr.del_restriction(ExitPolicyRestriction)
+                self.exit_rstr.add_restriction(
+                     ExitPolicyRestriction(stream.host, stream.port))
                 try:
                     circ = MetaCircuit(self.c.build_circuit(pathlen,
-                                    UniformSelector(stream.host, stream.port)))
+                                    self.path_selector))
                 except TorCtl.ErrorReply, e:
                     # FIXME: How come some routers are non-existant? Shouldn't
                     # we have gotten an NS event to notify us they
@@ -270,7 +381,11 @@ class SnakeHandler(TorCtl.EventHandler):
         global last_exit # Last attempted exit
         last_exit = circ.exit
 
-    def circ_status(self, c):
+    def heartbeat_event(self):
+        # XXX: Config updates to selectors
+        pass
+
+    def circ_status_event(self, c):
         output = [c.event_name, str(c.circ_id), c.status]
         if c.path: output.append(",".join(c.path))
         if c.reason: output.append("REASON=" + c.reason)
@@ -292,7 +407,7 @@ class SnakeHandler(TorCtl.EventHandler):
                 self.c.attach_stream(stream.sid, c.circ_id)
                 circuits[c.circ_id].used_cnt += 1
 
-    def stream_status(self, s):
+    def stream_status_event(self, s):
         output = [s.event_name, str(s.strm_id), s.status, str(s.circ_id),
                   s.target_host, str(s.target_port)]
         if s.reason: output.append("REASON=" + s.reason)
@@ -365,16 +480,23 @@ class SnakeHandler(TorCtl.EventHandler):
                 streams[s.strm_id].host = s.target_host
                 streams[s.strm_id].port = s.target_port
 
-    def ns(self, n):
-        read_routers(self.c, n.nslist)
+
+    def ns_event(self, n):
+        self.read_routers(n.nslist)
         plog("DEBUG", "Read " + str(len(n.nslist))+" NS => " 
              + str(len(sorted_r)) + " routers")
+        self.entry_rstr.update_routers(sorted_r)
+        self.mid_rstr.update_routers(sorted_r)
+        self.exit_rstr.update_routers(sorted_r)
     
-    def new_desc(self, d):
+    def new_desc_event(self, d):
         for i in d.idlist: # Is this too slow?
-            read_routers(self.c, self.c.get_network_status("id/"+i))
+            self.read_routers(self.c.get_network_status("id/"+i))
         plog("DEBUG", "Read " + str(len(d.idlist))+" Desc => " 
              + str(len(sorted_r)) + " routers")
+        self.entry_rstr.update_routers(sorted_r)
+        self.mid_rstr.update_routers(sorted_r)
+        self.exit_rstr.update_routers(sorted_r)
         
 
 def commandloop(s):
@@ -480,10 +602,6 @@ def cleanup(c, s):
 
 def listenloop(c):
     """Loop that handles metatroller commands"""
-    nslist = c.get_network_status()
-    read_routers(c, nslist)
-    c.set_option("__LeaveStreamsUnattached", "1")
-    plog("INFO", "Read "+str(len(sorted_r))+"/"+str(len(nslist))+" routers")
     srv = ListenSocket(meta_host, meta_port)
     atexit.register(cleanup, *(c, srv))
     while 1:
@@ -493,19 +611,22 @@ def listenloop(c):
         thr.run()
     srv.close()
 
-def main(argv):
+def startup():
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     s.connect((control_host,control_port))
     c = TorCtl.get_connection(s)
     c.debug(file("control.log", "w"))
-    c.set_event_handler(SnakeHandler(c))
-    c.launch_thread()
     c.authenticate()
+    c.set_event_handler(SnakeHandler(c))
     c.set_events([TorCtl.EVENT_TYPE.STREAM,
                   TorCtl.EVENT_TYPE.NS,
                   TorCtl.EVENT_TYPE.CIRC,
                   TorCtl.EVENT_TYPE.NEWDESC], True)
-    listenloop(c)
+    c.set_option("__LeaveStreamsUnattached", "1")
+    return c
+
+def main(argv):
+    listenloop(startup())
 
 if __name__ == '__main__':
     main(sys.argv)

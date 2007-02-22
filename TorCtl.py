@@ -7,6 +7,8 @@
 TorCtl -- Library to control Tor processes.
 """
 
+# XXX: Docstring all exported classes/interfaces. Also need __all__
+
 import os
 import re
 import struct
@@ -19,6 +21,7 @@ import socket
 import binascii
 import types
 import time
+import copy
 from TorUtil import *
 
 # Types of "EVENT" message.
@@ -49,6 +52,10 @@ class ProtocolError(TorCtlError):
 
 class ErrorReply(TorCtlError):
     "Raised when Tor controller returns an error"
+    pass
+
+class NodeError(TorCtlError):
+    "Raise when we have no nodes satisfying restrictions"
     pass
 
 class NetworkStatus:
@@ -133,20 +140,140 @@ class UnknownEvent:
         self.event_name = event_name
         self.event_string = event_string
 
-class NodeSelector:
-    "Interface for node selection policies"
-    def __init__(self, target_ip, target_port):
-        self.to_ip = target_ip
-        self.to_port = target_port
+class PathRestriction:
+    "Interface for path restriction policies"
+    def r_is_ok(self, path, r): return True    
+    def entry_is_ok(self, path, r): return self.r_is_ok(path, r)
+    def middle_is_ok(self, path, r): return self.r_is_ok(path, r)
+    def exit_is_ok(self, path, r): return self.r_is_ok(path, r)
+
+class PathRestrictionList:
+    def __init__(self, restrictions):
+        self.restrictions = restrictions
+    
+    def entry_is_ok(self, path, r):
+        for rs in self.restrictions:
+            if not rs.entry_is_ok(path, r):
+                return False
+        return True
+
+    def middle_is_ok(self, path, r):
+        for rs in self.restrictions:
+            if not rs.middle_is_ok(path, r):
+                return False
+        return True
+
+    def exit_is_ok(self, path, r):
+        for rs in self.restrictions:
+            if not rs.exit_is_ok(path, r):
+                return False
+        return True
+
+    def add_restriction(self, rstr):
+        self.restrictions.append(rstr)
+
+    def del_restriction(self, RestrictionClass):
+        # im_class actually returns current base class, not
+        # implementing class. We abuse this fact here. 
+        # XXX: Is this a standard, or a bug?
+        self.restrictions = filter(
+                lambda r: r.r_is_ok.im_class != RestrictionClass,
+                    self.restrictions)
+
+class NodeRestriction:
+    "Interface for node restriction policies"
+    def r_is_ok(self, r): return True    
+    def reset(self, router_list): pass
+
+class NodeRestrictionList:
+    def __init__(self, restrictions, sorted_r):
+        self.restrictions = restrictions
+        self.update_routers(sorted_r)
+
+    def __check_r(self, r):
+        for rst in self.restrictions:
+            if not rst.r_is_ok(r): return False
+        self.restricted_bw += r.bw
+        return True
+
+    def update_routers(self, sorted_r):
+        self._sorted_r = sorted_r
+        self.restricted_bw = 0
+        for rs in self.restrictions: rs.reset(sorted_r)
+        self.restricted_r = filter(self.__check_r, self._sorted_r)
+
+    def add_restriction(self, restr):
+        self.restrictions.append(restr)
+        for r in self.restricted_r:
+            if not restr.r_is_ok(r):
+                self.restricted_r.remove(r)
+                self.restricted_bw -= r.bw
+    
+    # XXX: This does not collapse And/Or restrictions.. That is non-trivial
+    # in teh general case
+    def del_restriction(self, RestrictionClass):
+        self.restrictions = filter(
+                lambda r: r.r_is_ok.im_class != RestrictionClass,
+                    self.restrictions)
+        self.update_routers(self._sorted_r)
+
+
+class NodeGenerator:
+    "Interface for node generation"
+    def __init__(self, restriction_list):
+        self.restriction_list = restriction_list
+        self.rewind()
+
+    def rewind(self):
+        # TODO: Hrmm... Is there any way to handle termination other 
+        # than to make a list of routers that we pop from? Random generators 
+        # will not terminate if no node matches the selector without this..
+        # Not so much an issue now, but in a few years, the Tor network
+        # will be large enough that having all these list copies will
+        # be obscene... Possible candidate for a python list comprehension
+        self.routers = copy.copy(self.restriction_list.restricted_r)
+        self.bw = self.restriction_list.restricted_bw
+
+    def mark_chosen(self, r):
+        self.routers.remove(r)
+        self.bw -= r.bw
+
+    def all_chosen(self):
+        if not self.routers and self.bw or not self.bw and self.routers:
+            plog("WARN", str(len(self.routers))+" routers left but bw="
+                 +str(self.bw))
+        return not self.routers
+
+    def next_r(self): raise NotImplemented()
+
+class PathSelector:
+    "Implementation of path selection policies"
+    def __init__(self, entry_gen, mid_gen, exit_gen, path_restrict):
+        self.entry_gen = entry_gen
+        self.mid_gen = mid_gen
+        self.exit_gen = exit_gen
+        self.path_restrict = path_restrict
 
     def entry_chooser(self, path):
-        raise NotImplemented()
-
+        self.entry_gen.rewind()
+        for r in self.entry_gen.next_r():
+            if self.path_restrict.entry_is_ok(path, r):
+                return r
+        raise NodeError();
+        
     def middle_chooser(self, path):
-        raise NotImplemented()
+        self.mid_gen.rewind()
+        for r in self.mid_gen.next_r():
+            if self.path_restrict.middle_is_ok(path, r):
+                return r
+        raise NodeError();
 
     def exit_chooser(self, path):
-        raise NotImplemented()
+        self.exit_gen.rewind()
+        for r in self.exit_gen.next_r():
+            if self.path_restrict.exit_is_ok(path, r):
+                return r
+        raise NodeError();
 
 class ExitPolicyLine:
     def __init__(self, match, ip_mask, port_low, port_high):
@@ -181,19 +308,35 @@ class ExitPolicyLine:
                 return self.match
         return -1
 
-# XXX: Parse out version and OS
+class RouterVersion:
+    def __init__(self, version):
+        v = re.search("^(\d+).(\d+).(\d+).(\d+)", version).groups()
+        self.version = int(v[0])*0x1000000 + int(v[1])*0x10000 + int(v[2])*0x100 + int(v[3])
+        self.ver_string = version
+
+    def __lt__(self, other): return self.version < other.version
+    def __gt__(self, other): return self.version > other.version
+    def __ge__(self, other): return self.version >= other.version
+    def __le__(self, other): return self.version <= other.version
+    def __eq__(self, other): return self.version == other.version
+    def __ne__(self, other): return self.version != other.version
+    def __str__(self): return self.ver_string
+
 class Router:
-    def __init__(self, idhex, name, bw, exitpolicy, down, guard, valid,
-                 badexit, fast):
+    def __init__(self, idhex, name, bw, down, exitpolicy, flags, ip, version, os):
         self.idhex = idhex
         self.name = name
         self.bw = bw
         self.exitpolicy = exitpolicy
-        self.guard = guard
+        self.guard = "Guard" in flags
+        self.badexit = "BadExit" in flags
+        self.valid = "Valid" in flags
+        self.fast = "Fast" in flags
+        self.flags = flags
         self.down = down
-        self.badexit = badexit
-        self.valid = valid
-        self.fast = fast
+        self.ip = struct.unpack(">I", socket.inet_aton(ip))[0]
+        self.version = RouterVersion(version)
+        self.os = os
 
     def will_exit_to(self, ip, port):
         for line in self.exitpolicy:
@@ -201,7 +344,10 @@ class Router:
             if ret != -1:
                 return ret
         plog("NOTICE", "No matching exit line for "+self.name)
-        return 0
+        return False
+    
+    def __eq__(self, other): return self.idhex == other.idhex
+    def __ne__(self, other): return self.idhex != other.idhex
 
 class Circuit:
     def __init__(self):
@@ -209,6 +355,9 @@ class Circuit:
         self.created_at = 0 # time
         self.path = [] # routers
         self.exit = 0
+    
+    def id_path(self): return map(lambda r: r.idhex, self.path)
+
 
 class Connection:
     """A Connection represents a connection to the Tor process."""
@@ -423,7 +572,7 @@ class Connection:
             self._debugFile.write(">>> %s" % amsg)
         self._s.write(msg)
 
-    def _sendAndRecv(self, msg="", expectedTypes=("250", "251")):
+    def sendAndRecv(self, msg="", expectedTypes=("250", "251")):
         """Helper: Send a command 'msg' to Tor, and wait for a command
            in response.  If the response type is in expectedTypes,
            return a list of (tp,body,extra) tuples.  If it is an
@@ -448,7 +597,7 @@ class Connection:
            method before Tor can start.
         """
         hexstr = binascii.b2a_hex(secret)
-        self._sendAndRecv("AUTHENTICATE %s\r\n"%hexstr)
+        self.sendAndRecv("AUTHENTICATE %s\r\n"%hexstr)
 
     def get_option(self, name):
         """Get the value of the configuration option named 'name'.  To
@@ -458,7 +607,7 @@ class Connection:
         """
         if not isinstance(name, str):
             name = " ".join(name)
-        lines = self._sendAndRecv("GETCONF %s\r\n" % name)
+        lines = self.sendAndRecv("GETCONF %s\r\n" % name)
 
         r = []
         for _,line,_ in lines:
@@ -482,7 +631,7 @@ class Connection:
         if not kvlist:
             return
         msg = " ".join(["%s=%s"%(k,quote(v)) for k,v in kvlist])
-        self._sendAndRecv("SETCONF %s\r\n"%msg)
+        self.sendAndRecv("SETCONF %s\r\n"%msg)
 
     def reset_options(self, keylist):
         """Reset the options listed in 'keylist' to their default values.
@@ -491,18 +640,18 @@ class Connection:
            previous versions wanted you to set configuration keys to "".
            That no longer works.
         """
-        self._sendAndRecv("RESETCONF %s\r\n"%(" ".join(keylist)))
+        self.sendAndRecv("RESETCONF %s\r\n"%(" ".join(keylist)))
 
     def get_network_status(self, who="all"):
         """Get the entire network status list"""
-        return parse_ns_body(self._sendAndRecv("GETINFO ns/"+who+"\r\n")[0][2])
+        return parse_ns_body(self.sendAndRecv("GETINFO ns/"+who+"\r\n")[0][2])
 
     def get_router(self, ns):
         """Fill in a Router class corresponding to a given NS class"""
-        desc = self._sendAndRecv("GETINFO desc/id/" + ns.idhex + "\r\n")[0][2].split("\n")
+        desc = self.sendAndRecv("GETINFO desc/id/" + ns.idhex + "\r\n")[0][2].split("\n")
         line = desc.pop(0)
-        m = re.search(r"^router\s+(\S+)\s+", line)
-        router = m.group(1)
+        m = re.search(r"^router\s+(\S+)\s+(\S+)", line)
+        router,ip = m.groups()
         exitpolicy = []
         dead = not ("Running" in ns.flags)
         bw_observed = 0
@@ -510,22 +659,26 @@ class Connection:
             plog("NOTICE", "Got different names " + ns.nickname + " vs " +
                          router + " for " + ns.idhex)
         for line in desc:
+            pl = re.search(r"^platform Tor (\S+) on (\S+)", line)
             ac = re.search(r"^accept (\S+):([^-]+)(?:-(\d+))?", line)
             rj = re.search(r"^reject (\S+):([^-]+)(?:-(\d+))?", line)
             bw = re.search(r"^bandwidth \d+ \d+ (\d+)", line)
             if re.search(r"^opt hibernating 1", line):
                 dead = 1 # XXX: Technically this may be stale..
+                if ("Running" in ns.flags):
+                    plog("NOTICE", "Hibernating router is running..")
             if ac:
-                exitpolicy.append(ExitPolicyLine(1, *ac.groups()))
+                exitpolicy.append(ExitPolicyLine(True, *ac.groups()))
             elif rj:
-                exitpolicy.append(ExitPolicyLine(0, *rj.groups()))
+                exitpolicy.append(ExitPolicyLine(False, *rj.groups()))
             elif bw:
                 bw_observed = int(bw.group(1))
+            elif pl:
+                version, os = pl.groups()
         if not bw_observed and not dead and ("Valid" in ns.flags):
             plog("NOTICE", "No bandwidth for live router " + ns.nickname)
-        return Router(ns.idhex, ns.nickname, bw_observed, exitpolicy, dead,
-                ("Guard" in ns.flags), ("Valid" in ns.flags),
-                ("BadExit" in ns.flags), ("Fast" in ns.flags))
+        return Router(ns.idhex, ns.nickname, bw_observed, dead, exitpolicy,
+                ns.flags, ip, version, os)
 
     def get_info(self, name):
         """Return the value of the internal information field named 'name'.
@@ -534,7 +687,7 @@ class Connection:
         """
         if not isinstance(name, str):
             name = " ".join(name)
-        lines = self._sendAndRecv("GETINFO %s\r\n"%name)
+        lines = self.sendAndRecv("GETINFO %s\r\n"%name)
         d = {}
         for _,msg,more in lines:
             if msg == "OK":
@@ -556,14 +709,14 @@ class Connection:
         """
         if extended:
             plog ("DEBUG", "SETEVENTS EXTENDED %s\r\n" % " ".join(events))
-            self._sendAndRecv("SETEVENTS EXTENDED %s\r\n" % " ".join(events))
+            self.sendAndRecv("SETEVENTS EXTENDED %s\r\n" % " ".join(events))
         else:
-            self._sendAndRecv("SETEVENTS %s\r\n" % " ".join(events))
+            self.sendAndRecv("SETEVENTS %s\r\n" % " ".join(events))
 
     def save_conf(self):
         """Flush all configuration changes to disk.
         """
-        self._sendAndRecv("SAVECONF\r\n")
+        self.sendAndRecv("SAVECONF\r\n")
 
     def send_signal(self, sig):
         """Send the signal 'sig' to the Tor process; The allowed values for
@@ -574,13 +727,13 @@ class Connection:
                 0x0A : "USR1",
                 0x0C : "USR2",
                 0x0F : "TERM" }.get(sig,sig)
-        self._sendAndRecv("SIGNAL %s\r\n"%sig)
+        self.sendAndRecv("SIGNAL %s\r\n"%sig)
 
     def map_address(self, kvList):
         if not kvList:
             return
         m = " ".join([ "%s=%s" for k,v in kvList])
-        lines = self._sendAndRecv("MAPADDRESS %s\r\n"%m)
+        lines = self.sendAndRecv("MAPADDRESS %s\r\n"%m)
         r = []
         for _,line,_ in lines:
             try:
@@ -597,7 +750,7 @@ class Connection:
         if circid is None:
             circid = "0"
         plog("DEBUG", "Extending circuit")
-        lines = self._sendAndRecv("EXTENDCIRCUIT %d %s\r\n"
+        lines = self.sendAndRecv("EXTENDCIRCUIT %d %s\r\n"
                                   %(circid, ",".join(hops)))
         tp,msg,_ = lines[0]
         m = re.match(r'EXTENDED (\S*)', msg)
@@ -606,46 +759,46 @@ class Connection:
         plog("DEBUG", "Circuit extended")
         return int(m.group(1))
 
-    def build_circuit(self, pathlen, nodesel):
+    def build_circuit(self, pathlen, path_sel):
         circ = Circuit()
         if pathlen == 1:
-            circ.exit = nodesel.exit_chooser(circ.path)
-            circ.path = [circ.exit.idhex]
-            circ.cid = self.extend_circuit(0, circ.path)
+            circ.exit = path_sel.exit_chooser(circ.path)
+            circ.path = [circ.exit]
+            circ.cid = self.extend_circuit(0, circ.id_path())
         else:
-            circ.path.append(nodesel.entry_chooser(circ.path).idhex)
+            circ.path.append(path_sel.entry_chooser(circ.path))
             for i in xrange(1, pathlen-1):
-                circ.path.append(nodesel.middle_chooser(circ.path).idhex)
-            circ.exit = nodesel.exit_chooser(circ.path)
-            circ.path.append(circ.exit.idhex)
-            circ.cid = self.extend_circuit(0, circ.path)
+                circ.path.append(path_sel.middle_chooser(circ.path))
+            circ.exit = path_sel.exit_chooser(circ.path)
+            circ.path.append(circ.exit)
+            circ.cid = self.extend_circuit(0, circ.id_path())
         circ.created_at = datetime.datetime.now()
         return circ
 
     def redirect_stream(self, streamid, newaddr, newport=""):
         """DOCDOC"""
         if newport:
-            self._sendAndRecv("REDIRECTSTREAM %d %s %s\r\n"%(streamid, newaddr, newport))
+            self.sendAndRecv("REDIRECTSTREAM %d %s %s\r\n"%(streamid, newaddr, newport))
         else:
-            self._sendAndRecv("REDIRECTSTREAM %d %s\r\n"%(streamid, newaddr))
+            self.sendAndRecv("REDIRECTSTREAM %d %s\r\n"%(streamid, newaddr))
 
     def attach_stream(self, streamid, circid):
         """DOCDOC"""
         plog("DEBUG", "Attaching stream: "+str(streamid)+" to "+str(circid))
-        self._sendAndRecv("ATTACHSTREAM %d %d\r\n"%(streamid, circid))
+        self.sendAndRecv("ATTACHSTREAM %d %d\r\n"%(streamid, circid))
 
     def close_stream(self, streamid, reason=0, flags=()):
         """DOCDOC"""
-        self._sendAndRecv("CLOSESTREAM %d %s %s\r\n"
+        self.sendAndRecv("CLOSESTREAM %d %s %s\r\n"
                           %(streamid, reason, "".join(flags)))
 
     def close_circuit(self, circid, reason=0, flags=()):
         """DOCDOC"""
-        self._sendAndRecv("CLOSECIRCUIT %d %s %s\r\n"
+        self.sendAndRecv("CLOSECIRCUIT %d %s %s\r\n"
                           %(circid, reason, "".join(flags)))
 
     def post_descriptor(self, desc):
-        self._sendAndRecv("+POSTDESCRIPTOR\r\n%s"%escape_dots(desc))
+        self.sendAndRecv("+POSTDESCRIPTOR\r\n%s"%escape_dots(desc))
 
 def parse_ns_body(data):
     "Parse the body of an NS event or command."
@@ -665,24 +818,25 @@ class EventHandler:
     def __init__(self):
         """Create a new EventHandler."""
         self._map1 = {
-            "CIRC" : self.circ_status,
-            "STREAM" : self.stream_status,
-            "ORCONN" : self.or_conn_status,
-            "BW" : self.bandwidth,
-            "DEBUG" : self.msg,
-            "INFO" : self.msg,
-            "NOTICE" : self.msg,
-            "WARN" : self.msg,
-            "ERR" : self.msg,
-            "NEWDESC" : self.new_desc,
-            "ADDRMAP" : self.address_mapped,
-            "NS" : self.ns
+            "CIRC" : self.circ_status_event,
+            "STREAM" : self.stream_status_event,
+            "ORCONN" : self.or_conn_status_event,
+            "BW" : self.bandwidth_event,
+            "DEBUG" : self.msg_event,
+            "INFO" : self.msg_event,
+            "NOTICE" : self.msg_event,
+            "WARN" : self.msg_event,
+            "ERR" : self.msg_event,
+            "NEWDESC" : self.new_desc_event,
+            "ADDRMAP" : self.address_mapped_event,
+            "NS" : self.ns_event
             }
 
     def handle1(self, lines):
         """Dispatcher: called from Connection when an event is received."""
         for code, msg, data in lines:
             event = self.decode1(msg, data)
+            self.heartbeat_event()
             self._map1.get(event.event_name, self.unknown_event)(event)
 
     def decode1(self, body, data):
@@ -767,13 +921,19 @@ class EventHandler:
 
         return event
 
+    def heartbeat_event(self):
+        """Called every time any event is recieved. Convenience function
+           for any cleanup you may need to do.
+        """
+        pass
+
     def unknown_event(self, event):
         """Called when we get an event type we don't recognize.  This
            is almost alwyas an error.
         """
         raise NotImplemented()
 
-    def circ_status(self, event):
+    def circ_status_event(self, event):
         """Called when a circuit status changes if listening to CIRCSTATUS
            events.  'status' is a member of CIRC_STATUS; circID is a numeric
            circuit ID, and 'path' is the circuit's path so far as a list of
@@ -781,41 +941,41 @@ class EventHandler:
         """
         raise NotImplemented()
 
-    def stream_status(self, event):
+    def stream_status_event(self, event):
         """Called when a stream status changes if listening to STREAMSTATUS
            events.  'status' is a member of STREAM_STATUS; streamID is a
            numeric stream ID, and 'target' is the destination of the stream.
         """
         raise NotImplemented()
 
-    def or_conn_status(self, event):
+    def or_conn_status_event(self, event):
         """Called when an OR connection's status changes if listening to
            ORCONNSTATUS events. 'status' is a member of OR_CONN_STATUS; target
            is the OR in question.
         """
         raise NotImplemented()
 
-    def bandwidth(self, event):
+    def bandwidth_event(self, event):
         """Called once a second if listening to BANDWIDTH events.  'read' is
            the number of bytes read; 'written' is the number of bytes written.
         """
         raise NotImplemented()
 
-    def new_desc(self, event):
+    def new_desc_event(self, event):
         """Called when Tor learns a new server descriptor if listenting to
            NEWDESC events.
         """
         raise NotImplemented()
 
-    def msg(self, event):
+    def msg_event(self, event):
         """Called when a log message of a given severity arrives if listening
            to INFO_MSG, NOTICE_MSG, WARN_MSG, or ERR_MSG events."""
         raise NotImplemented()
 
-    def ns(self, event):
+    def ns_event(self, event):
         raise NotImplemented()
 
-    def address_mapped(self, event):
+    def address_mapped_event(self, event):
         """Called when Tor adds a mapping for an address if listening
            to ADDRESSMAPPED events.
         """
@@ -824,7 +984,7 @@ class EventHandler:
 
 class DebugEventHandler(EventHandler):
     """Trivial debug event handler: reassembles all parsed events to stdout."""
-    def circ_status(self, circ_event): # CircuitEvent()
+    def circ_status_event(self, circ_event): # CircuitEvent()
         output = [circ_event.event_name, str(circ_event.circ_id),
                   circ_event.status]
         if circ_event.path:
@@ -835,7 +995,7 @@ class DebugEventHandler(EventHandler):
             output.append("REMOTE_REASON=" + circ_event.remote_reason)
         print " ".join(output)
 
-    def stream_status(self, strm_event):
+    def stream_status_event(self, strm_event):
         output = [strm_event.event_name, str(strm_event.strm_id),
                   strm_event.status, str(strm_event.circ_id),
                   strm_event.target_host, str(strm_event.target_port)]
@@ -845,16 +1005,16 @@ class DebugEventHandler(EventHandler):
             output.append("REMOTE_REASON=" + strm_event.remote_reason)
         print " ".join(output)
 
-    def ns(self, ns_event):
+    def ns_event(self, ns_event):
         for ns in ns_event.nslist:
             print " ".join((ns_event.event_name, ns.nickname, ns.idhash,
               ns.updated.isoformat(), ns.ip, str(ns.orport),
               str(ns.dirport), " ".join(ns.flags)))
 
-    def new_desc(self, newdesc_event):
+    def new_desc_event(self, newdesc_event):
         print " ".join((newdesc_event.event_name, " ".join(newdesc_event.idlist)))
    
-    def or_conn_status(self, orconn_event):
+    def or_conn_status_event(self, orconn_event):
         if orconn_event.age: age = "AGE="+str(orconn_event.age)
         else: age = ""
         if orconn_event.read_bytes: read = "READ="+str(orconn_event.read_bytes)
@@ -868,10 +1028,10 @@ class DebugEventHandler(EventHandler):
         print " ".join((orconn_event.event_name, orconn_event.endpoint,
                         orconn_event.status, age, read, wrote, reason, ncircs))
 
-    def msg(self, log_event):
+    def msg_event(self, log_event):
         print log_event.event_name+" "+log_event.msg
     
-    def bandwidth(self, bw_event):
+    def bandwidth_event(self, bw_event):
         print bw_event.event_name+" "+str(bw_event.read)+" "+str(bw_event.written)
 
 def parseHostAndPort(h):

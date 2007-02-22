@@ -17,7 +17,7 @@ my $USER_AGENT = "Mozilla/5.0 (Windows; U; Windows NT 5.1; de; rv:1.8.1) Gecko/2
 
 #Privoxy is a bad idea since it rewrites shit that will mess with our 
 #baseline md5s of html
-my $SOCKS_PROXY = "127.0.0.1:9050";
+my $SOCKS_PROXY = "127.0.0.1:9060";
 
 my @TO_SCAN = ("ssl");
 my $ALLOW_NEW_SSL_IPS = 1;
