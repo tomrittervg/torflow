@@ -56,9 +56,9 @@ def read_routers(c, nslist):
             r = RouterStats(c.get_router(ns))
             if ns.nickname in errors:
                 if errors[ns.nickname].idhex != r.idhex:
-                    plog("NOTICE", "Router "+r.name+" has multiple keys: "
+                    plog("NOTICE", "Router "+r.nickname+" has multiple keys: "
                          +errors[ns.nickname].idhex+" and "+r.idhex)
-            errors[r.name] = r # XXX: We get names only from ORCONN :(
+            errors[r.nickname] = r # XXX: We get names only from ORCONN :(
         except TorCtl.ErrorReply:
             bad_key += 1
             if "Running" in ns.flags:
@@ -77,7 +77,7 @@ class NodeHandler(TorCtl.EventHandler):
         TorCtl.EventHandler.__init__(self)
         self.c = c
 
-    def or_conn_status(self, o):
+    def or_conn_status_event(self, o):
         # XXX: Count all routers as one?
         if re.search(r"^\$", o.endpoint):
             if o.endpoint not in key_to_name:
@@ -93,7 +93,7 @@ class NodeHandler(TorCtl.EventHandler):
             if o.endpoint not in errors:
                 plog("NOTICE", "Buh?? No "+o.endpoint)
                 errors[o.endpoint] = RouterStats()
-                errors[o.endpoint].name = o.endpoint
+                errors[o.endpoint].nickname = o.endpoint
             errors[o.endpoint].running_read += o.read_bytes
             errors[o.endpoint].running_wrote += o.wrote_bytes
             errors_lock.release()
@@ -104,7 +104,7 @@ class NodeHandler(TorCtl.EventHandler):
             if o.endpoint not in errors:
                 plog("NOTICE", "Buh?? No "+o.endpoint)
                 errors[o.endpoint] = RouterStats()
-                errors[o.endpoint].name = o.endpoint
+                errors[o.endpoint].nickname = o.endpoint
             if o.status == "FAILED" and not errors[o.endpoint].down:
                 o.status = o.status + "(Running)"
             o.reason = o.status+":"+o.reason
@@ -134,10 +134,10 @@ class NodeHandler(TorCtl.EventHandler):
                 " ".join((o.event_name, o.endpoint, o.status, age, read, wrote,
                            reason, ncircs)))
 
-    def ns(self, n):
+    def ns_event(self, n):
         read_routers(self.c, n.nslist)
  
-    def new_desc(self, d):
+    def new_desc_event(self, d):
         for i in d.idlist: # Is this too slow?
             read_routers(self.c, self.c.get_network_status("id/"+i))
 
@@ -146,7 +146,7 @@ def bw_stats(key, f):
     routers.sort(lambda x,y: cmp(key(y), key(x))) # Python < 2.4 hack
 
     for r in routers:
-        f.write(r.name+"="+str(key(r))+"\n")
+        f.write(r.nickname+"="+str(key(r))+"\n")
     
     f.close()
     
@@ -187,7 +187,7 @@ def save_stats(s):
     routers.sort(notlambda)
 
     for r in routers:
-        f.write(r.name+" " +str(r.tot_ncircs)+"/"+str(r.tot_count)+"\n")
+        f.write(r.nickname+" " +str(r.tot_ncircs)+"/"+str(r.tot_count)+"\n")
         for reason in r.reasons.itervalues():
             f.write("\t"+reason.reason+" "+str(reason.ncircs)+
                      "/"+str(reason.count)+"\n")

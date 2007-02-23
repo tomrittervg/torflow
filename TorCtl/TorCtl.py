@@ -21,7 +21,6 @@ import socket
 import binascii
 import types
 import time
-import copy
 from TorUtil import *
 
 # Types of "EVENT" message.
@@ -52,10 +51,6 @@ class ProtocolError(TorCtlError):
 
 class ErrorReply(TorCtlError):
     "Raised when Tor controller returns an error"
-    pass
-
-class NodeError(TorCtlError):
-    "Raise when we have no nodes satisfying restrictions"
     pass
 
 class NetworkStatus:
@@ -140,141 +135,6 @@ class UnknownEvent:
         self.event_name = event_name
         self.event_string = event_string
 
-class PathRestriction:
-    "Interface for path restriction policies"
-    def r_is_ok(self, path, r): return True    
-    def entry_is_ok(self, path, r): return self.r_is_ok(path, r)
-    def middle_is_ok(self, path, r): return self.r_is_ok(path, r)
-    def exit_is_ok(self, path, r): return self.r_is_ok(path, r)
-
-class PathRestrictionList:
-    def __init__(self, restrictions):
-        self.restrictions = restrictions
-    
-    def entry_is_ok(self, path, r):
-        for rs in self.restrictions:
-            if not rs.entry_is_ok(path, r):
-                return False
-        return True
-
-    def middle_is_ok(self, path, r):
-        for rs in self.restrictions:
-            if not rs.middle_is_ok(path, r):
-                return False
-        return True
-
-    def exit_is_ok(self, path, r):
-        for rs in self.restrictions:
-            if not rs.exit_is_ok(path, r):
-                return False
-        return True
-
-    def add_restriction(self, rstr):
-        self.restrictions.append(rstr)
-
-    def del_restriction(self, RestrictionClass):
-        # im_class actually returns current base class, not
-        # implementing class. We abuse this fact here. 
-        # XXX: Is this a standard, or a bug?
-        self.restrictions = filter(
-                lambda r: r.r_is_ok.im_class != RestrictionClass,
-                    self.restrictions)
-
-class NodeRestriction:
-    "Interface for node restriction policies"
-    def r_is_ok(self, r): return True    
-    def reset(self, router_list): pass
-
-class NodeRestrictionList:
-    def __init__(self, restrictions, sorted_r):
-        self.restrictions = restrictions
-        self.update_routers(sorted_r)
-
-    def __check_r(self, r):
-        for rst in self.restrictions:
-            if not rst.r_is_ok(r): return False
-        self.restricted_bw += r.bw
-        return True
-
-    def update_routers(self, sorted_r):
-        self._sorted_r = sorted_r
-        self.restricted_bw = 0
-        for rs in self.restrictions: rs.reset(sorted_r)
-        self.restricted_r = filter(self.__check_r, self._sorted_r)
-
-    def add_restriction(self, restr):
-        self.restrictions.append(restr)
-        for r in self.restricted_r:
-            if not restr.r_is_ok(r):
-                self.restricted_r.remove(r)
-                self.restricted_bw -= r.bw
-    
-    # XXX: This does not collapse And/Or restrictions.. That is non-trivial
-    # in teh general case
-    def del_restriction(self, RestrictionClass):
-        self.restrictions = filter(
-                lambda r: r.r_is_ok.im_class != RestrictionClass,
-                    self.restrictions)
-        self.update_routers(self._sorted_r)
-
-
-class NodeGenerator:
-    "Interface for node generation"
-    def __init__(self, restriction_list):
-        self.restriction_list = restriction_list
-        self.rewind()
-
-    def rewind(self):
-        # TODO: Hrmm... Is there any way to handle termination other 
-        # than to make a list of routers that we pop from? Random generators 
-        # will not terminate if no node matches the selector without this..
-        # Not so much an issue now, but in a few years, the Tor network
-        # will be large enough that having all these list copies will
-        # be obscene... Possible candidate for a python list comprehension
-        self.routers = copy.copy(self.restriction_list.restricted_r)
-        self.bw = self.restriction_list.restricted_bw
-
-    def mark_chosen(self, r):
-        self.routers.remove(r)
-        self.bw -= r.bw
-
-    def all_chosen(self):
-        if not self.routers and self.bw or not self.bw and self.routers:
-            plog("WARN", str(len(self.routers))+" routers left but bw="
-                 +str(self.bw))
-        return not self.routers
-
-    def next_r(self): raise NotImplemented()
-
-class PathSelector:
-    "Implementation of path selection policies"
-    def __init__(self, entry_gen, mid_gen, exit_gen, path_restrict):
-        self.entry_gen = entry_gen
-        self.mid_gen = mid_gen
-        self.exit_gen = exit_gen
-        self.path_restrict = path_restrict
-
-    def entry_chooser(self, path):
-        self.entry_gen.rewind()
-        for r in self.entry_gen.next_r():
-            if self.path_restrict.entry_is_ok(path, r):
-                return r
-        raise NodeError();
-        
-    def middle_chooser(self, path):
-        self.mid_gen.rewind()
-        for r in self.mid_gen.next_r():
-            if self.path_restrict.middle_is_ok(path, r):
-                return r
-        raise NodeError();
-
-    def exit_chooser(self, path):
-        self.exit_gen.rewind()
-        for r in self.exit_gen.next_r():
-            if self.path_restrict.exit_is_ok(path, r):
-                return r
-        raise NodeError();
-
 class ExitPolicyLine:
     def __init__(self, match, ip_mask, port_low, port_high):
         self.match = match
@@ -325,7 +185,7 @@ class RouterVersion:
 class Router:
     def __init__(self, idhex, name, bw, down, exitpolicy, flags, ip, version, os):
         self.idhex = idhex
-        self.name = name
+        self.nickname = name
         self.bw = bw
         self.exitpolicy = exitpolicy
         self.guard = "Guard" in flags
@@ -343,7 +203,7 @@ class Router:
             ret = line.check(ip, port)
             if ret != -1:
                 return ret
-        plog("NOTICE", "No matching exit line for "+self.name)
+        plog("NOTICE", "No matching exit line for "+self.nickname)
         return False
     
     def __eq__(self, other): return self.idhex == other.idhex
@@ -680,6 +540,24 @@ class Connection:
         return Router(ns.idhex, ns.nickname, bw_observed, dead, exitpolicy,
                 ns.flags, ip, version, os)
 
+    def read_routers(self, nslist):
+        bad_key = 0
+        new = []
+        for ns in nslist:
+            try:
+                r = self.get_router(ns)
+                new.append(r)
+            except ErrorReply:
+                bad_key += 1
+                if "Running" in ns.flags:
+                    plog("NOTICE", "Running router "+ns.nickname+"="
+                         +ns.idhex+" has no descriptor")
+            except:
+                traceback.print_exception(*sys.exc_info())
+                continue
+    
+        return new
+
     def get_info(self, name):
         """Return the value of the internal information field named 'name'.
            Refer to section 3.9 of control-spec.txt for a list of valid names.
@@ -758,22 +636,6 @@ class Connection:
             raise ProtocolError("Bad extended line %r",msg)
         plog("DEBUG", "Circuit extended")
         return int(m.group(1))
-
-    def build_circuit(self, pathlen, path_sel):
-        circ = Circuit()
-        if pathlen == 1:
-            circ.exit = path_sel.exit_chooser(circ.path)
-            circ.path = [circ.exit]
-            circ.cid = self.extend_circuit(0, circ.id_path())
-        else:
-            circ.path.append(path_sel.entry_chooser(circ.path))
-            for i in xrange(1, pathlen-1):
-                circ.path.append(path_sel.middle_chooser(circ.path))
-            circ.exit = path_sel.exit_chooser(circ.path)
-            circ.path.append(circ.exit)
-            circ.cid = self.extend_circuit(0, circ.id_path())
-        circ.created_at = datetime.datetime.now()
-        return circ
 
     def redirect_stream(self, streamid, newaddr, newport=""):
         """DOCDOC"""
@@ -1055,16 +917,11 @@ def parseHostAndPort(h):
 
     return host, port
 
-def get_connection(sock):
-    """Given a socket attached to a Tor control port, detect the version of Tor
-       and return an appropriate 'Connection' object."""
-    return Connection(sock)
-
 def run_example(host,port):
     print "host is %s:%d"%(host,port)
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     s.connect((host,port))
-    c = get_connection(s)
+    c = Connection(s)
     c.set_event_handler(DebugEventHandler())
     th = c.launch_thread()
     c.authenticate()
