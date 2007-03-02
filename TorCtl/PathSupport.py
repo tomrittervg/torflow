@@ -15,7 +15,7 @@ __all__ = ["NodeRestrictionList", "PathRestrictionList",
 "VersionExcludeRestriction", "ExitPolicyRestriction", "OrNodeRestriction",
 "AtLeastNNodeRestriction", "NotNodeRestriction", "Subnet16Restriction",
 "UniqueRestriction", "UniformGenerator", "OrderedExitGenerator",
-"PathSelector", "Connection"]
+"PathSelector", "Connection", "NickRestriction", "IdHexRestriction"]
 
 #################### Path Support Interfaces #####################
 
@@ -25,9 +25,9 @@ class NodeRestriction:
     def reset(self, router_list): pass
 
 class NodeRestrictionList:
-    def __init__(self, restrictions, sorted_r):
+    def __init__(self, restrictions, sorted_rlist):
         self.restrictions = restrictions
-        self.update_routers(sorted_r)
+        self.update_routers(sorted_rlist)
 
     def __check_r(self, r):
         for rst in self.restrictions:
@@ -35,10 +35,10 @@ class NodeRestrictionList:
         self.restricted_bw += r.bw
         return True
 
-    def update_routers(self, sorted_r):
-        self._sorted_r = sorted_r
+    def update_routers(self, sorted_rlist):
+        self._sorted_r = sorted_rlist
         self.restricted_bw = 0
-        for rs in self.restrictions: rs.reset(sorted_r)
+        for rs in self.restrictions: rs.reset(sorted_rlist)
         self.restricted_r = filter(self.__check_r, self._sorted_r)
 
     def add_restriction(self, restr):
@@ -142,7 +142,7 @@ class Connection(TorCtl.Connection):
 # TODO: We still need more path support implementations
 #  - BwWeightedGenerator
 #  - NodeRestrictions:
-#    - Uptime
+#    - Uptime/LongLivedPorts (Does/should hibernation count?)
 #    - Published/Updated
 #    - GeoIP
 #      - NodeCountry
@@ -159,8 +159,8 @@ class Connection(TorCtl.Connection):
 class PercentileRestriction(NodeRestriction):
     """If used, this restriction MUST be FIRST in the RestrictionList."""
     def __init__(self, pct_skip, pct_fast, r_list):
-        self.pct_skip = pct_skip
         self.pct_fast = pct_fast
+        self.pct_skip = pct_skip
         self.sorted_r = r_list
         self.position = 0
 
@@ -215,6 +215,25 @@ class FlagsRestriction(NodeRestriction):
             if f in router.flags: return False
         return True
 
+class NickRestriction(NodeRestriction):
+    """Require that the node nickname is as specified"""
+    def __init__(self, nickname):
+        self.nickname = nickname
+
+    def r_is_ok(self, router):
+        return router.nickname == self.nickname
+
+class IdHexRestriction(NodeRestriction):
+    """Require that the node idhash is as specified"""
+    def __init__(self, idhex):
+        if idhex[0] == '$':
+            self.idhex = idhex[1:].upper()
+        else:
+            self.idhex = idhex.upper()
+
+    def r_is_ok(self, router):
+        return router.idhex.upper() == self.idhex
+    
 class MinBWRestriction(NodeRestriction):
     def __init__(self, minbw):
         self.min_bw = minbw
@@ -333,7 +352,11 @@ class OrderedExitGenerator(NodeGenerator):
             self.last_idx = len(self.routers)
         else:
             self.last_idx = self.next_exit_by_port[self.to_port]
-   
+
+    def set_port(self, port):
+        self.to_port = port
+        self.rewind()
+       
     # Just in case: 
     def mark_chosen(self, r): raise NotImplemented()
     def all_chosen(self): raise NotImplemented()
@@ -409,35 +432,37 @@ if __name__ == '__main__':
     c.debug(file("control.log", "w"))
     c.authenticate()
     nslist = c.get_network_status()
-    sorted_r = c.read_routers(c.get_network_status())
+    sorted_rlist = c.read_routers(c.get_network_status())
 
-    pct_rst = PercentileRestriction(10, 20, sorted_r)
-    oss_rst = OSRestriction([r"[lL]inux", r"BSD", "Darwin"], [])
-    prop_rst = OSRestriction([], ["Windows", "Solaris"])
-
+    do_unit(PercentileRestriction(0, 100, sorted_rlist), sorted_rlist,
+                  lambda r: "")
+    do_unit(PercentileRestriction(10, 20, sorted_rlist), sorted_rlist,
+                  lambda r: "")
+    exit(0)
+    do_unit(OSRestriction([r"[lL]inux", r"BSD", "Darwin"], []), sorted_rlist,
+                  lambda r: r.os)
+    do_unit(OSRestriction([], ["Windows", "Solaris"]), sorted_rlist,
+                  lambda r: r.os)
    
-    do_unit(VersionRangeRestriction("0.1.2.0"), sorted_r,
+    do_unit(VersionRangeRestriction("0.1.2.0"), sorted_rlist,
                   lambda r: str(r.version))
-    do_unit(VersionRangeRestriction("0.1.2.0", "0.1.2.5"), sorted_r,
+    do_unit(VersionRangeRestriction("0.1.2.0", "0.1.2.5"), sorted_rlist,
                   lambda r: str(r.version))
     do_unit(VersionIncludeRestriction(["0.1.1.26-alpha", "0.1.2.7-ignored"]),
-                  sorted_r, lambda r: str(r.version))
-    do_unit(VersionExcludeRestriction(["0.1.1.26"]), sorted_r,
+                  sorted_rlist, lambda r: str(r.version))
+    do_unit(VersionExcludeRestriction(["0.1.1.26"]), sorted_rlist,
                   lambda r: str(r.version))
 
-    do_unit(ConserveExitsRestriction(), sorted_r, lambda r: " ".join(r.flags))
-    do_unit(FlagsRestriction([], ["Valid"]), sorted_r, lambda r: " ".join(r.flags))
+    do_unit(ConserveExitsRestriction(), sorted_rlist, lambda r: " ".join(r.flags))
+    do_unit(FlagsRestriction([], ["Valid"]), sorted_rlist, lambda r: " ".join(r.flags))
 
-    # TODO: Cross check ns exit flag with this list
-    #do_unit(ExitPolicyRestriction("255.255.255.255", 25), sorted_r)
+    # XXX: Need unittest
+    do_unit(IdHexRestriction("$FFCB46DB1339DA84674C70D7CB586434C4370441"),
+                  sorted_rlist, lambda r: r.idhex)
 
-    #do_unit(pct_rst, sorted_r)
-    #do_unit(oss_rst, sorted_r)
-    #do_unit(alpha_rst, sorted_r)
-    
     rl =  [AtLeastNNodeRestriction([ExitPolicyRestriction("255.255.255.255", 80), ExitPolicyRestriction("255.255.255.255", 443), ExitPolicyRestriction("255.255.255.255", 6667)], 2), FlagsRestriction([], ["BadExit"])]
 
-    exit_rstr = NodeRestrictionList(rl, sorted_r)
+    exit_rstr = NodeRestrictionList(rl, sorted_rlist)
 
     ug = UniformGenerator(exit_rstr)
 

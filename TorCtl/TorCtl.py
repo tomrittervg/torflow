@@ -288,7 +288,7 @@ class Connection:
                 if self._handler is not None:
                     self._eventQueue.put(reply)
             else:
-                cb = self._queue.get()
+                cb = self._queue.get() # XXX: lock?
                 cb(reply)
 
     def _err(self, (tp, ex, tb), fromEventLoop=0):
@@ -524,9 +524,9 @@ class Connection:
             rj = re.search(r"^reject (\S+):([^-]+)(?:-(\d+))?", line)
             bw = re.search(r"^bandwidth \d+ \d+ (\d+)", line)
             if re.search(r"^opt hibernating 1", line):
-                dead = 1 # XXX: Technically this may be stale..
+                #dead = 1 # XXX: Technically this may be stale..
                 if ("Running" in ns.flags):
-                    plog("NOTICE", "Hibernating router is running..")
+                    plog("NOTICE", "Hibernating router "+ns.nickname+" is running..")
             if ac:
                 exitpolicy.append(ExitPolicyLine(True, *ac.groups()))
             elif rj:
@@ -698,7 +698,7 @@ class EventHandler:
         """Dispatcher: called from Connection when an event is received."""
         for code, msg, data in lines:
             event = self.decode1(msg, data)
-            self.heartbeat_event()
+            self.heartbeat_event(event)
             self._map1.get(event.event_name, self.unknown_event)(event)
 
     def decode1(self, body, data):
@@ -783,9 +783,9 @@ class EventHandler:
 
         return event
 
-    def heartbeat_event(self):
-        """Called every time any event is recieved. Convenience function
-           for any cleanup you may need to do.
+    def heartbeat_event(self, event):
+        """Called before any event is recieved. Convenience function
+           for any cleanup/setup/reconfiguration you may need to do.
         """
         pass
 

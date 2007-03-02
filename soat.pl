@@ -51,7 +51,7 @@ my @HTTPS_SITES = (
         "mail.google.com",
         "www.relakks.com",
         "www.hushmail.com",
-        "login.yahoo.com",
+#        "login.yahoo.com",
         "www.fastmail.fm",
         "addons.mozilla.org"
 );
