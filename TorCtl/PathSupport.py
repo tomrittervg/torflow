@@ -15,7 +15,8 @@ __all__ = ["NodeRestrictionList", "PathRestrictionList",
 "VersionExcludeRestriction", "ExitPolicyRestriction", "OrNodeRestriction",
 "AtLeastNNodeRestriction", "NotNodeRestriction", "Subnet16Restriction",
 "UniqueRestriction", "UniformGenerator", "OrderedExitGenerator",
-"PathSelector", "Connection", "NickRestriction", "IdHexRestriction"]
+"PathSelector", "Connection", "NickRestriction", "IdHexRestriction",
+"PathBuilder"]
 
 #################### Path Support Interfaces #####################
 
@@ -408,6 +409,319 @@ class PathSelector:
                 return r
         raise NoRouters();
 
+class SelectionManager:
+    """Helper class to handle configuration updates
+      
+      The methods are NOT threadsafe. They may ONLY be called from
+      EventHandler's thread.
+
+      When updating the configuration, make a copy of this object, modify it,
+      and then submit it to PathBuilder.update_selmgr(). Since assignments
+      are atomic (GIL), this patten is threadsafe.
+      """
+    def __init__(self, resolve_port, num_circuits, pathlen, order_exits,
+                 percent_fast, percent_skip, min_bw, use_all_exits,
+                 uniform, use_exit, use_guards):
+        self.__ordered_exit_gen = None # except this one ;)
+        self.last_exit = None
+        self.new_nym = False
+        self.resolve_port = resolve_port
+        self.num_circuits = num_circuits
+        self.pathlen = pathlen
+        self.order_exits = order_exits
+        self.percent_fast = percent_fast
+        self.percent_skip = percent_skip
+        self.min_bw = min_bw
+        self.use_all_exits = use_all_exits
+        self.uniform = uniform
+        self.exit_name = use_exit
+        self.use_guards = use_guards
+
+    def reconfigure(self, sorted_r):
+        """
+        Member variables from this funciton should not be modified by other
+        threads.
+        """
+        if self.use_all_exits:
+            self.path_rstr = PathRestrictionList([])
+        else:
+            self.path_rstr = PathRestrictionList(
+                     [Subnet16Restriction(), UniqueRestriction()])
+            
+        self.entry_rstr = NodeRestrictionList(
+            [
+             PercentileRestriction(self.percent_skip, self.percent_fast,
+                sorted_r),
+             ConserveExitsRestriction(),
+             FlagsRestriction(["Guard", "Valid", "Running"], [])
+             ], sorted_r)
+        self.mid_rstr = NodeRestrictionList(
+            [PercentileRestriction(self.percent_skip, self.percent_fast,
+                sorted_r),
+             ConserveExitsRestriction(),
+             FlagsRestriction(["Valid", "Running"], [])], sorted_r)
+
+        if self.use_all_exits:
+            self.exit_rstr = NodeRestrictionList(
+                [FlagsRestriction(["Valid", "Running"], ["BadExit"])], sorted_r)
+        else:
+            self.exit_rstr = NodeRestrictionList(
+                [PercentileRestriction(self.percent_skip, self.percent_fast,
+                   sorted_r),
+                 FlagsRestriction(["Valid", "Running"], ["BadExit"])],
+                 sorted_r)
+
+        if self.exit_name:
+            if self.exit_name[0] == '$':
+                self.exit_rstr.add_restriction(IdHexRestriction(self.exit_name))
+            else:
+                self.exit_rstr.add_restriction(NickRestriction(self.exit_name))
+
+        # This is kind of hokey..
+        if self.order_exits:
+            if self.__ordered_exit_gen:
+                exitgen = self.__ordered_exit_gen
+            else:
+                exitgen = self.__ordered_exit_gen = \
+                    OrderedExitGenerator(self.exit_rstr, 80)
+        else:
+            exitgen = UniformGenerator(self.exit_rstr)
+
+        if self.uniform:
+            self.path_selector = PathSelector(
+                 UniformGenerator(self.entry_rstr),
+                 UniformGenerator(self.mid_rstr),
+                 exitgen, self.path_rstr)
+        else:
+            raise NotImplemented()
+
+    def set_target(self, ip, port):
+        self.exit_rstr.del_restriction(ExitPolicyRestriction)
+        self.exit_rstr.add_restriction(ExitPolicyRestriction(ip, port))
+        if self.__ordered_exit_gen: self.__ordered_exit_gen.set_port(port)
+
+    def update_routers(self, new_rlist):
+        self.entry_rstr.update_routers(new_rlist)
+        self.mid_rstr.update_routers(new_rlist)
+        self.exit_rstr.update_routers(new_rlist)
+
+class Circuit(TorCtl.Circuit):
+    def __init__(self, circuit): # Promotion constructor
+        # perf shortcut since we don't care about the 'circuit' 
+        # instance after this
+        self.__dict__ = circuit.__dict__
+        self.built = False
+        self.detached_cnt = 0
+        self.created_at = datetime.datetime.now()
+        self.pending_streams = [] # Which stream IDs are pending us
+
+class Stream:
+    def __init__(self, sid, host, port):
+        self.sid = sid
+        self.detached_from = [] # circ id #'s
+        self.pending_circ = None
+        self.circ = None
+        self.host = host
+        self.port = port
+
+# TODO: Make passive "PathWatcher" so people can get aggregate 
+# node reliability stats for normal usage without us attaching streams
+
+class PathBuilder(TorCtl.EventHandler):
+    def __init__(self, c, selmgr, RouterClass):
+        TorCtl.EventHandler.__init__(self)
+        self.c = c
+        nslist = c.get_network_status()
+        self.RouterClass = RouterClass
+        self.sorted_r = []
+        self.routers = {}
+        self.circuits = {}
+        self.streams = {}
+        self.read_routers(nslist)
+        self.selupdate = selmgr # other threads can fully examine this safely
+        self.selmgr = selmgr # other threads can read single values safely
+        self.selmgr.reconfigure(self.sorted_r)
+        plog("INFO", "Read "+str(len(self.sorted_r))+"/"+str(len(nslist))+" routers")
+
+    def read_routers(self, nslist):
+        new_routers = map(self.RouterClass, self.c.read_routers(nslist))
+        for r in new_routers:
+            if r.idhex in self.routers:
+                if self.routers[r.idhex].nickname != r.nickname:
+                    plog("NOTICE", "Router "+r.idhex+" changed names from "
+                         +self.routers[r.idhex].nickname+" to "+r.nickname)
+                self.sorted_r.remove(self.routers[r.idhex])
+            self.routers[r.idhex] = r
+        self.sorted_r.extend(new_routers)
+        self.sorted_r.sort(lambda x, y: cmp(y.bw, x.bw))
+
+    def attach_stream_any(self, stream, badcircs):
+        # Newnym, and warn if not built plus pending
+        unattached_streams = [stream]
+        if self.selmgr.new_nym:
+            self.selmgr.new_nym = False
+            plog("DEBUG", "Obeying new nym")
+            for key in self.circuits.keys():
+                if len(self.circuits[key].pending_streams):
+                    plog("WARN", "New nym called, destroying circuit "+str(key)
+                         +" with "+str(len(self.circuits[key].pending_streams))
+                         +" pending streams")
+                    unattached_streams.extend(self.circuits[key].pending_streams)
+                # FIXME: Consider actually closing circ if no streams.
+                del self.circuits[key]
+            
+        for circ in self.circuits.itervalues():
+            if circ.built and circ.cid not in badcircs:
+                if circ.exit.will_exit_to(stream.host, stream.port):
+                    try:
+                        self.c.attach_stream(stream.sid, circ.cid)
+                        stream.pending_circ = circ # Only one possible here
+                        circ.pending_streams.append(stream)
+                    except TorCtl.ErrorReply, e:
+                        # No need to retry here. We should get the failed
+                        # event for either the circ or stream next
+                        plog("NOTICE", "Error attaching stream: "+str(e.args))
+                        return
+                    break
+        else:
+            circ = None
+            while circ == None:
+                self.selmgr.set_target(stream.host, stream.port)
+                try:
+                    circ = Circuit(self.c.build_circuit(
+                                    self.selmgr.pathlen,
+                                    self.selmgr.path_selector))
+                except TorCtl.ErrorReply, e:
+                    # FIXME: How come some routers are non-existant? Shouldn't
+                    # we have gotten an NS event to notify us they
+                    # disappeared?
+                    plog("NOTICE", "Error building circ: "+str(e.args))
+            for u in unattached_streams:
+                plog("DEBUG",
+                     "Attaching "+str(u.sid)+" pending build of "+str(circ.cid))
+                u.pending_circ = circ
+            circ.pending_streams.extend(unattached_streams)
+            self.circuits[circ.cid] = circ
+        self.selmgr.last_exit = circ.exit
+
+    #Relying on GIL for weak atomicity instead of locking. 
+    #http://effbot.org/pyfaq/can-t-we-get-rid-of-the-global-interpreter-lock.htm
+    #http://effbot.org/pyfaq/what-kinds-of-global-value-mutation-are-thread-safe.htm
+    def update_selmgr(self, selmgr):
+        "This is the _ONLY_ method that can be called from another thread"
+        self.selupdate = selmgr
+
+    def heartbeat_event(self, event):
+        if id(self.selupdate) != id(self.selmgr):
+            self.selmgr = self.selupdate
+            self.selmgr.reconfigure(self.sorted_r)
+    
+    def circ_status_event(self, c):
+        output = [c.event_name, str(c.circ_id), c.status]
+        if c.path: output.append(",".join(c.path))
+        if c.reason: output.append("REASON=" + c.reason)
+        if c.remote_reason: output.append("REMOTE_REASON=" + c.remote_reason)
+        plog("DEBUG", " ".join(output))
+        # Circuits we don't control get built by Tor
+        if c.circ_id not in self.circuits:
+            plog("DEBUG", "Ignoring circ " + str(c.circ_id))
+            return
+        if c.status == "FAILED" or c.status == "CLOSED":
+            circ = self.circuits[c.circ_id]
+            del self.circuits[c.circ_id]
+            for stream in circ.pending_streams:
+                plog("DEBUG", "Finding new circ for " + str(stream.sid))
+                self.attach_stream_any(stream, stream.detached_from)
+        elif c.status == "BUILT":
+            self.circuits[c.circ_id].built = True
+            for stream in self.circuits[c.circ_id].pending_streams:
+                self.c.attach_stream(stream.sid, c.circ_id)
+
+    def stream_status_event(self, s):
+        output = [s.event_name, str(s.strm_id), s.status, str(s.circ_id),
+                  s.target_host, str(s.target_port)]
+        if s.reason: output.append("REASON=" + s.reason)
+        if s.remote_reason: output.append("REMOTE_REASON=" + s.remote_reason)
+        plog("DEBUG", " ".join(output))
+        if not re.match(r"\d+.\d+.\d+.\d+", s.target_host):
+            s.target_host = "255.255.255.255" # ignore DNS for exit policy check
+        if s.status == "NEW" or s.status == "NEWRESOLVE":
+            if s.status == "NEWRESOLVE" and not s.target_port:
+                s.target_port = self.selmgr.resolve_port
+            self.streams[s.strm_id] = Stream(s.strm_id, s.target_host, s.target_port)
+
+            self.attach_stream_any(self.streams[s.strm_id],
+                                   self.streams[s.strm_id].detached_from)
+        elif s.status == "DETACHED":
+            if s.strm_id not in self.streams:
+                plog("WARN", "Detached stream "+str(s.strm_id)+" not found")
+                self.streams[s.strm_id] = Stream(s.strm_id, s.target_host,
+                                            s.target_port)
+            # FIXME Stats (differentiate Resolved streams also..)
+            if not s.circ_id:
+                plog("WARN", "Stream "+str(s.strm_id)+" detached from no circuit!")
+            else:
+                self.streams[s.strm_id].detached_from.append(s.circ_id)
+
+            
+            if self.streams[s.strm_id] in self.streams[s.strm_id].pending_circ.pending_streams:
+                self.streams[s.strm_id].pending_circ.pending_streams.remove(self.streams[s.strm_id])
+            self.streams[s.strm_id].pending_circ = None
+            self.attach_stream_any(self.streams[s.strm_id],
+                                   self.streams[s.strm_id].detached_from)
+        elif s.status == "SUCCEEDED":
+            if s.strm_id not in self.streams:
+                plog("NOTICE", "Succeeded stream "+str(s.strm_id)+" not found")
+                return
+            self.streams[s.strm_id].circ = self.streams[s.strm_id].pending_circ
+            self.streams[s.strm_id].circ.pending_streams.remove(self.streams[s.strm_id])
+            self.streams[s.strm_id].pending_circ = None
+        elif s.status == "FAILED" or s.status == "CLOSED":
+            # FIXME stats
+            if s.strm_id not in self.streams:
+                plog("NOTICE", "Failed stream "+str(s.strm_id)+" not found")
+                return
+
+            if not s.circ_id:
+                plog("WARN", "Stream "+str(s.strm_id)+" failed from no circuit!")
+
+            # We get failed and closed for each stream. OK to return 
+            # and let the closed do the cleanup
+            # (FIXME: be careful about double stats)
+            if s.status == "FAILED":
+                # Avoid busted circuits that will not resolve or carry
+                # traffic. FIXME: Failed count before doing this?
+                if s.circ_id in self.circuits: del self.circuits[s.circ_id]
+                else: plog("WARN","Failed stream on unknown circ "+str(s.circ_id))
+                return
+
+            if self.streams[s.strm_id].pending_circ:
+                self.streams[s.strm_id].pending_circ.pending_streams.remove(self.streams[s.strm_id])
+            del self.streams[s.strm_id]
+        elif s.status == "REMAP":
+            if s.strm_id not in self.streams:
+                plog("WARN", "Remap id "+str(s.strm_id)+" not found")
+            else:
+                if not re.match(r"\d+.\d+.\d+.\d+", s.target_host):
+                    s.target_host = "255.255.255.255"
+                    plog("NOTICE", "Non-IP remap for "+str(s.strm_id)+" to "
+                                   + s.target_host)
+                self.streams[s.strm_id].host = s.target_host
+                self.streams[s.strm_id].port = s.target_port
+
+
+    def ns_event(self, n):
+        self.read_routers(n.nslist)
+        plog("DEBUG", "Read " + str(len(n.nslist))+" NS => " 
+             + str(len(self.sorted_r)) + " routers")
+        self.selmgr.update_routers(self.sorted_r)
+    
+    def new_desc_event(self, d):
+        for i in d.idlist: # Is this too slow?
+            self.read_routers(self.c.get_network_status("id/"+i))
+        plog("DEBUG", "Read " + str(len(d.idlist))+" Desc => " 
+             + str(len(self.sorted_r)) + " routers")
+        self.selmgr.update_routers(self.sorted_r)
 
 ########################## Unit tests ##########################
 
@@ -438,7 +752,6 @@ if __name__ == '__main__':
                   lambda r: "")
     do_unit(PercentileRestriction(10, 20, sorted_rlist), sorted_rlist,
                   lambda r: "")
-    exit(0)
     do_unit(OSRestriction([r"[lL]inux", r"BSD", "Darwin"], []), sorted_rlist,
                   lambda r: r.os)
     do_unit(OSRestriction([], ["Windows", "Solaris"]), sorted_rlist,
@@ -471,11 +784,11 @@ if __name__ == '__main__':
         print "Checking: " + r.nickname
         for rs in rl:
             if not rs.r_is_ok(r):
-                raise PathException()
+                raise PathError()
             if not "Exit" in r.flags:
                 print "No exit in flags of "+r.nickname
         rlist.append(r)
-    for r in sorted_r:
+    for r in sorted_rlist:
         if "Exit" in r.flags and not r in rlist:
             print r.nickname+" is an exit not in rl!"
                 
