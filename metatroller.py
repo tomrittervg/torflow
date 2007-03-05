@@ -15,6 +15,7 @@ import datetime
 import threading
 import struct
 import copy
+import time
 from TorCtl import *
 from TorCtl.TorUtil import *
 from TorCtl.PathSupport import *
@@ -48,24 +49,144 @@ selmgr = PathSupport.SelectionManager(
 class StatsRouter(TorCtl.Router):
     def __init__(self, router): # Promotion constructor :)
         self.__dict__ = router.__dict__
-        self.failed = 0
-        self.suspected = 0
-        self.circ_selections = 0
-        self.strm_selections = 0
-        self.unhibernated_at = 0
-        self.active_uptime = 0
+        self.circ_failed = 0
+        self.circ_succeeded = 0
+        self.circ_suspected = 0
+        self.circ_selections = 0 # above 3 should add to this
+        self.strm_failed = 0 # Only exits should have these
+        self.strm_succeeded = 0
+        self.strm_suspected = 0
+        self.strm_selections = 0 # above 3 should add to this
         self.reason_suspected = {}
         self.reason_failed = {}
+        self.became_active_at = 0
+        self.total_active_uptime = 0
+        self.max_bw = 0
+        self.min_bw = 0
+        self.avg_bw = 0
 
 class StatsHandler(PathSupport.PathBuilder):
     def __init__(self, c, slmgr):
         PathBuilder.__init__(self, c, slmgr, StatsRouter)
+    
+    def heartbeat_event(self, event):
+        PathBuilder.heartbeat_event(self, event)
 
-    def circ_status_event(self, event):
-        PathBuilder.circ_status_event(self, event)
+    # TODO: Use stream bandwidth events to implement reputation system
+    # from
+    # http://www.cs.colorado.edu/department/publications/reports/docs/CU-CS-1025-07.pdf
+    # (though my bet's on it not working on a real Tor network)
 
-    def stream_status_event(self, event):
-        PathBuilder.stream_status_event(self, event)
+    def circ_status_event(self, c):
+        if c.circ_id in self.circuits:
+            # XXX: Hrmm, consider making this sane in TorCtl.
+            if c.reason: lreason = c.reason
+            else: lreason = "NONE"
+            if c.remote_reason: rreason = c.remote_reason
+            else: rreason = "NONE"
+            reason = c.status+":"+lreason+":"+rreason
+            if c.status == "FAILED":
+                # update selection count
+                for r in self.circuits[c.circ_id].path: r.circ_selections += 1
+
+                # Count failed
+                for r in self.circuits[c.circ_id].path[len(c.path)-1:len(c.path)+1]:
+                    r.circ_failed += 1
+                    if not reason in r.reason_failed: r.reason_failed[reason] = 1
+                    else: r.reason_failed[reason]+=1
+                
+                # Don't count if failed was set this round, don't set 
+                # suspected..
+                if len(c.path)-2 < 0: end_susp = 0
+                else: end_susp = len(c.path)-2
+                for r in self.circuits[c.circ_id].path[:end_susp]:
+                    r.circ_suspected += 1
+                    if not reason in r.reason_suspected:
+                        r.reason_suspected[reason] = 1
+                    else: r.reason_suspected[reason]+=1
+            elif c.status == "CLOSED":
+                # Since PathBuilder deletes the circuit on a failed, 
+                # we only get this for a clean close
+                # Update circ_selections count
+                for r in self.circuits[c.circ_id].path: r.circ_selections += 1
+                
+                if lreason in ("REQUESTED", "FINISHED", "ORIGIN"):
+                    r.circ_succeeded += 1
+                else:
+                    for r in self.circuits[c.circ_id].path:
+                        if not reason in r.reason_suspected:
+                            r.reason_suspected[reason] = 1
+                        else: r.reason_suspected[reason] += 1
+                        r.circ_suspected+= 1
+        PathBuilder.circ_status_event(self, c)
+    
+    def stream_status_event(self, s):
+        if s.strm_id in self.streams:
+            # XXX: Hrmm, consider making this sane in TorCtl.
+            if s.reason: lreason = s.reason
+            else: lreason = "NONE"
+            if s.remote_reason: rreason = s.remote_reason
+            else: rreason = "NONE"
+            reason = s.status+":"+lreason+":"+rreason+":"+self.streams[s.strm_id].kind
+            if s.status in ("DETACHED", "FAILED", "CLOSED", "SUCCEEDED") \
+                    and not s.circ_id:
+                plog("WARN", "Stream "+str(s.strm_id)+" detached from no circuit!")
+                PathBuilder.stream_status_event(self, s)
+                return
+            if s.status == "DETACHED" or s.status == "FAILED":
+                    
+                # Update strm_selections count
+                for r in self.circuits[s.circ_id].path: r.strm_selections += 1
+                # Update failed count,reason_failed for exit
+                r = self.circuits[s.circ_id].exit
+                if not reason in r.reason_failed: r.reason_failed[reason] = 1
+                else: r.reason_failed[reason]+=1
+                r.strm_failed += 1
+
+                # If reason=timeout, update suspected for all
+                if lreason in ("TIMEOUT", "INTERNAL", "TORPROTOCOL", "DESTROY"):
+                    for r in self.circuits[s.circ_id].path[:-1]:
+                        r.strm_suspected += 1
+                        if not reason in r.reason_suspected:
+                            r.reason_suspected[reason] = 1
+                        else: r.reason_suspected[reason]+=1
+            elif s.status == "CLOSED":
+                # Always get both a closed and a failed.. 
+                #   - Check if the circuit exists still
+                if s.circ_id in self.circuits:
+                    if lreason in ("TIMEOUT", "INTERNAL", "TORPROTOCOL", "DESTROY"):
+                        for r in self.circuits[s.circ_id].path[:-1]:
+                            r.strm_suspected += 1
+                            if not reason in r.reason_suspected:
+                                r.reason_suspected[reason] = 1
+                            else: r.reason_suspected[reason]+=1
+                    r = self.circuits[s.circ_id].exit
+                    if lreason == "DONE":
+                        r.strm_succeeded += 1
+                    else:
+                        if not reason in r.reason_failed:
+                            r.reason_failed[reason] = 1
+                        else: r.reason_failed[reason]+=1
+                        r.strm_failed += 1
+            elif s.status == "SUCCEEDED":
+                # Update strm_selections count
+                # XXX: use SENTRESOLVE/SENTCONNECT instead?
+                for r in self.circuits[s.circ_id].path: r.strm_selections += 1
+        PathBuilder.stream_status_event(self, s)
+
+    def ns_event(self, n):
+        PathBuilder.ns_event(self, n)
+        for ns in n.nslist:
+            if not ns.idhex in self.routers:
+                continue
+            if "Running" in ns.flags:
+                if not self.routers[ns.idhex].became_active_at:
+                    self.routers[ns.idhex].became_active_at = time.time()
+            else:
+                self.routers[ns.idhex].total_active_uptime += \
+                    (time.time() - self.routers[ns.idhex].became_active_at)
+                self.routers[ns.idhex].became_active_at = 0
+                
 
 def clear_dns_cache(c):
     lines = c.sendAndRecv("SIGNAL CLEARDNSCACHE\r\n")

@@ -16,7 +16,7 @@ __all__ = ["NodeRestrictionList", "PathRestrictionList",
 "AtLeastNNodeRestriction", "NotNodeRestriction", "Subnet16Restriction",
 "UniqueRestriction", "UniformGenerator", "OrderedExitGenerator",
 "PathSelector", "Connection", "NickRestriction", "IdHexRestriction",
-"PathBuilder"]
+"PathBuilder", "SelectionManager"]
 
 #################### Path Support Interfaces #####################
 
@@ -156,6 +156,9 @@ class Connection(TorCtl.Connection):
 #          - If middle node on the same continent as exit, exit learns nothing
 #          - else, exit has a bias on the continent of origin of user
 #            - Language and browser accept string determine this anyway
+#      - EchelonPhobicRestrictor
+#        - Does not cross international boundaries for client->Entry or
+#          Exit->destination hops
 
 class PercentileRestriction(NodeRestriction):
     """If used, this restriction MUST be FIRST in the RestrictionList."""
@@ -422,7 +425,7 @@ class SelectionManager:
     def __init__(self, resolve_port, num_circuits, pathlen, order_exits,
                  percent_fast, percent_skip, min_bw, use_all_exits,
                  uniform, use_exit, use_guards):
-        self.__ordered_exit_gen = None # except this one ;)
+        self.__ordered_exit_gen = None 
         self.last_exit = None
         self.new_nym = False
         self.resolve_port = resolve_port
@@ -516,13 +519,14 @@ class Circuit(TorCtl.Circuit):
         self.pending_streams = [] # Which stream IDs are pending us
 
 class Stream:
-    def __init__(self, sid, host, port):
+    def __init__(self, sid, host, port, kind):
         self.sid = sid
         self.detached_from = [] # circ id #'s
         self.pending_circ = None
         self.circ = None
         self.host = host
         self.port = port
+        self.kind = kind
 
 # TODO: Make passive "PathWatcher" so people can get aggregate 
 # node reliability stats for normal usage without us attaching streams
@@ -648,7 +652,7 @@ class PathBuilder(TorCtl.EventHandler):
         if s.status == "NEW" or s.status == "NEWRESOLVE":
             if s.status == "NEWRESOLVE" and not s.target_port:
                 s.target_port = self.selmgr.resolve_port
-            self.streams[s.strm_id] = Stream(s.strm_id, s.target_host, s.target_port)
+            self.streams[s.strm_id] = Stream(s.strm_id, s.target_host, s.target_port, s.status)
 
             self.attach_stream_any(self.streams[s.strm_id],
                                    self.streams[s.strm_id].detached_from)
