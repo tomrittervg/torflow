@@ -19,7 +19,7 @@ my $USER_AGENT = "Mozilla/5.0 (Windows; U; Windows NT 5.1; de; rv:1.8.1) Gecko/2
 #baseline md5s of html
 my $SOCKS_PROXY = "127.0.0.1:9060";
 
-my @TO_SCAN = ("ssl");
+my @TO_SCAN = ("ssl", "urls");
 my $ALLOW_NEW_SSL_IPS = 1;
 
 # doc and ppt may also be good ones to check.. They are frequently vulnerable
@@ -1065,6 +1065,9 @@ sub main
         plog "NOTICE", "Final URL List:\n " . join("\n ", @DOC_URLS) . "\n\n";
     }
     plog "INFO", "Beginning scan loop\n";
+    print $mcp "SAVESTATS\r\n";
+    $line = <$mcp>;
+    die "Error saving stats: $line" if (not $line =~ /^250/);
         
     while(1) {
         my $scan = $TO_SCAN[int(rand(@TO_SCAN))];
@@ -1083,6 +1086,9 @@ sub main
         } elsif($scan eq "ssh") {
             openssh_check_all($mcp, "./known_hosts");
         }
+        print $mcp "SAVESTATS\r\n";
+        $line = <$mcp>;
+        die "Error saving stats: $line" if (not $line =~ /^250/);
 
         write_failrates($mcp, $DOC_DIR . "/naive_fail_rates", 
                 "FAILRATES", \%mt_fail_counts, \%total_fail_counts, 

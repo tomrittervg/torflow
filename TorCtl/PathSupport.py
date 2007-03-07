@@ -7,6 +7,7 @@ import random
 import socket
 import copy
 import datetime
+import Queue
 from TorUtil import *
 
 __all__ = ["NodeRestrictionList", "PathRestrictionList",
@@ -418,18 +419,14 @@ class SelectionManager:
       The methods are NOT threadsafe. They may ONLY be called from
       EventHandler's thread.
 
-      When updating the configuration, make a copy of this object, modify it,
-      and then submit it to PathBuilder.update_selmgr(). Since assignments
-      are atomic (GIL), this patten is threadsafe.
+      To update the selection manager, schedule a config update job
+      using PathBuilder.schedule_selmgr() with a worker function
+      to modify this object.
       """
-    def __init__(self, resolve_port, num_circuits, pathlen, order_exits,
+    def __init__(self, pathlen, order_exits,
                  percent_fast, percent_skip, min_bw, use_all_exits,
                  uniform, use_exit, use_guards):
         self.__ordered_exit_gen = None 
-        self.last_exit = None
-        self.new_nym = False
-        self.resolve_port = resolve_port
-        self.num_circuits = num_circuits
         self.pathlen = pathlen
         self.order_exits = order_exits
         self.percent_fast = percent_fast
@@ -441,10 +438,6 @@ class SelectionManager:
         self.use_guards = use_guards
 
     def reconfigure(self, sorted_r):
-        """
-        Member variables from this funciton should not be modified by other
-        threads.
-        """
         if self.use_all_exits:
             self.path_rstr = PathRestrictionList([])
         else:
@@ -532,38 +525,57 @@ class Stream:
 # node reliability stats for normal usage without us attaching streams
 
 class PathBuilder(TorCtl.EventHandler):
+    """
+    PathBuilder implementation. Handles circuit construction, subject
+    to the constraints of the SelectionManager selmgr.
+    
+    Do not access this object from other threads. Instead, use the 
+    schedule_* functions to schedule work to be done in the thread
+    of the EventHandler.
+    """
     def __init__(self, c, selmgr, RouterClass):
         TorCtl.EventHandler.__init__(self)
         self.c = c
         nslist = c.get_network_status()
+        self.last_exit = None
+        self.new_nym = False
+        self.resolve_port = 0
+        self.num_circuits = 1
         self.RouterClass = RouterClass
         self.sorted_r = []
         self.routers = {}
         self.circuits = {}
         self.streams = {}
         self.read_routers(nslist)
-        self.selupdate = selmgr # other threads can fully examine this safely
-        self.selmgr = selmgr # other threads can read single values safely
+        self.selmgr = selmgr
         self.selmgr.reconfigure(self.sorted_r)
+        self.imm_jobs = Queue.Queue()
+        self.low_prio_jobs = Queue.Queue()
+        self.do_reconfigure = False
         plog("INFO", "Read "+str(len(self.sorted_r))+"/"+str(len(nslist))+" routers")
 
     def read_routers(self, nslist):
-        new_routers = map(self.RouterClass, self.c.read_routers(nslist))
-        for r in new_routers:
+        routers = self.c.read_routers(nslist)
+        new_routers = []
+        for r in routers:
             if r.idhex in self.routers:
                 if self.routers[r.idhex].nickname != r.nickname:
                     plog("NOTICE", "Router "+r.idhex+" changed names from "
                          +self.routers[r.idhex].nickname+" to "+r.nickname)
-                self.sorted_r.remove(self.routers[r.idhex])
-            self.routers[r.idhex] = r
+                # Must do IN-PLACE update to keep all the refs to this router
+                # valid and current (especially for stats)
+                self.routers[r.idhex].update_to(r)
+            else:
+                self.routers[r.idhex] = self.RouterClass(r)
+                new_routers.append(self.RouterClass(r))
         self.sorted_r.extend(new_routers)
         self.sorted_r.sort(lambda x, y: cmp(y.bw, x.bw))
 
     def attach_stream_any(self, stream, badcircs):
         # Newnym, and warn if not built plus pending
         unattached_streams = [stream]
-        if self.selmgr.new_nym:
-            self.selmgr.new_nym = False
+        if self.new_nym:
+            self.new_nym = False
             plog("DEBUG", "Obeying new nym")
             for key in self.circuits.keys():
                 if len(self.circuits[key].pending_streams):
@@ -606,20 +618,55 @@ class PathBuilder(TorCtl.EventHandler):
                 u.pending_circ = circ
             circ.pending_streams.extend(unattached_streams)
             self.circuits[circ.cid] = circ
-        self.selmgr.last_exit = circ.exit
+        self.last_exit = circ.exit
 
-    #Relying on GIL for weak atomicity instead of locking. 
-    #http://effbot.org/pyfaq/can-t-we-get-rid-of-the-global-interpreter-lock.htm
-    #http://effbot.org/pyfaq/what-kinds-of-global-value-mutation-are-thread-safe.htm
-    def update_selmgr(self, selmgr):
-        "This is the _ONLY_ method that can be called from another thread"
-        self.selupdate = selmgr
+
+    def schedule_immediate(self, job):
+        """
+        Schedules an immediate job to be run before the next event is
+        processed.
+        """
+        self.imm_jobs.put(job)
+
+    def schedule_low_prio(self, job):
+        """
+        Schedules a job to be run when a non-time critical event arrives.
+        """
+        self.low_prio_jobs.put(job)
+
+    def schedule_selmgr(self, job):
+        """
+        Schedules an immediate job to be run before the next event is
+        processed. Also notifies the selection manager that it needs
+        to update itself.
+        """
+        def notlambda(this):
+            job(this.selmgr)
+            this.do_reconfigure = True
+        self.schedule_immediate(notlambda)
 
     def heartbeat_event(self, event):
-        if id(self.selupdate) != id(self.selmgr):
-            self.selmgr = self.selupdate
+        while not self.imm_jobs.empty():
+            imm_job = self.imm_jobs.get_nowait()
+            imm_job(self)
+        
+        if self.do_reconfigure:
             self.selmgr.reconfigure(self.sorted_r)
-    
+            self.do_reconfigure = False
+        
+        # If event is stream:NEW*/DETACHED or circ BUILT/FAILED, 
+        # don't run low prio jobs.. No need to delay streams on them.
+        if isinstance(event, TorCtl.CircuitEvent):
+            if event.status in ("BUILT", "FAILED"): return
+        elif isinstance(event, TorCtl.StreamEvent):
+            if event.status in ("NEW", "NEWRESOLVE", "DETACHED"): return
+        
+        # Do the low prio jobs one at a time in case a 
+        # higher priority event is queued   
+        if not self.low_prio_jobs.empty():
+            delay_job = self.low_prio_jobs.get_nowait()
+            delay_job(self)
+
     def circ_status_event(self, c):
         output = [c.event_name, str(c.circ_id), c.status]
         if c.path: output.append(",".join(c.path))
@@ -651,7 +698,7 @@ class PathBuilder(TorCtl.EventHandler):
             s.target_host = "255.255.255.255" # ignore DNS for exit policy check
         if s.status == "NEW" or s.status == "NEWRESOLVE":
             if s.status == "NEWRESOLVE" and not s.target_port:
-                s.target_port = self.selmgr.resolve_port
+                s.target_port = self.resolve_port
             self.streams[s.strm_id] = Stream(s.strm_id, s.target_host, s.target_port, s.status)
 
             self.attach_stream_any(self.streams[s.strm_id],
@@ -660,7 +707,7 @@ class PathBuilder(TorCtl.EventHandler):
             if s.strm_id not in self.streams:
                 plog("WARN", "Detached stream "+str(s.strm_id)+" not found")
                 self.streams[s.strm_id] = Stream(s.strm_id, s.target_host,
-                                            s.target_port)
+                                            s.target_port, "NEW")
             # FIXME Stats (differentiate Resolved streams also..)
             if not s.circ_id:
                 plog("WARN", "Stream "+str(s.strm_id)+" detached from no circuit!")
@@ -751,6 +798,10 @@ if __name__ == '__main__':
     c.authenticate()
     nslist = c.get_network_status()
     sorted_rlist = c.read_routers(c.get_network_status())
+    
+    for r in sorted_rlist:
+        if r.will_exit_to("211.11.21.22", 465):
+            print r.nickname+" "+str(r.bw)
 
     do_unit(PercentileRestriction(0, 100, sorted_rlist), sorted_rlist,
                   lambda r: "")

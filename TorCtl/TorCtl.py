@@ -188,15 +188,23 @@ class Router:
         self.nickname = name
         self.bw = bw
         self.exitpolicy = exitpolicy
-        self.guard = "Guard" in flags
-        self.badexit = "BadExit" in flags
-        self.valid = "Valid" in flags
-        self.fast = "Fast" in flags
         self.flags = flags
         self.down = down
         self.ip = struct.unpack(">I", socket.inet_aton(ip))[0]
         self.version = RouterVersion(version)
         self.os = os
+
+    def update_to(self, new):
+        if self.idhex != new.idhex:
+            plog("ERROR", "Update of router "+self.nickname+"changes idhex!")
+        self.idhex = new.idhex
+        self.nickname = new.nickname
+        self.bw = new.bw
+        self.exitpolicy = new.exitpolicy
+        self.flags = new.flags
+        self.ip = new.ip
+        self.version = new.version
+        self.os = new.os
 
     def will_exit_to(self, ip, port):
         for line in self.exitpolicy:
@@ -288,7 +296,7 @@ class Connection:
                 if self._handler is not None:
                     self._eventQueue.put(reply)
             else:
-                cb = self._queue.get() # XXX: lock?
+                cb = self._queue.get() # atomic..
                 cb(reply)
 
     def _err(self, (tp, ex, tb), fromEventLoop=0):
@@ -352,7 +360,7 @@ class Connection:
                 condition.release()
 
         # Sends a message to Tor...
-        self._sendLock.acquire()
+        self._sendLock.acquire() # ensure queue+sendmsg is atomic
         try:
             self._queue.put(cb)
             sendFn(msg) # _doSend(msg)
