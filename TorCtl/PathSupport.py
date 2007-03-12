@@ -237,7 +237,7 @@ class IdHexRestriction(NodeRestriction):
             self.idhex = idhex.upper()
 
     def r_is_ok(self, router):
-        return router.idhex.upper() == self.idhex
+        return router.idhex == self.idhex
     
 class MinBWRestriction(NodeRestriction):
     def __init__(self, minbw):
@@ -566,8 +566,9 @@ class PathBuilder(TorCtl.EventHandler):
                 # valid and current (especially for stats)
                 self.routers[r.idhex].update_to(r)
             else:
-                self.routers[r.idhex] = self.RouterClass(r)
-                new_routers.append(self.RouterClass(r))
+                rc = self.RouterClass(r)
+                self.routers[r.idhex] = rc
+                new_routers.append(rc)
         self.sorted_r.extend(new_routers)
         self.sorted_r.sort(lambda x, y: cmp(y.bw, x.bw))
 
@@ -596,7 +597,7 @@ class PathBuilder(TorCtl.EventHandler):
                     except TorCtl.ErrorReply, e:
                         # No need to retry here. We should get the failed
                         # event for either the circ or stream next
-                        plog("NOTICE", "Error attaching stream: "+str(e.args))
+                        plog("WARN", "Error attaching stream: "+str(e.args))
                         return
                     break
         else:
@@ -685,8 +686,14 @@ class PathBuilder(TorCtl.EventHandler):
                 self.attach_stream_any(stream, stream.detached_from)
         elif c.status == "BUILT":
             self.circuits[c.circ_id].built = True
-            for stream in self.circuits[c.circ_id].pending_streams:
-                self.c.attach_stream(stream.sid, c.circ_id)
+            try:
+                for stream in self.circuits[c.circ_id].pending_streams:
+                    self.c.attach_stream(stream.sid, c.circ_id)
+            except TorCtl.ErrorReply, e:
+                # No need to retry here. We should get the failed
+                # event for either the circ or stream next
+                plog("WARN", "Error attaching stream: "+str(e.args))
+                return
 
     def stream_status_event(self, s):
         output = [s.event_name, str(s.strm_id), s.status, str(s.circ_id),

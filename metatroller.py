@@ -55,14 +55,14 @@ class StatsRouter(TorCtl.Router):
     def reset(self):
         self.circ_uncounted = 0
         self.circ_failed = 0
-        self.circ_succeeded = 0
+        self.circ_succeeded = 0 # disjoint from failed (for verification only)
         self.circ_suspected = 0
-        self.circ_selections = 0 # above 4 should add to this
+        self.circ_chosen = 0 # above 4 should add to this
         self.strm_failed = 0 # Only exits should have these
         self.strm_succeeded = 0
-        self.strm_suspected = 0
+        self.strm_suspected = 0 # disjoint from failed (for verification only)
         self.strm_uncounted = 0
-        self.strm_selections = 0 # above 3 should add to this
+        self.strm_chosen = 0 # above 3 should add to this
         self.reason_suspected = {}
         self.reason_failed = {}
         self.first_seen = time.time()
@@ -77,13 +77,53 @@ class StatsRouter(TorCtl.Router):
         self.max_bw = 0
         self.min_bw = 0
         self.avg_bw = 0
-    
+
+    def current_uptime(self):
+        if self.became_active_at:
+            ret = (self.total_active_uptime+(time.time()-self.became_active_at))
+        else:
+            ret = self.total_active_uptime
+        if ret == 0: return 0.000005 # eh..
+        else: return ret
+                
+    def failed_per_hour(self):
+        return (3600.*(self.circ_failed+self.strm_failed))/self.current_uptime()
+
+    def suspected_per_hour(self):
+        return (3600.*(self.circ_suspected+self.strm_suspected
+                  +self.circ_failed+self.strm_failed))/self.current_uptime()
+
+    # These four are for sanity checking
+    def _suspected_per_hour(self):
+        return (3600.*(self.circ_suspected+self.strm_suspected))/self.current_uptime()
+
+    def _uncounted_per_hour(self):
+        return (3600.*(self.circ_uncounted+self.strm_uncounted))/self.current_uptime()
+
+    def _chosen_per_hour(self):
+        return (3600.*(self.circ_chosen+self.strm_chosen))/self.current_uptime()
+
+    def _succeeded_per_hour(self):
+        return (3600.*(self.circ_succeeded+self.strm_succeeded))/self.current_uptime()
+        
+    def __str__(self):
+        return (self.idhex+" ("+self.nickname+")\n\t"
+            +" CF=" +str(self.circ_failed)
+            +" CS="+ str(self.circ_suspected+self.circ_failed)
+            +" CC="+ str(self.circ_chosen)
+            +" SF="+ str(self.strm_failed)
+            +" SS="+ str(self.strm_suspected+self.strm_failed)
+            +" SC="+ str(self.strm_chosen)
+            +" FR="+ str(round(self.failed_per_hour(),2))
+            +" SR="+ str(round(self.suspected_per_hour(),2))
+            +" Up="+str(round(self.current_uptime()/3600, 1))+"h\n")
+
     def sanity_check(self):
         if self.circ_failed + self.circ_succeeded + self.circ_suspected \
-            + self.circ_uncounted != self.circ_selections:
+            + self.circ_uncounted != self.circ_chosen:
             plog("ERROR", self.nickname+" does not add up for circs")
         if self.strm_failed + self.strm_succeeded + self.strm_suspected \
-            + self.strm_uncounted != self.strm_selections:
+            + self.strm_uncounted != self.strm_chosen:
             plog("ERROR", self.nickname+" does not add up for streams")
         def check_reasons(reasons, expected, which, rtype):
             count = 0
@@ -102,16 +142,160 @@ class StatsRouter(TorCtl.Router):
         if self.became_active_at: tot_uptime += now - self.became_active_at
         if round(tot_hib_time+tot_uptime) != round(now-self.first_seen):
             plog("ERROR", "Mismatch of uptimes for "+self.nickname)
+        
+        per_hour_tot = round(self._uncounted_per_hour()+self.failed_per_hour()+
+                 self._suspected_per_hour()+self._succeeded_per_hour(), 2)
+        chosen_tot = round(self._chosen_per_hour(), 2)
+        if per_hour_tot != chosen_tot:
+            plog("ERROR", self.nickname+" has mismatch of per hour counts: "+str(per_hour_tot) +" vs "+str(chosen_tot))
+
+class ReasonRouterList:
+    "Helper class to track which reasons are in which routers."
+    def __init__(self, reason):
+        self.reason = reason
+        self.rlist = {}
+
+    def sort_list(self): raise NotImplemented()
+
+    def write_list(self, f):
+        rlist = self.sort_list()
+        for r in rlist:
+            f.write(r.idhex+" ("+r.nickname+") Fail=")
+            if self.reason in r.reason_failed:
+                f.write(str(r.reason_failed[self.reason]))
+            else: f.write("0")
+            f.write(" Susp=")
+            if self.reason in r.reason_suspected:
+                f.write(str(r.reason_suspected[self.reason])+"\n")
+            else: f.write("0\n")
+        
+    def add_r(self, r):
+        self.rlist[r] = 1
+
+    def total_suspected(self):
+        # suspected is disjoint from failed. The failed table
+        # may not have an entry
+        def notlambda(x, y):
+            if self.reason in y.reason_suspected:
+                if self.reason in y.reason_failed:
+                    return (x + y.reason_suspected[self.reason]
+                             + y.reason_failed[self.reason])
+                else:
+                    return (x + y.reason_suspected[self.reason])
+            else:
+                if self.reason in y.reason_failed:
+                    return (x + y.reason_failed[self.reason])
+                else: return x
+        return reduce(notlambda, self.rlist.iterkeys(), 0)
+
+    def total_failed(self):
+        def notlambda(x, y):
+            if self.reason in y.reason_failed:
+                return (x + y.reason_failed[self.reason])
+            else: return x
+        return reduce(notlambda, self.rlist.iterkeys(), 0)
+ 
+class SuspectRouterList(ReasonRouterList):
+    def __init__(self, reason): ReasonRouterList.__init__(self,reason)
+    
+    def sort_list(self):
+        rlist = self.rlist.keys()
+        rlist.sort(lambda x, y: cmp(y.reason_suspected[self.reason],
+                                    x.reason_suspected[self.reason]))
+        return rlist
+   
+    def _verify_suspected(self):
+        return reduce(lambda x, y: x + y.reason_suspected[self.reason],
+                        self.rlist.iterkeys(), 0)
+
+class FailedRouterList(ReasonRouterList):
+    def __init__(self, reason): ReasonRouterList.__init__(self,reason)
+
+    def sort_list(self):
+        rlist = self.rlist.keys()
+        rlist.sort(lambda x, y: cmp(y.reason_failed[self.reason],
+                                    x.reason_failed[self.reason]))
+        return rlist
+
+    def _verify_failed(self):
+        return reduce(lambda x, y: x + y.reason_failed[self.reason],
+                        self.rlist.iterkeys(), 0)
 
 class StatsHandler(PathSupport.PathBuilder):
     def __init__(self, c, slmgr):
         PathBuilder.__init__(self, c, slmgr, StatsRouter)
+        self.failed_reasons = {}
+        self.suspect_reasons = {}
+
+    def write_reasons(self, f, reasons, name):
+        f.write("\n\n\t------------------- "+name+" -------------------\n")
+        for rsn in reasons:
+            f.write("\nReason="+rsn.reason+". Failed: "+str(rsn.total_failed())
+                    +", Suspected: "+str(rsn.total_suspected())+"\n")
+            rsn.write_list(f)
+
+    def write_routers(self, f, rlist, name):
+        f.write("\n\n\t------------------- "+name+" -------------------\n\n")
+        for r in rlist:
+            f.write(str(r))
 
     def write_stats(self, filename):
-        # FIXME: Sort this by different values.
         plog("DEBUG", "Writing stats")
+        # Sanity check routers
+        # TODO: all sanity checks should be turned off once its stable.
+        for r in self.sorted_r: r.sanity_check()
+
+        # Sanity check the router reason lists.
         for r in self.sorted_r:
-            r.sanity_check()
+            for rsn in r.reason_failed:
+                if r not in self.failed_reasons[rsn].rlist:
+                    plog("ERROR", "Router missing from reason table")
+            for rsn in r.reason_suspected:
+                if r not in self.suspect_reasons[rsn].rlist:
+                    plog("ERROR", "Router missing from reason table")
+
+        # Sanity check the lists the other way
+        for rsn in self.failed_reasons.itervalues(): rsn._verify_failed()
+        for rsn in self.suspect_reasons.itervalues(): rsn._verify_suspected()
+
+        f = file(filename, "w")
+
+        # FIXME: Print out key/legend header
+        failed = copy.copy(self.sorted_r)
+        failed.sort(lambda x, y:
+                  cmp(y.circ_failed+y.strm_failed,
+                        x.circ_failed+x.strm_failed))
+        self.write_routers(f, failed, "Failed Counts")
+
+        suspected = copy.copy(self.sorted_r)
+        suspected.sort(lambda x, y: # Suspected includes failed
+             cmp(y.circ_failed+y.strm_failed+y.circ_suspected+y.strm_suspected,
+                 x.circ_failed+x.strm_failed+x.circ_suspected+x.strm_suspected))
+        self.write_routers(f, suspected, "Suspected Counts")
+
+        fail_rate = copy.copy(failed)
+        fail_rate.sort(lambda x, y:
+             cmp(y.failed_per_hour(), x.failed_per_hour()))
+        self.write_routers(f, fail_rate, "Fail Rates")
+
+        suspect_rate = copy.copy(suspected)
+        suspect_rate.sort(lambda x, y:
+             cmp(y.suspected_per_hour(), x.suspected_per_hour()))
+        self.write_routers(f, suspect_rate, "Suspect Rates")
+
+        # TODO: Sort by failed/selected and suspect/selected ratios
+        # if we ever want to do non-uniform scanning..
+
+        susp_reasons = self.suspect_reasons.values()
+        susp_reasons.sort(lambda x, y:
+             cmp(y.total_suspected(), x.total_suspected()))
+        self.write_reasons(f, susp_reasons, "Suspect Reasons")
+
+        fail_reasons = self.failed_reasons.values()
+        fail_reasons.sort(lambda x, y:
+             cmp(y.total_failed(), x.total_failed()))
+        self.write_reasons(f, fail_reasons, "Failed Reasons")
+        f.close()
 
     def reset_stats(self):
         for r in self.sorted_r:
@@ -120,11 +304,13 @@ class StatsHandler(PathSupport.PathBuilder):
     # TODO: Use stream bandwidth events to implement reputation system
     # from
     # http://www.cs.colorado.edu/department/publications/reports/docs/CU-CS-1025-07.pdf
-    # (though my bet's on it not working on a real Tor network)
+    # aha! the way to detect lying nodes as a client is to test 
+    # their bandwidths in tiers.. only make circuits of nodes of 
+    # the same bandwidth.. Then look for nodes with odd avg bandwidths
 
     def circ_status_event(self, c):
         if c.circ_id in self.circuits:
-            # XXX: Hrmm, consider making this sane in TorCtl.
+            # TODO: Hrmm, consider making this sane in TorCtl.
             if c.reason: lreason = c.reason
             else: lreason = "NONE"
             if c.remote_reason: rreason = c.remote_reason
@@ -132,7 +318,7 @@ class StatsHandler(PathSupport.PathBuilder):
             reason = c.event_name+":"+c.status+":"+lreason+":"+rreason
             if c.status == "FAILED":
                 # update selection count
-                for r in self.circuits[c.circ_id].path: r.circ_selections += 1
+                for r in self.circuits[c.circ_id].path: r.circ_chosen += 1
                 
                 if len(c.path)-1 < 0: start_f = 0
                 else: start_f = len(c.path)-1 
@@ -143,6 +329,9 @@ class StatsHandler(PathSupport.PathBuilder):
                     if not reason in r.reason_failed:
                         r.reason_failed[reason] = 1
                     else: r.reason_failed[reason]+=1
+                    if reason not in self.failed_reasons:
+                         self.failed_reasons[reason] = FailedRouterList(reason)
+                    self.failed_reasons[reason].add_r(r)
 
                 for r in self.circuits[c.circ_id].path[len(c.path)+1:]:
                     r.circ_uncounted += 1
@@ -154,12 +343,15 @@ class StatsHandler(PathSupport.PathBuilder):
                     if not reason in r.reason_suspected:
                         r.reason_suspected[reason] = 1
                     else: r.reason_suspected[reason]+=1
+                    if reason not in self.suspect_reasons:
+                         self.suspect_reasons[reason] = SuspectRouterList(reason)
+                    self.suspect_reasons[reason].add_r(r)
             elif c.status == "CLOSED":
                 # Since PathBuilder deletes the circuit on a failed, 
                 # we only get this for a clean close
-                # Update circ_selections count
+                # Update circ_chosen count
                 for r in self.circuits[c.circ_id].path:
-                    r.circ_selections += 1
+                    r.circ_chosen += 1
                 
                     if lreason in ("REQUESTED", "FINISHED", "ORIGIN"):
                         r.circ_succeeded += 1
@@ -168,11 +360,14 @@ class StatsHandler(PathSupport.PathBuilder):
                             r.reason_suspected[reason] = 1
                         else: r.reason_suspected[reason] += 1
                         r.circ_suspected+= 1
+                        if reason not in self.suspect_reasons:
+                            self.suspect_reasons[reason] = SuspectRouterList(reason)
+                        self.suspect_reasons[reason].add_r(r)
         PathBuilder.circ_status_event(self, c)
     
     def stream_status_event(self, s):
         if s.strm_id in self.streams:
-            # XXX: Hrmm, consider making this sane in TorCtl.
+            # TODO: Hrmm, consider making this sane in TorCtl.
             if s.reason: lreason = s.reason
             else: lreason = "NONE"
             if s.remote_reason: rreason = s.remote_reason
@@ -180,18 +375,24 @@ class StatsHandler(PathSupport.PathBuilder):
             reason = s.event_name+":"+s.status+":"+lreason+":"+rreason+":"+self.streams[s.strm_id].kind
             if s.status in ("DETACHED", "FAILED", "CLOSED", "SUCCEEDED") \
                     and not s.circ_id:
+                # XXX: REMAPs can do this (normal). Also REASON=DESTROY (bug?)
+                # Also timeouts.. Those should use the pending circ instead
+                # of returning..
                 plog("WARN", "Stream "+str(s.strm_id)+" detached from no circuit!")
                 PathBuilder.stream_status_event(self, s)
                 return
             if s.status == "DETACHED" or s.status == "FAILED":
-                    
-                # Update strm_selections count
-                for r in self.circuits[s.circ_id].path: r.strm_selections += 1
+                # Update strm_chosen count
+                # FIXME: use SENTRESOLVE/SENTCONNECT instead?
+                for r in self.circuits[s.circ_id].path: r.strm_chosen += 1
                 # Update failed count,reason_failed for exit
                 r = self.circuits[s.circ_id].exit
                 if not reason in r.reason_failed: r.reason_failed[reason] = 1
                 else: r.reason_failed[reason]+=1
                 r.strm_failed += 1
+                if reason not in self.failed_reasons:
+                    self.failed_reasons[reason] = FailedRouterList(reason)
+                self.failed_reasons[reason].add_r(r)
 
                 # If reason=timeout, update suspected for all
                 if lreason in ("TIMEOUT", "INTERNAL", "TORPROTOCOL", "DESTROY"):
@@ -200,19 +401,28 @@ class StatsHandler(PathSupport.PathBuilder):
                         if not reason in r.reason_suspected:
                             r.reason_suspected[reason] = 1
                         else: r.reason_suspected[reason]+=1
+                        if reason not in self.suspect_reasons:
+                            self.suspect_reasons[reason] = SuspectRouterList(reason)
+                        self.suspect_reasons[reason].add_r(r)
                 else:
                     for r in self.circuits[s.circ_id].path[:-1]:
                         r.strm_uncounted += 1
             elif s.status == "CLOSED":
                 # Always get both a closed and a failed.. 
                 #   - Check if the circuit exists still
+                # XXX: Save both closed and failed reason in stream object
                 if s.circ_id in self.circuits:
+                    # Update strm_chosen count
+                    for r in self.circuits[s.circ_id].path: r.strm_chosen += 1
                     if lreason in ("TIMEOUT", "INTERNAL", "TORPROTOCOL" "DESTROY"):
                         for r in self.circuits[s.circ_id].path[:-1]:
                             r.strm_suspected += 1
                             if not reason in r.reason_suspected:
                                 r.reason_suspected[reason] = 1
                             else: r.reason_suspected[reason]+=1
+                            if reason not in self.suspect_reasons:
+                                self.suspect_reasons[reason] = SuspectRouterList(reason)
+                            self.suspect_reasons[reason].add_r(r)
                     else:
                         for r in self.circuits[s.circ_id].path[:-1]:
                             r.strm_uncounted += 1
@@ -225,10 +435,9 @@ class StatsHandler(PathSupport.PathBuilder):
                             r.reason_failed[reason] = 1
                         else: r.reason_failed[reason]+=1
                         r.strm_failed += 1
-            elif s.status == "SUCCEEDED":
-                # Update strm_selections count
-                # XXX: use SENTRESOLVE/SENTCONNECT instead?
-                for r in self.circuits[s.circ_id].path: r.strm_selections += 1
+                        if reason not in self.failed_reasons:
+                            self.failed_reasons[reason] = FailedRouterList(reason)
+                        self.failed_reasons[reason].add_r(r)
         PathBuilder.stream_status_event(self, s)
 
     def ns_event(self, n):
@@ -273,7 +482,7 @@ def commandloop(s, c, h):
             # http://effbot.org/pyfaq/what-kinds-of-global-value-mutation-are-thread-safe.htm
             le = h.last_exit
             if le:
-                s.write("250 LASTEXIT=$"+le.idhex.upper()+" ("+le.nickname+") OK\r\n")
+                s.write("250 LASTEXIT=$"+le.idhex+" ("+le.nickname+") OK\r\n")
             else:
                 s.write("250 LASTEXIT=0 (0) OK\r\n")
         elif command == "NEWEXIT" or command == "NEWNYM":
@@ -363,7 +572,7 @@ def commandloop(s, c, h):
                 s.write("510 Integer expected\r\n")
         elif command == "SETEXIT":
             if arg:
-                # XXX: Hrmm.. if teh user is a dumbass, this will fail silently
+                # FIXME: Hrmm.. if teh user is a dumbass this will fail silently
                 def notlambda(sm): sm.exit_name=arg
                 h.schedule_selmgr(notlambda)
                 s.write("250 OK\r\n")

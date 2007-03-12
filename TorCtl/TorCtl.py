@@ -63,7 +63,7 @@ class NetworkStatus:
         self.orport = int(orport)
         self.dirport = int(dirport)
         self.flags = flags
-        self.idhex = (self.idhash + "=").decode("base64").encode("hex")
+        self.idhex = (self.idhash + "=").decode("base64").encode("hex").upper()
         m = re.search(r"(\d+)-(\d+)-(\d+) (\d+):(\d+):(\d+)", updated)
         self.updated = datetime.datetime(*map(int, m.groups()))
 
@@ -213,10 +213,7 @@ class Router:
                 return ret
         plog("NOTICE", "No matching exit line for "+self.nickname)
         return False
-    
-    def __eq__(self, other): return self.idhex == other.idhex
-    def __ne__(self, other): return self.idhex != other.idhex
-
+   
 class Circuit:
     def __init__(self):
         self.cid = 0
@@ -526,6 +523,9 @@ class Connection:
         if router != ns.nickname:
             plog("NOTICE", "Got different names " + ns.nickname + " vs " +
                          router + " for " + ns.idhex)
+        # XXX: Compile these regular expressions? This is an expensive process
+        # Use http://docs.python.org/lib/profile.html to verify this is 
+        # the part of startup that is slow
         for line in desc:
             pl = re.search(r"^platform Tor (\S+) on (\S+)", line)
             ac = re.search(r"^accept (\S+):([^-]+)(?:-(\d+))?", line)
@@ -534,7 +534,7 @@ class Connection:
             if re.search(r"^opt hibernating 1", line):
                 #dead = 1 # XXX: Technically this may be stale..
                 if ("Running" in ns.flags):
-                    plog("NOTICE", "Hibernating router "+ns.nickname+" is running..")
+                    plog("INFO", "Hibernating router "+ns.nickname+" is running..")
             if ac:
                 exitpolicy.append(ExitPolicyLine(True, *ac.groups()))
             elif rj:
@@ -544,7 +544,7 @@ class Connection:
             elif pl:
                 version, os = pl.groups()
         if not bw_observed and not dead and ("Valid" in ns.flags):
-            plog("NOTICE", "No bandwidth for live router " + ns.nickname)
+            plog("INFO", "No bandwidth for live router " + ns.nickname)
         return Router(ns.idhex, ns.nickname, bw_observed, dead, exitpolicy,
                 ns.flags, ip, version, os)
 
