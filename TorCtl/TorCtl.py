@@ -28,6 +28,7 @@ EVENT_TYPE = Enum2(
           CIRC="CIRC",
           STREAM="STREAM",
           ORCONN="ORCONN",
+          STREAM_BW="STREAM_BW",
           BW="BW",
           NS="NS",
           NEWDESC="NEWDESC",
@@ -111,18 +112,24 @@ class ORConnEvent:
     self.reason = reason
     self.ncircs = ncircs
 
+class StreamBwEvent:
+  def __init__(self, event_name, strm_id, read, written):
+    self.event_name = event_name
+    self.strm_id = int(strm_id)
+    self.bytes_read = int(read)
+    self.bytes_written = int(written)
+
 class LogEvent:
   def __init__(self, level, msg):
     self.event_name = self.level = level
     self.msg = msg
 
 class AddrMapEvent:
-  def __init__(self, event_name, from_addr, to_addr, when, by_exit):
+  def __init__(self, event_name, from_addr, to_addr, when):
     self.event_name = event_name
     self.from_addr = from_addr
     self.to_addr = to_addr
     self.when = when
-    self.by_exit = by_exit # XOXOXOX <3 ;) @ nickm
 
 class BWEvent:
   def __init__(self, event_name, read, written):
@@ -214,16 +221,6 @@ class Router:
     plog("NOTICE", "No matching exit line for "+self.nickname)
     return False
    
-class Circuit:
-  def __init__(self):
-    self.cid = 0
-    self.created_at = 0 # time
-    self.path = [] # routers
-    self.exit = 0
-  
-  def id_path(self): return map(lambda r: r.idhex, self.path)
-
-
 class Connection:
   """A Connection represents a connection to the Tor process."""
   def __init__(self, sock):
@@ -289,7 +286,7 @@ class Connection:
         self._err(sys.exc_info())
         return
 
-      if isEvent:
+      if isEvent: # XXX: timestamp these, and pass timestamp to EventHandler
         if self._handler is not None:
           self._eventQueue.put(reply)
       else:
@@ -691,6 +688,7 @@ class EventHandler:
       "CIRC" : self.circ_status_event,
       "STREAM" : self.stream_status_event,
       "ORCONN" : self.or_conn_status_event,
+      "STREAM_BW" : self.stream_bw_event,
       "BW" : self.bandwidth_event,
       "DEBUG" : self.msg_event,
       "INFO" : self.msg_event,
@@ -763,6 +761,11 @@ class EventHandler:
       else: wrote = 0
       event = ORConnEvent(evtype, status, target, age, read, wrote,
                 reason, ncircs)
+    elif evtype == "STREAM_BW":
+      m = re.match(r"(\d+)\s+(\d+)\s+(\d+)", body)
+      if not m:
+        raise ProtocolError("STREAM_BW event misformatted.")
+      event = StreamBwEvent(evtype, *m.groups())
     elif evtype == "BW":
       m = re.match(r"(\d+)\s+(\d+)", body)
       if not m:
@@ -783,7 +786,7 @@ class EventHandler:
       else:
         when = time.localtime(
           time.strptime(when[1:-1], "%Y-%m-%d %H:%M:%S"))
-      event = AddrMapEvent(evtype, fromaddr, toaddr, when, "Unknown")
+      event = AddrMapEvent(evtype, fromaddr, toaddr, when)
     elif evtype == "NS":
       event = NetworkStatusEvent(evtype, parse_ns_body(data))
     else:
@@ -805,29 +808,24 @@ class EventHandler:
 
   def circ_status_event(self, event):
     """Called when a circuit status changes if listening to CIRCSTATUS
-       events.  'status' is a member of CIRC_STATUS; circID is a numeric
-       circuit ID, and 'path' is the circuit's path so far as a list of
-       names.
-    """
+       events."""
     raise NotImplemented()
 
   def stream_status_event(self, event):
     """Called when a stream status changes if listening to STREAMSTATUS
-       events.  'status' is a member of STREAM_STATUS; streamID is a
-       numeric stream ID, and 'target' is the destination of the stream.
-    """
+       events.  """
+    raise NotImplemented()
+
+  def stream_bw_event(self, event):
     raise NotImplemented()
 
   def or_conn_status_event(self, event):
     """Called when an OR connection's status changes if listening to
-       ORCONNSTATUS events. 'status' is a member of OR_CONN_STATUS; target
-       is the OR in question.
-    """
+       ORCONNSTATUS events."""
     raise NotImplemented()
 
   def bandwidth_event(self, event):
-    """Called once a second if listening to BANDWIDTH events.  'read' is
-       the number of bytes read; 'written' is the number of bytes written.
+    """Called once a second if listening to BANDWIDTH events.
     """
     raise NotImplemented()
 

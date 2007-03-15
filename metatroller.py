@@ -11,11 +11,11 @@ import socket
 import traceback
 import re
 import random
-import datetime
 import threading
 import struct
 import copy
 import time
+import math
 from TorCtl import *
 from TorCtl.TorUtil import *
 from TorCtl.PathSupport import *
@@ -31,7 +31,7 @@ meta_port = 9052
 max_detach = 3
 
 # Do NOT modify this object directly after it is handed to PathBuilder
-# Use PathBuilder.schedule_reconfigure instead.
+# Use PathBuilder.schedule_selmgr instead.
 # (Modifying the arguments here is OK)
 __selmgr = PathSupport.SelectionManager(
       pathlen=3,
@@ -44,6 +44,52 @@ __selmgr = PathSupport.SelectionManager(
       use_exit=None,
       use_guards=False)
 
+class BandwidthStats:
+  def __init__(self):
+    self.byte_list = []
+    self.duration_list = []
+    self.min_bw = 1e10
+    self.max_bw = 0
+    self.mean = 0
+    self.dev = 0
+
+  def _exp(self): # Weighted avg
+    tot_bw = reduce(lambda x, y: x+y, self.byte_list, 0.0)
+    EX = 0.0
+    for i in xrange(len(self.byte_list)):
+      EX += (self.byte_list[i]*self.byte_list[i])/self.duration_list[i]
+    if tot_bw == 0.0: return 0.0
+    EX /= tot_bw
+    return EX
+
+  def _exp2(self): # E[X^2]
+    tot_bw = reduce(lambda x, y: x+y, self.byte_list, 0.0)
+    EX = 0.0
+    for i in xrange(len(self.byte_list)):
+      EX += (self.byte_list[i]**3)/(self.duration_list[i]**2)
+    if tot_bw == 0.0: return 0.0
+    EX /= tot_bw
+    return EX
+    
+  def _dev(self): # Weighted dev
+    EX = self.mean
+    EX2 = self._exp2()
+    arg = EX2 - (EX*EX)
+    if arg < -0.05:
+      plog("WARN", "Diff of "+str(EX2)+" and "+str(EX)+"^2 is "+str(arg))
+    return math.sqrt(abs(arg))
+
+  def add_bw(self, bytes, duration):
+    if not bytes: plog("WARN", "No bytes for bandwidth")
+    bytes /= 1024.
+    self.byte_list.append(bytes)
+    self.duration_list.append(duration)
+    bw = bytes/duration
+    plog("DEBUG", "Got bandwidth "+str(bw))
+    if self.min_bw > bw: self.min_bw = bw
+    if self.max_bw < bw: self.max_bw = bw
+    self.mean = self._exp()
+    self.dev = self._dev()
 
 # Technically we could just add member vars as we need them, but this
 # is a bit more clear
@@ -62,7 +108,7 @@ class StatsRouter(TorCtl.Router):
     self.strm_succeeded = 0
     self.strm_suspected = 0 # disjoint from failed (for verification only)
     self.strm_uncounted = 0
-    self.strm_chosen = 0 # above 3 should add to this
+    self.strm_chosen = 0 # above 4 should add to this
     self.reason_suspected = {}
     self.reason_failed = {}
     self.first_seen = time.time()
@@ -74,9 +120,23 @@ class StatsRouter(TorCtl.Router):
       self.hibernated_at = self.first_seen
     self.total_hibernation_time = 0
     self.total_active_uptime = 0
-    self.max_bw = 0
-    self.min_bw = 0
-    self.avg_bw = 0
+    self.total_extend_time = 0
+    self.total_extended = 0
+    self.bwstats = BandwidthStats()
+    self.z_ratio = 0
+    self.prob_zr = 0
+    self.z_bw = 0
+    self.prob_zb = 0
+
+  def avg_extend_time(self):
+    if self.total_extended:
+      return self.total_extend_time/self.total_extended
+    else: return 0
+
+  def bw_ratio(self):
+    bw = self.bwstats.mean
+    if bw == 0.0: return 0
+    else: return self.bw/(1024.*bw)
 
   def current_uptime(self):
     if self.became_active_at:
@@ -105,25 +165,41 @@ class StatsRouter(TorCtl.Router):
 
   def _succeeded_per_hour(self):
     return (3600.*(self.circ_succeeded+self.strm_succeeded))/self.current_uptime()
-    
+  
+  key = """Metatroller Statistics:
+  CC=Circuits Chosen   CF=Circuits Failed     CS=Circuit Suspected
+  SC=Streams Chosen    SF=Streams Failed      SS=Streams Suspected
+  FH=Failed per Hour   SH=Suspected per Hour  ET=avg circuit Extend Time (s)
+  EB=mean BW (K)       BD=BW std Dev (K)      BR=Ratio of observed to avg BW
+  ZB=BW z-test value   PB=Probability(z-bw)   ZR=Ratio z-test value
+  PR=Prob(z-ratio)     U=Uptime (h)\n"""
+
   def __str__(self):
-    return (self.idhex+" ("+self.nickname+")\n\t"
+    return (self.idhex+" ("+self.nickname+")\n"
+    +"   CC="+str(self.circ_chosen)
       +" CF="+str(self.circ_failed)
       +" CS="+str(self.circ_suspected+self.circ_failed)
-      +" CC="+str(self.circ_chosen)
+      +" SC="+str(self.strm_chosen)
       +" SF="+str(self.strm_failed)
       +" SS="+str(self.strm_suspected+self.strm_failed)
-      +" SC="+str(self.strm_chosen)
-      +" FH="+str(round(self.failed_per_hour(),2))
-      +" SH="+str(round(self.suspected_per_hour(),2))
-      +" Up="+str(round(self.current_uptime()/3600, 1))+"h\n")
+      +" FH="+str(round(self.failed_per_hour(),1))
+      +" SH="+str(round(self.suspected_per_hour(),1))+"\n"
+    +"   ET="+str(round(self.avg_extend_time(),1))
+      +" EB="+str(round(self.bwstats.mean,1))
+      +" BD="+str(round(self.bwstats.dev,1))
+      +" ZB="+str(round(self.z_bw,1))
+      +" PB="+(str(round(self.prob_zb,3))[1:])
+      +" BR="+str(round(self.bw_ratio(),1))
+      +" ZR="+str(round(self.z_ratio,1))
+      +" PR="+(str(round(self.prob_zr,3))[1:])
+      +" U="+str(round(self.current_uptime()/3600, 1))+"\n")
 
   def sanity_check(self):
-    if self.circ_failed + self.circ_succeeded + self.circ_suspected \
-      + self.circ_uncounted != self.circ_chosen:
+    if (self.circ_failed + self.circ_succeeded + self.circ_suspected
+      + self.circ_uncounted != self.circ_chosen):
       plog("ERROR", self.nickname+" does not add up for circs")
-    if self.strm_failed + self.strm_succeeded + self.strm_suspected \
-      + self.strm_uncounted != self.strm_chosen:
+    if (self.strm_failed + self.strm_succeeded + self.strm_suspected
+      + self.strm_uncounted != self.strm_chosen):
       plog("ERROR", self.nickname+" does not add up for streams")
     def check_reasons(reasons, expected, which, rtype):
       count = 0
@@ -147,7 +223,8 @@ class StatsRouter(TorCtl.Router):
          self._suspected_per_hour()+self._succeeded_per_hour(), 2)
     chosen_tot = round(self._chosen_per_hour(), 2)
     if per_hour_tot != chosen_tot:
-      plog("ERROR", self.nickname+" has mismatch of per hour counts: "+str(per_hour_tot) +" vs "+str(chosen_tot))
+      plog("ERROR", self.nickname+" has mismatch of per hour counts: "
+                    +str(per_hour_tot) +" vs "+str(chosen_tot))
 
 class ReasonRouterList:
   "Helper class to track which reasons are in which routers."
@@ -160,14 +237,15 @@ class ReasonRouterList:
   def write_list(self, f):
     rlist = self.sort_list()
     for r in rlist:
+      susp = 0
       f.write(r.idhex+" ("+r.nickname+") Fail=")
       if self.reason in r.reason_failed:
-        f.write(str(r.reason_failed[self.reason]))
-      else: f.write("0")
+        susp = r.reason_failed[self.reason]
+      f.write(str(susp))
       f.write(" Susp=")
       if self.reason in r.reason_suspected:
-        f.write(str(r.reason_suspected[self.reason])+"\n")
-      else: f.write("0\n")
+        susp += r.reason_suspected[self.reason]
+      f.write(str(susp)+"\n")
     
   def add_r(self, r):
     self.rlist[r] = 1
@@ -221,23 +299,53 @@ class FailedRouterList(ReasonRouterList):
     return reduce(lambda x, y: x + y.reason_failed[self.reason],
             self.rlist.iterkeys(), 0)
 
+
 class StatsHandler(PathSupport.PathBuilder):
   def __init__(self, c, slmgr):
     PathBuilder.__init__(self, c, slmgr, StatsRouter)
     self.failed_reasons = {}
     self.suspect_reasons = {}
 
+  def run_zbtest(self): # Unweighted z-test
+    n = reduce(lambda x, y: x+(y.bwstats.mean > 0), self.sorted_r, 0)
+    if n == 0: return
+    avg = reduce(lambda x, y: x+y.bwstats.mean, self.sorted_r, 0)/float(n)
+    def notlambda(x, y):
+      if y.bwstats.mean <= 0: return x+0
+      else: return x+(y.bwstats.mean-avg)*(y.bwstats.mean-avg)
+    stddev = math.sqrt(reduce(notlambda, self.sorted_r, 0)/float(n))
+    for r in self.sorted_r:
+      if r.bwstats.mean > 0:
+        r.z_bw = abs((r.bwstats.mean-avg)/stddev)
+        r.prob_zb = TorUtil.zprob(-r.z_bw)
+    return (avg, stddev)
+
+  def run_zrtest(self): # Unweighted z-test
+    n = reduce(lambda x, y: x+(y.bw_ratio() > 0), self.sorted_r, 0)
+    if n == 0: return
+    avg = reduce(lambda x, y: x+y.bw_ratio(), self.sorted_r, 0)/float(n)
+    def notlambda(x, y):
+      if y.bw_ratio() <= 0: return x+0
+      else: return x+(y.bw_ratio()-avg)*(y.bw_ratio()-avg)
+    stddev = math.sqrt(reduce(notlambda, self.sorted_r, 0)/float(n))
+    for r in self.sorted_r:
+      if r.bw_ratio() > 0:
+        r.z_ratio = abs((r.bw_ratio()-avg)/stddev)
+        r.prob_zr = TorUtil.zprob(-r.z_ratio)
+    return (avg, stddev)
+
   def write_reasons(self, f, reasons, name):
-    f.write("\n\n\t------------------- "+name+" -------------------\n")
+    f.write("\n\n\t----------------- "+name+" -----------------\n")
     for rsn in reasons:
       f.write("\nReason="+rsn.reason+". Failed: "+str(rsn.total_failed())
           +", Suspected: "+str(rsn.total_suspected())+"\n")
       rsn.write_list(f)
 
   def write_routers(self, f, rlist, name):
-    f.write("\n\n\t------------------- "+name+" -------------------\n\n")
+    f.write("\n\n\t----------------- "+name+" -----------------\n\n")
     for r in rlist:
-      f.write(str(r))
+      # only print it if we've used it.
+      if r.circ_chosen+r.strm_chosen > 0: f.write(str(r))
 
   def write_stats(self, filename):
     plog("DEBUG", "Writing stats")
@@ -259,6 +367,17 @@ class StatsHandler(PathSupport.PathBuilder):
     for rsn in self.suspect_reasons.itervalues(): rsn._verify_suspected()
 
     f = file(filename, "w")
+    f.write(StatsRouter.key)
+    (avg, dev) = self.run_zbtest()
+    f.write("\n\nBW stats: u="+str(round(avg,1))+" s="+str(round(dev,1))+"\n")
+
+    (avg, dev) = self.run_zrtest()
+    f.write("BW ratio stats: u="+str(round(avg,1)) +" s="+str(round(dev,1)))
+
+    # sort+print by bandwidth
+    bw_rate = copy.copy(self.sorted_r)
+    bw_rate.sort(lambda x, y: cmp(y.bw_ratio(), x.bw_ratio()))
+    self.write_routers(f, bw_rate, "Bandwidth Ratios")
 
     # FIXME: Print out key/legend header
     failed = copy.copy(self.sorted_r)
@@ -274,18 +393,18 @@ class StatsHandler(PathSupport.PathBuilder):
     self.write_routers(f, suspected, "Suspected Counts")
 
     fail_rate = copy.copy(failed)
-    fail_rate.sort(lambda x, y:
-       cmp(y.failed_per_hour(), x.failed_per_hour()))
+    fail_rate.sort(lambda x, y: cmp(y.failed_per_hour(), x.failed_per_hour()))
     self.write_routers(f, fail_rate, "Fail Rates")
 
     suspect_rate = copy.copy(suspected)
     suspect_rate.sort(lambda x, y:
        cmp(y.suspected_per_hour(), x.suspected_per_hour()))
     self.write_routers(f, suspect_rate, "Suspect Rates")
-
+    
     # TODO: Sort by failed/selected and suspect/selected ratios
     # if we ever want to do non-uniform scanning..
 
+    # XXX: Add failed in here somehow..
     susp_reasons = self.suspect_reasons.values()
     susp_reasons.sort(lambda x, y:
        cmp(y.total_suspected(), x.total_suspected()))
@@ -297,9 +416,13 @@ class StatsHandler(PathSupport.PathBuilder):
     self.write_reasons(f, fail_reasons, "Failed Reasons")
     f.close()
 
+    # FIXME: sort+print by circ extend time
+
   def reset_stats(self):
-    for r in self.sorted_r:
-      r.reset()
+    plog("DEBUG", "Resetting stats")
+    self.suspect_reasons.clear()
+    self.failed_reasons.clear()
+    for r in self.sorted_r: r.reset()
 
   # TODO: Use stream bandwidth events to implement reputation system
   # from
@@ -316,7 +439,13 @@ class StatsHandler(PathSupport.PathBuilder):
       if c.remote_reason: rreason = c.remote_reason
       else: rreason = "NONE"
       reason = c.event_name+":"+c.status+":"+lreason+":"+rreason
-      if c.status == "FAILED":
+      if c.status == "EXTENDED":
+        delta = time.time() - self.circuits[c.circ_id].last_extended_at
+        r_ext = c.path[-1]
+        if r_ext[0] != '$': r_ext = self.name_to_key[r_ext]
+        self.routers[r_ext[1:]].total_extend_time += delta
+        self.routers[r_ext[1:]].total_extended += 1
+      elif c.status == "FAILED":
         # update selection count
         for r in self.circuits[c.circ_id].path: r.circ_chosen += 1
         
@@ -366,6 +495,7 @@ class StatsHandler(PathSupport.PathBuilder):
     PathBuilder.circ_status_event(self, c)
   
   def stream_status_event(self, s):
+    # XXX: Verify circ id matches stream.circ
     if s.strm_id in self.streams:
       # TODO: Hrmm, consider making this sane in TorCtl.
       if s.reason: lreason = s.reason
@@ -373,8 +503,8 @@ class StatsHandler(PathSupport.PathBuilder):
       if s.remote_reason: rreason = s.remote_reason
       else: rreason = "NONE"
       reason = s.event_name+":"+s.status+":"+lreason+":"+rreason+":"+self.streams[s.strm_id].kind
-      if s.status in ("DETACHED", "FAILED", "CLOSED", "SUCCEEDED") \
-          and not s.circ_id:
+      if (s.status in ("DETACHED", "FAILED", "CLOSED", "SUCCEEDED")
+          and not s.circ_id):
         # XXX: REMAPs can do this (normal). Also REASON=DESTROY (bug?)
         # Also timeouts.. Those should use the pending circ instead
         # of returning..
@@ -385,6 +515,17 @@ class StatsHandler(PathSupport.PathBuilder):
         # Update strm_chosen count
         # FIXME: use SENTRESOLVE/SENTCONNECT instead?
         for r in self.circuits[s.circ_id].path: r.strm_chosen += 1
+        
+        # Update bw stats
+        if self.streams[s.strm_id].attached_at:
+          if s.status == "DETACHED":
+            plog("WARN", str(s.strm_id)+" detached after succeeded")
+          lifespan = self.streams[s.strm_id].lifespan()
+          for r in self.streams[s.strm_id].circ.path:
+            r.bwstats.add_bw(self.streams[s.strm_id].bytes_written+
+                             self.streams[s.strm_id].bytes_read,
+                             lifespan)
+ 
         # Update failed count,reason_failed for exit
         r = self.circuits[s.circ_id].exit
         if not reason in r.reason_failed: r.reason_failed[reason] = 1
@@ -411,9 +552,19 @@ class StatsHandler(PathSupport.PathBuilder):
         # Always get both a closed and a failed.. 
         #   - Check if the circuit exists still
         # XXX: Save both closed and failed reason in stream object
+        #      and rely on a flag instead of this
         if s.circ_id in self.circuits:
           # Update strm_chosen count
           for r in self.circuits[s.circ_id].path: r.strm_chosen += 1
+
+          # Update bw stats
+          if self.streams[s.strm_id].attached_at:
+            lifespan = self.streams[s.strm_id].lifespan()
+            for r in self.streams[s.strm_id].circ.path:
+              r.bwstats.add_bw(self.streams[s.strm_id].bytes_written+
+                               self.streams[s.strm_id].bytes_read,
+                               lifespan)
+
           if lreason in ("TIMEOUT", "INTERNAL", "TORPROTOCOL" "DESTROY"):
             for r in self.circuits[s.circ_id].path[:-1]:
               r.strm_suspected += 1
@@ -428,7 +579,7 @@ class StatsHandler(PathSupport.PathBuilder):
               r.strm_uncounted += 1
             
           r = self.circuits[s.circ_id].exit
-          if lreason == "DONE":
+          if lreason == "DONE" or (lreason == "END" and rreason == "DONE"):
             r.strm_succeeded += 1
           else:
             if not reason in r.reason_failed:
@@ -491,8 +642,6 @@ def commandloop(s, c, h):
       s.write("250 NEWNYM OK\r\n")
     elif command == "GETDNSEXIT":
       pass # TODO: Takes a hostname? Or prints most recent?
-    elif command == "RESETSTATS":
-      s.write("250 OK\r\n")
     elif command == "ORDEREXITS":
       try:
         if arg:
@@ -586,8 +735,14 @@ def commandloop(s, c, h):
       h.schedule_low_prio(notlambda)
       s.write("250 OK\r\n")
     elif command == "RESETSTATS":
+      plog("DEBUG", "Got resetstats")
       def notlambda(this): this.reset_stats()
       h.schedule_low_prio(notlambda)
+      s.write("250 OK\r\n")
+    elif command == "COMMIT":
+      plog("DEBUG", "Got commit")
+      def notlambda(this): this.run_all_jobs = True
+      h.schedule_immediate(notlambda)
       s.write("250 OK\r\n")
     elif command == "HELP":
       s.write("250 OK\r\n")
@@ -619,8 +774,10 @@ def startup():
   h = StatsHandler(c, __selmgr)
   c.set_event_handler(h)
   c.set_events([TorCtl.EVENT_TYPE.STREAM,
+          TorCtl.EVENT_TYPE.BW,
           TorCtl.EVENT_TYPE.NS,
           TorCtl.EVENT_TYPE.CIRC,
+          TorCtl.EVENT_TYPE.STREAM_BW,
           TorCtl.EVENT_TYPE.NEWDESC], True)
   c.set_option("__LeaveStreamsUnattached", "1")
   return (c,h)

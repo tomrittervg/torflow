@@ -6,8 +6,8 @@ import struct
 import random
 import socket
 import copy
-import datetime
 import Queue
+import time
 from TorUtil import *
 
 __all__ = ["NodeRestrictionList", "PathRestrictionList",
@@ -124,7 +124,7 @@ class NodeGenerator:
 
 class Connection(TorCtl.Connection):
   def build_circuit(self, pathlen, path_sel):
-    circ = TorCtl.Circuit()
+    circ = Circuit()
     if pathlen == 1:
       circ.exit = path_sel.exit_chooser(circ.path)
       circ.path = [circ.exit]
@@ -136,7 +136,6 @@ class Connection(TorCtl.Connection):
       circ.exit = path_sel.exit_chooser(circ.path)
       circ.path.append(circ.exit)
       circ.cid = self.extend_circuit(0, circ.id_path())
-    circ.created_at = datetime.datetime.now()
     return circ
 
 ######################## Node Restrictions ########################
@@ -144,22 +143,22 @@ class Connection(TorCtl.Connection):
 # TODO: We still need more path support implementations
 #  - BwWeightedGenerator
 #  - NodeRestrictions:
-#  - Uptime/LongLivedPorts (Does/should hibernation count?)
-#  - Published/Updated
-#  - GeoIP
-#    - NodeCountry
-#  - PathRestrictions
-#  - Family
-#  - GeoIP:
-#    - OceanPhobicRestrictor (avoids Pacific Ocean or two atlantic crossings)
-#    or ContinentRestrictor (avoids doing more than N continent crossings)
-#    - Mathematical/empirical study of predecessor expectation
-#      - If middle node on the same continent as exit, exit learns nothing
-#      - else, exit has a bias on the continent of origin of user
-#      - Language and browser accept string determine this anyway
-#    - EchelonPhobicRestrictor
-#    - Does not cross international boundaries for client->Entry or
-#      Exit->destination hops
+#    - Uptime/LongLivedPorts (Does/should hibernation count?)
+#    - Published/Updated
+#    - GeoIP
+#      - NodeCountry
+#  - PathRestrictions:
+#    - Family
+#    - GeoIP:
+#      - OceanPhobicRestrictor (avoids Pacific Ocean or two atlantic crossings)
+#        or ContinentRestrictor (avoids doing more than N continent crossings)
+#        - Mathematical/empirical study of predecessor expectation
+#          - If middle node on the same continent as exit, exit learns nothing
+#          - else, exit has a bias on the continent of origin of user
+#            - Language and browser accept string determine this anyway
+#      - EchelonPhobicRestrictor
+#        - Does not cross international boundaries for client->Entry or
+#          Exit->destination hops
 
 class PercentileRestriction(NodeRestriction):
   """If used, this restriction MUST be FIRST in the RestrictionList."""
@@ -173,6 +172,7 @@ class PercentileRestriction(NodeRestriction):
     self.sorted_r = r_list
     self.position = 0
     
+  # XXX: Don't count non-running routers in this
   def r_is_ok(self, r):
     ret = True
     if self.position == len(self.sorted_r):
@@ -255,7 +255,6 @@ class VersionIncludeRestriction(NodeRestriction):
         return True
     return False
 
-
 class VersionExcludeRestriction(NodeRestriction):
   def __init__(self, exclude):
     self.exclude = map(TorCtl.RouterVersion, exclude)
@@ -272,7 +271,6 @@ class VersionRangeRestriction(NodeRestriction):
     if less_eq: self.less_eq = TorCtl.RouterVersion(less_eq)
     else: self.less_eq = None
   
-
   def r_is_ok(self, router):
     return (not self.gr_eq or router.version >= self.gr_eq) and \
         (not self.less_eq or router.version <= self.less_eq)
@@ -344,6 +342,7 @@ class UniformGenerator(NodeGenerator):
       self.mark_chosen(r)
       yield r
 
+# XXX: Either this is busted or the ExitPolicyRestriction is..
 class OrderedExitGenerator(NodeGenerator):
   def __init__(self, restriction_list, to_port):
     self.to_port = to_port
@@ -501,15 +500,17 @@ class SelectionManager:
     self.mid_rstr.update_routers(new_rlist)
     self.exit_rstr.update_routers(new_rlist)
 
-class Circuit(TorCtl.Circuit):
-  def __init__(self, circuit): # Promotion constructor
-    # perf shortcut since we don't care about the 'circuit' 
-    # instance after this
-    self.__dict__ = circuit.__dict__
+class Circuit:
+  def __init__(self):
+    self.cid = 0
+    self.path = [] # routers
+    self.exit = None
     self.built = False
     self.detached_cnt = 0
-    self.created_at = datetime.datetime.now()
+    self.last_extended_at = time.time()
     self.pending_streams = [] # Which stream IDs are pending us
+  
+  def id_path(self): return map(lambda r: r.idhex, self.path)
 
 class Stream:
   def __init__(self, sid, host, port, kind):
@@ -520,6 +521,13 @@ class Stream:
     self.host = host
     self.port = port
     self.kind = kind
+    self.attached_at = 0
+    self.bytes_read = 0
+    self.bytes_written = 0
+
+  # XXX: Use event timestamps
+  def lifespan(self): return time.time()-self.attached_at
+  def write_bw(self): return self.bytes_written/self.lifespan()
 
 # TODO: Make passive "PathWatcher" so people can get aggregate 
 # node reliability stats for normal usage without us attaching streams
@@ -543,6 +551,7 @@ class PathBuilder(TorCtl.EventHandler):
     self.num_circuits = 1
     self.RouterClass = RouterClass
     self.sorted_r = []
+    self.name_to_key = {}
     self.routers = {}
     self.circuits = {}
     self.streams = {}
@@ -551,76 +560,9 @@ class PathBuilder(TorCtl.EventHandler):
     self.selmgr.reconfigure(self.sorted_r)
     self.imm_jobs = Queue.Queue()
     self.low_prio_jobs = Queue.Queue()
+    self.run_all_jobs = False
     self.do_reconfigure = False
     plog("INFO", "Read "+str(len(self.sorted_r))+"/"+str(len(nslist))+" routers")
-
-  def read_routers(self, nslist):
-    routers = self.c.read_routers(nslist)
-    new_routers = []
-    for r in routers:
-      if r.idhex in self.routers:
-        if self.routers[r.idhex].nickname != r.nickname:
-          plog("NOTICE", "Router "+r.idhex+" changed names from "
-             +self.routers[r.idhex].nickname+" to "+r.nickname)
-        # Must do IN-PLACE update to keep all the refs to this router
-        # valid and current (especially for stats)
-        self.routers[r.idhex].update_to(r)
-      else:
-        rc = self.RouterClass(r)
-        self.routers[r.idhex] = rc
-        new_routers.append(rc)
-    self.sorted_r.extend(new_routers)
-    self.sorted_r.sort(lambda x, y: cmp(y.bw, x.bw))
-
-  def attach_stream_any(self, stream, badcircs):
-    # Newnym, and warn if not built plus pending
-    unattached_streams = [stream]
-    if self.new_nym:
-      self.new_nym = False
-      plog("DEBUG", "Obeying new nym")
-      for key in self.circuits.keys():
-        if len(self.circuits[key].pending_streams):
-          plog("WARN", "New nym called, destroying circuit "+str(key)
-             +" with "+str(len(self.circuits[key].pending_streams))
-             +" pending streams")
-          unattached_streams.extend(self.circuits[key].pending_streams)
-        # FIXME: Consider actually closing circ if no streams.
-        del self.circuits[key]
-      
-    for circ in self.circuits.itervalues():
-      if circ.built and circ.cid not in badcircs:
-        if circ.exit.will_exit_to(stream.host, stream.port):
-          try:
-            self.c.attach_stream(stream.sid, circ.cid)
-            stream.pending_circ = circ # Only one possible here
-            circ.pending_streams.append(stream)
-          except TorCtl.ErrorReply, e:
-            # No need to retry here. We should get the failed
-            # event for either the circ or stream next
-            plog("WARN", "Error attaching stream: "+str(e.args))
-            return
-          break
-    else:
-      circ = None
-      while circ == None:
-        self.selmgr.set_target(stream.host, stream.port)
-        try:
-          circ = Circuit(self.c.build_circuit(
-                  self.selmgr.pathlen,
-                  self.selmgr.path_selector))
-        except TorCtl.ErrorReply, e:
-          # FIXME: How come some routers are non-existant? Shouldn't
-          # we have gotten an NS event to notify us they
-          # disappeared?
-          plog("NOTICE", "Error building circ: "+str(e.args))
-      for u in unattached_streams:
-        plog("DEBUG",
-           "Attaching "+str(u.sid)+" pending build of "+str(circ.cid))
-        u.pending_circ = circ
-      circ.pending_streams.extend(unattached_streams)
-      self.circuits[circ.cid] = circ
-    self.last_exit = circ.exit
-
 
   def schedule_immediate(self, job):
     """
@@ -646,6 +588,7 @@ class PathBuilder(TorCtl.EventHandler):
       this.do_reconfigure = True
     self.schedule_immediate(notlambda)
 
+     
   def heartbeat_event(self, event):
     while not self.imm_jobs.empty():
       imm_job = self.imm_jobs.get_nowait()
@@ -655,18 +598,97 @@ class PathBuilder(TorCtl.EventHandler):
       self.selmgr.reconfigure(self.sorted_r)
       self.do_reconfigure = False
     
+    if self.run_all_jobs:
+      self.run_all_jobs = False
+      while not self.low_prio_jobs.empty():
+        imm_job = self.low_prio_jobs.get_nowait()
+        imm_job(self)
+      return
+    
     # If event is stream:NEW*/DETACHED or circ BUILT/FAILED, 
-    # don't run low prio jobs.. No need to delay streams on them.
+    # don't run low prio jobs.. No need to delay streams or delay bandwidth
+    # counting for them.
     if isinstance(event, TorCtl.CircuitEvent):
-      if event.status in ("BUILT", "FAILED"): return
+      if event.status in ("BUILT", "FAILED", "EXTENDED"):
+        return
     elif isinstance(event, TorCtl.StreamEvent):
-      if event.status in ("NEW", "NEWRESOLVE", "DETACHED"): return
+      if event.status in ("NEW", "NEWRESOLVE", "DETACHED", "FAILED", "CLOSED"):
+        return
     
     # Do the low prio jobs one at a time in case a 
     # higher priority event is queued   
     if not self.low_prio_jobs.empty():
       delay_job = self.low_prio_jobs.get_nowait()
       delay_job(self)
+
+  def read_routers(self, nslist):
+    routers = self.c.read_routers(nslist)
+    new_routers = []
+    for r in routers:
+      self.name_to_key[r.nickname] = "$"+r.idhex
+      if r.idhex in self.routers:
+        if self.routers[r.idhex].nickname != r.nickname:
+          plog("NOTICE", "Router "+r.idhex+" changed names from "
+             +self.routers[r.idhex].nickname+" to "+r.nickname)
+        # Must do IN-PLACE update to keep all the refs to this router
+        # valid and current (especially for stats)
+        self.routers[r.idhex].update_to(r)
+      else:
+        rc = self.RouterClass(r)
+        self.routers[rc.idhex] = rc
+        new_routers.append(rc)
+    self.sorted_r.extend(new_routers)
+    self.sorted_r.sort(lambda x, y: cmp(y.bw, x.bw))
+
+  def attach_stream_any(self, stream, badcircs):
+    # Newnym, and warn if not built plus pending
+    unattached_streams = [stream]
+    if self.new_nym:
+      self.new_nym = False
+      plog("DEBUG", "Obeying new nym")
+      for key in self.circuits.keys():
+        if len(self.circuits[key].pending_streams):
+          plog("WARN", "New nym called, destroying circuit "+str(key)
+             +" with "+str(len(self.circuits[key].pending_streams))
+             +" pending streams")
+          unattached_streams.extend(self.circuits[key].pending_streams)
+        # FIXME: Consider actually closing circ if no streams.
+        # XXX: Circ chosen&failed count before doing this?
+        del self.circuits[key]
+      
+    for circ in self.circuits.itervalues():
+      if circ.built and circ.cid not in badcircs:
+        if circ.exit.will_exit_to(stream.host, stream.port):
+          try:
+            self.c.attach_stream(stream.sid, circ.cid)
+            stream.pending_circ = circ # Only one possible here
+            circ.pending_streams.append(stream)
+          except TorCtl.ErrorReply, e:
+            # No need to retry here. We should get the failed
+            # event for either the circ or stream next
+            plog("WARN", "Error attaching stream: "+str(e.args))
+            return
+          break
+    else:
+      circ = None
+      while circ == None:
+        self.selmgr.set_target(stream.host, stream.port)
+        try:
+          circ = self.c.build_circuit(
+                  self.selmgr.pathlen,
+                  self.selmgr.path_selector)
+        except TorCtl.ErrorReply, e:
+          # FIXME: How come some routers are non-existant? Shouldn't
+          # we have gotten an NS event to notify us they
+          # disappeared?
+          plog("NOTICE", "Error building circ: "+str(e.args))
+      for u in unattached_streams:
+        plog("DEBUG",
+           "Attaching "+str(u.sid)+" pending build of "+str(circ.cid))
+        u.pending_circ = circ
+      circ.pending_streams.extend(unattached_streams)
+      self.circuits[circ.cid] = circ
+    self.last_exit = circ.exit
 
   def circ_status_event(self, c):
     output = [c.event_name, str(c.circ_id), c.status]
@@ -678,7 +700,9 @@ class PathBuilder(TorCtl.EventHandler):
     if c.circ_id not in self.circuits:
       plog("DEBUG", "Ignoring circ " + str(c.circ_id))
       return
-    if c.status == "FAILED" or c.status == "CLOSED":
+    if c.status == "EXTENDED":
+      self.circuits[c.circ_id].last_extended_at = time.time()
+    elif c.status == "FAILED" or c.status == "CLOSED":
       circ = self.circuits[c.circ_id]
       del self.circuits[c.circ_id]
       for stream in circ.pending_streams:
@@ -720,7 +744,6 @@ class PathBuilder(TorCtl.EventHandler):
         plog("WARN", "Stream "+str(s.strm_id)+" detached from no circuit!")
       else:
         self.streams[s.strm_id].detached_from.append(s.circ_id)
-
       
       if self.streams[s.strm_id] in self.streams[s.strm_id].pending_circ.pending_streams:
         self.streams[s.strm_id].pending_circ.pending_streams.remove(self.streams[s.strm_id])
@@ -734,6 +757,7 @@ class PathBuilder(TorCtl.EventHandler):
       self.streams[s.strm_id].circ = self.streams[s.strm_id].pending_circ
       self.streams[s.strm_id].circ.pending_streams.remove(self.streams[s.strm_id])
       self.streams[s.strm_id].pending_circ = None
+      self.streams[s.strm_id].attached_at = time.time()
     elif s.status == "FAILED" or s.status == "CLOSED":
       # FIXME stats
       if s.strm_id not in self.streams:
@@ -748,7 +772,8 @@ class PathBuilder(TorCtl.EventHandler):
       # (FIXME: be careful about double stats)
       if s.status == "FAILED":
         # Avoid busted circuits that will not resolve or carry
-        # traffic. FIXME: Failed count before doing this?
+        # traffic. 
+        # XXX: Circ chosen&failed count before doing this?
         if s.circ_id in self.circuits: del self.circuits[s.circ_id]
         else: plog("WARN","Failed stream on unknown circ "+str(s.circ_id))
         return
@@ -767,7 +792,16 @@ class PathBuilder(TorCtl.EventHandler):
         self.streams[s.strm_id].host = s.target_host
         self.streams[s.strm_id].port = s.target_port
 
-
+  def stream_bw_event(self, s):
+    output = [s.event_name, str(s.strm_id), str(s.bytes_read),
+              str(s.bytes_written)]
+    plog("DEBUG", " ".join(output))
+    if not s.strm_id in self.streams:
+      plog("WARN", "BW event for unknown stream id: "+str(s.strm_id))
+    else:
+      self.streams[s.strm_id].bytes_read += s.bytes_read
+      self.streams[s.strm_id].bytes_written += s.bytes_written
+ 
   def ns_event(self, n):
     self.read_routers(n.nslist)
     plog("DEBUG", "Read " + str(len(n.nslist))+" NS => " 
@@ -780,6 +814,8 @@ class PathBuilder(TorCtl.EventHandler):
     plog("DEBUG", "Read " + str(len(d.idlist))+" Desc => " 
        + str(len(self.sorted_r)) + " routers")
     self.selmgr.update_routers(self.sorted_r)
+
+  def bandwidth_event(self, b): pass # For heartbeat only..
 
 ########################## Unit tests ##########################
 
