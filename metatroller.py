@@ -23,7 +23,6 @@ from TorCtl.PathSupport import *
 mt_version = "0.1.0-dev"
 
 # TODO: Move these to config file
-# TODO: Option to ignore guard flag
 control_host = "127.0.0.1"
 control_port = 9061
 meta_host = "127.0.0.1"
@@ -308,12 +307,13 @@ class StatsHandler(PathSupport.PathBuilder):
 
   def run_zbtest(self): # Unweighted z-test
     n = reduce(lambda x, y: x+(y.bwstats.mean > 0), self.sorted_r, 0)
-    if n == 0: return
+    if n == 0: return (0, 0)
     avg = reduce(lambda x, y: x+y.bwstats.mean, self.sorted_r, 0)/float(n)
     def notlambda(x, y):
       if y.bwstats.mean <= 0: return x+0
       else: return x+(y.bwstats.mean-avg)*(y.bwstats.mean-avg)
     stddev = math.sqrt(reduce(notlambda, self.sorted_r, 0)/float(n))
+    if not stddev: return (avg, stddev)
     for r in self.sorted_r:
       if r.bwstats.mean > 0:
         r.z_bw = abs((r.bwstats.mean-avg)/stddev)
@@ -322,12 +322,13 @@ class StatsHandler(PathSupport.PathBuilder):
 
   def run_zrtest(self): # Unweighted z-test
     n = reduce(lambda x, y: x+(y.bw_ratio() > 0), self.sorted_r, 0)
-    if n == 0: return
+    if n == 0: return (0, 0)
     avg = reduce(lambda x, y: x+y.bw_ratio(), self.sorted_r, 0)/float(n)
     def notlambda(x, y):
       if y.bw_ratio() <= 0: return x+0
       else: return x+(y.bw_ratio()-avg)*(y.bw_ratio()-avg)
     stddev = math.sqrt(reduce(notlambda, self.sorted_r, 0)/float(n))
+    if not stddev: return (avg, stddev)
     for r in self.sorted_r:
       if r.bw_ratio() > 0:
         r.z_ratio = abs((r.bw_ratio()-avg)/stddev)
@@ -404,7 +405,7 @@ class StatsHandler(PathSupport.PathBuilder):
     # TODO: Sort by failed/selected and suspect/selected ratios
     # if we ever want to do non-uniform scanning..
 
-    # XXX: Add failed in here somehow..
+    # FIXME: Add failed in here somehow..
     susp_reasons = self.suspect_reasons.values()
     susp_reasons.sort(lambda x, y:
        cmp(y.total_suspected(), x.total_suspected()))
@@ -440,7 +441,7 @@ class StatsHandler(PathSupport.PathBuilder):
       else: rreason = "NONE"
       reason = c.event_name+":"+c.status+":"+lreason+":"+rreason
       if c.status == "EXTENDED":
-        delta = time.time() - self.circuits[c.circ_id].last_extended_at
+        delta = c.arrived_at - self.circuits[c.circ_id].last_extended_at
         r_ext = c.path[-1]
         if r_ext[0] != '$': r_ext = self.name_to_key[r_ext]
         self.routers[r_ext[1:]].total_extend_time += delta
@@ -495,7 +496,6 @@ class StatsHandler(PathSupport.PathBuilder):
     PathBuilder.circ_status_event(self, c)
   
   def stream_status_event(self, s):
-    # XXX: Verify circ id matches stream.circ
     if s.strm_id in self.streams:
       # TODO: Hrmm, consider making this sane in TorCtl.
       if s.reason: lreason = s.reason
@@ -511,6 +511,15 @@ class StatsHandler(PathSupport.PathBuilder):
         plog("WARN", "Stream "+str(s.strm_id)+" detached from no circuit!")
         PathBuilder.stream_status_event(self, s)
         return
+
+      # Verify circ id matches stream.circ
+      if s.status not in ("NEW" or "NEWRESOLVE"):
+        circ = self.streams[s.strm_id].circ
+        if not circ: circ = self.streams[s.strm_id].pending_circ
+        if circ and circ.cid != s.circ_id:
+          plog("WARN", str(s.strm_id) + " has mismatch of "
+                +str(s.circ_id)+" v "+str(circ.cid))
+
       if s.status == "DETACHED" or s.status == "FAILED":
         # Update strm_chosen count
         # FIXME: use SENTRESOLVE/SENTCONNECT instead?
@@ -520,11 +529,10 @@ class StatsHandler(PathSupport.PathBuilder):
         if self.streams[s.strm_id].attached_at:
           if s.status == "DETACHED":
             plog("WARN", str(s.strm_id)+" detached after succeeded")
-          lifespan = self.streams[s.strm_id].lifespan()
+          lifespan = self.streams[s.strm_id].lifespan(s.arrived_at)
           for r in self.streams[s.strm_id].circ.path:
             r.bwstats.add_bw(self.streams[s.strm_id].bytes_written+
-                             self.streams[s.strm_id].bytes_read,
-                             lifespan)
+                             self.streams[s.strm_id].bytes_read, lifespan)
  
         # Update failed count,reason_failed for exit
         r = self.circuits[s.circ_id].exit
@@ -559,11 +567,10 @@ class StatsHandler(PathSupport.PathBuilder):
 
           # Update bw stats
           if self.streams[s.strm_id].attached_at:
-            lifespan = self.streams[s.strm_id].lifespan()
+            lifespan = self.streams[s.strm_id].lifespan(s.arrived_at)
             for r in self.streams[s.strm_id].circ.path:
               r.bwstats.add_bw(self.streams[s.strm_id].bytes_written+
-                               self.streams[s.strm_id].bytes_read,
-                               lifespan)
+                               self.streams[s.strm_id].bytes_read, lifespan)
 
           if lreason in ("TIMEOUT", "INTERNAL", "TORPROTOCOL" "DESTROY"):
             for r in self.circuits[s.circ_id].path[:-1]:
@@ -593,7 +600,7 @@ class StatsHandler(PathSupport.PathBuilder):
 
   def ns_event(self, n):
     PathBuilder.ns_event(self, n)
-    now = time.time()
+    now = n.arrived_at
     for ns in n.nslist:
       if not ns.idhex in self.routers:
         continue

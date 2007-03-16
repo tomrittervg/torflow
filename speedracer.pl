@@ -16,11 +16,12 @@ my $CURL_PROXY = "--socks5 $SOCKS_PROXY";
 
 # http://bitter.stalin.se/torfile
 # http://www.sigma.su.se/~who/torfile
-my $URL = "http://130.237.152.195/~who/torfile"; 
-my $COUNT = 400;
+my $URL = "http://bitter.stalin.se/torfile1"; 
+my $COUNT = 500;
 my $START_PCT = 0;
-my $STOP_PCT = 21;
-my $PCT_STEP = 7;
+my $STOP_PCT = 20;
+my $PCT_STEP = 5;
+my $DOUBLE_FETCH = 0;
 
 my $LOG_LEVEL = "DEBUG";
 my %log_levels = ("DEBUG", 0, "INFO", 1, "NOTICE", 2, "WARN", 3, "ERROR", 4);
@@ -136,41 +137,47 @@ sub speedrace
         } while($ret != 0 || $delta_build >= 550.0);
 
         $build_exit = query_exit($mcp);
+        $fetch_exit = $build_exit;
 
         plog "DEBUG", "Got 1st via $build_exit\n";
 
         # Now do it for real
-        
-        do {
-            $i++;
-            $t0 = [gettimeofday()];
-            $ret = 
+        if($DOUBLE_FETCH) {
+            do {
+                $i++;
+                $t0 = [gettimeofday()];
+                $ret = 
 #                system("tsocks wget -U \"$USER_AGENT\" \'$URL\' -O - >& /dev/null");
-                system("curl $CURL_PROXY -m 600 -A \"$USER_AGENT\" \'$URL\' >& /dev/null");
+                    system("curl $CURL_PROXY -m 600 -A \"$USER_AGENT\" \'$URL\' >& /dev/null");
 
-            if($ret == 2) {
-                plog "NOTICE", "wget got Sigint. Dying\n";
-                exit;
+                if($ret == 2) {
+                    plog "NOTICE", "wget got Sigint. Dying\n";
+                    exit;
+                }
+                plog "NOTICE", "wget failed with ret=$ret.. Retrying with clock still running\n" 
+                    if($ret != 0);
+                $delta_fetch = tv_interval $t0;
+                plog "NOTICE", "Timer exceeded limit: $delta_fetch\n"
+                    if($delta_fetch >= 550.0);
+            } while($ret != 0 || $delta_fetch >= 550.0);
+
+            $fetch_exit = query_exit($mcp);
+
+            if($fetch_exit eq $build_exit) {
+                $tot_build_time += $delta_build;
+                push(@build_times, $delta_build);
+                plog "DEBUG", "$skip-$pct% circuit build+fetch took $delta_build for $fetch_exit\n";
+
+                push(@fetch_times, $delta_fetch);
+                $tot_fetch_time += $delta_fetch;
+                plog "DEBUG", "$skip-$pct% fetch took $delta_fetch for $fetch_exit\n";
+            } else {
+                plog "NOTICE", "Ignoring strange exit swap $build_exit -> $fetch_exit. Circuit failure?\n";
             }
-            plog "NOTICE", "wget failed with ret=$ret.. Retrying with clock still running\n" 
-                if($ret != 0);
-            $delta_fetch = tv_interval $t0;
-            plog "NOTICE", "Timer exceeded limit: $delta_fetch\n"
-                if($delta_fetch >= 550.0);
-        } while($ret != 0 || $delta_fetch >= 550.0);
-
-        $fetch_exit = query_exit($mcp);
-
-        if($fetch_exit eq $build_exit) {
+        } else {
             $tot_build_time += $delta_build;
             push(@build_times, $delta_build);
             plog "DEBUG", "$skip-$pct% circuit build+fetch took $delta_build for $fetch_exit\n";
-
-            push(@fetch_times, $delta_fetch);
-            $tot_fetch_time += $delta_fetch;
-            plog "DEBUG", "$skip-$pct% fetch took $delta_fetch for $fetch_exit\n";
-        } else {
-            plog "NOTICE", "Ignoring strange exit swap $build_exit -> $fetch_exit. Circuit failure?\n";
         }
     }
     my $avg_build_time = $tot_build_time/($#build_times+1);
@@ -180,17 +187,19 @@ sub speedrace
             ($_ - $avg_build_time)*($_ - $avg_build_time);
     }
     $build_dev = sqrt($build_dev / ($#build_times+1));
-    
-    my $avg_fetch_time = $tot_fetch_time/($#fetch_times+1);
-    my $fetch_dev = 0;
-    foreach(@fetch_times) {
-        $fetch_dev += 
-            ($_ - $avg_fetch_time)*($_ - $avg_fetch_time);
+   
+    if($DOUBLE_FETCH) { 
+        my $avg_fetch_time = $tot_fetch_time/($#fetch_times+1);
+        my $fetch_dev = 0;
+        foreach(@fetch_times) {
+            $fetch_dev += 
+                ($_ - $avg_fetch_time)*($_ - $avg_fetch_time);
+        }
+        $fetch_dev = sqrt($fetch_dev / ($#fetch_times+1));
+        plog "INFO", "RANGE $skip-$pct " . ($#fetch_times+1) . " fetches: avg=$avg_fetch_time, dev=$fetch_dev\n";
     }
-    $fetch_dev = sqrt($fetch_dev / ($#fetch_times+1));
     plog "INFO", "RANGE $skip-$pct " . ($#build_times+1) . " build+fetches: avg=$avg_build_time, dev=$build_dev\n";
-    plog "INFO", "RANGE $skip-$pct " . ($#fetch_times+1) . " fetches: avg=$avg_fetch_time, dev=$fetch_dev\n";
-    plog "INFO", "  " . ($COUNT*2) . " fetches took $i tries\n";
+    plog "INFO", "  " . ($COUNT*($DOUBLE_FETCH+1)) . " fetches took $i tries\n";
 }
 
 sub main

@@ -24,38 +24,24 @@ __all__ = ["NodeRestrictionList", "PathRestrictionList",
 class NodeRestriction:
   "Interface for node restriction policies"
   def r_is_ok(self, r): return True  
-  def reset(self, router_list): pass
 
 class NodeRestrictionList:
-  def __init__(self, restrictions, sorted_rlist):
+  def __init__(self, restrictions):
     self.restrictions = restrictions
-    self.update_routers(sorted_rlist)
 
-  def __check_r(self, r):
-    for rst in self.restrictions:
-      if not rst.r_is_ok(r): return False
-    self.restricted_bw += r.bw
+  def r_is_ok(self, r):
+    for rs in self.restrictions:
+      if not rs.r_is_ok(r): return False
     return True
-
-  def update_routers(self, sorted_rlist):
-    self._sorted_r = sorted_rlist
-    self.restricted_bw = 0
-    for rs in self.restrictions: rs.reset(sorted_rlist)
-    self.restricted_r = filter(self.__check_r, self._sorted_r)
 
   def add_restriction(self, restr):
     self.restrictions.append(restr)
-    for r in self.restricted_r:
-      if not restr.r_is_ok(r):
-        self.restricted_r.remove(r)
-        self.restricted_bw -= r.bw
-  
-  # XXX: This does not collapse meta restrictions..
+
+  # TODO: This does not collapse meta restrictions..
   def del_restriction(self, RestrictionClass):
     self.restrictions = filter(
         lambda r: not isinstance(r, RestrictionClass),
           self.restrictions)
-    self.update_routers(self._sorted_r)
 
 class PathRestriction:
   "Interface for path restriction policies"
@@ -96,28 +82,18 @@ class PathRestrictionList:
 
 class NodeGenerator:
   "Interface for node generation"
-  def __init__(self, restriction_list):
-    self.restriction_list = restriction_list
+  def __init__(self, sorted_r, rstr_list):
+    self.rstr_list = rstr_list # Check me before you yield!
+    self.sorted_r = sorted_r
     self.rewind()
 
   def rewind(self):
-    # TODO: Hrmm... Is there any way to handle termination other 
-    # than to make a list of routers that we pop from? Random generators 
-    # will not terminate if no node matches the selector without this..
-    # Not so much an issue now, but in a few years, the Tor network
-    # will be large enough that having all these list copies will
-    # be obscene... Possible candidate for a python list comprehension
-    self.routers = copy.copy(self.restriction_list.restricted_r)
-    self.bw = self.restriction_list.restricted_bw
+    self.routers = copy.copy(self.sorted_r)
 
   def mark_chosen(self, r):
     self.routers.remove(r)
-    self.bw -= r.bw
 
   def all_chosen(self):
-    if not self.routers and self.bw or not self.bw and self.routers:
-      plog("WARN", str(len(self.routers))+" routers left but bw="
-         +str(self.bw))
     return not self.routers
 
   def next_r(self): raise NotImplemented()
@@ -161,34 +137,19 @@ class Connection(TorCtl.Connection):
 #          Exit->destination hops
 
 class PercentileRestriction(NodeRestriction):
-  """If used, this restriction MUST be FIRST in the RestrictionList."""
   def __init__(self, pct_skip, pct_fast, r_list):
     self.pct_fast = pct_fast
     self.pct_skip = pct_skip
     self.sorted_r = r_list
-    self.position = 0
 
-  def reset(self, r_list):
-    self.sorted_r = r_list
-    self.position = 0
-    
-  # XXX: Don't count non-running routers in this
   def r_is_ok(self, r):
-    ret = True
-    if self.position == len(self.sorted_r):
-      self.position = 0
-      plog("WARN", "Resetting PctFastRestriction")
-    if self.position != self.sorted_r.index(r): # XXX expensive?
-      plog("WARN", "Router"+r.nickname+" at mismatched index: "
-             +self.position+" vs "+self.sorted_r.index(r))
+    # Hrmm.. technically we shouldn't count non-running routers in this..
+    # but that is tricky to do efficiently
     
-    if self.position < len(self.sorted_r)*self.pct_skip/100:
-      ret = False
-    elif self.position > len(self.sorted_r)*self.pct_fast/100:
-      ret = False
+    if r.list_rank < len(self.sorted_r)*self.pct_skip/100: return False
+    elif r.list_rank > len(self.sorted_r)*self.pct_fast/100: return False
     
-    self.position += 1
-    return ret
+    return True
     
 class OSRestriction(NodeRestriction):
   def __init__(self, ok, bad=[]):
@@ -206,6 +167,7 @@ class OSRestriction(NodeRestriction):
     if self.bad: return True
 
 class ConserveExitsRestriction(NodeRestriction):
+  # FIXME: Make this adaptive
   def r_is_ok(self, r): return not "Exit" in r.flags
 
 class FlagsRestriction(NodeRestriction):
@@ -283,7 +245,7 @@ class ExitPolicyRestriction(NodeRestriction):
   def r_is_ok(self, r): return r.will_exit_to(self.to_ip, self.to_port)
 
 class MetaNodeRestriction(NodeRestriction):
-  # XXX: these should collapse the restriction and return a new
+  # TODO: these should collapse the restriction and return a new
   # instance for re-insertion (or None)
   def next_rstr(self): raise NotImplemented()
   def del_restriction(self, RestrictionClass): raise NotImplemented()
@@ -340,20 +302,18 @@ class UniformGenerator(NodeGenerator):
     while not self.all_chosen():
       r = random.choice(self.routers)
       self.mark_chosen(r)
-      yield r
+      if self.rstr_list.r_is_ok(r): yield r
 
-# XXX: Either this is busted or the ExitPolicyRestriction is..
 class OrderedExitGenerator(NodeGenerator):
-  def __init__(self, restriction_list, to_port):
+  def __init__(self, to_port, sorted_r, rstr_list):
     self.to_port = to_port
     self.next_exit_by_port = {}
-    NodeGenerator.__init__(self, restriction_list)
+    NodeGenerator.__init__(self, sorted_r, rstr_list)
 
   def rewind(self):
-    NodeGenerator.rewind(self)
     if self.to_port not in self.next_exit_by_port or not self.next_exit_by_port[self.to_port]:
       self.next_exit_by_port[self.to_port] = 0
-      self.last_idx = len(self.routers)
+      self.last_idx = len(self.sorted_r)
     else:
       self.last_idx = self.next_exit_by_port[self.to_port]
 
@@ -367,11 +327,11 @@ class OrderedExitGenerator(NodeGenerator):
 
   def next_r(self):
     while True: # A do..while would be real nice here..
-      if self.next_exit_by_port[self.to_port] >= len(self.routers):
+      if self.next_exit_by_port[self.to_port] >= len(self.sorted_r):
         self.next_exit_by_port[self.to_port] = 0
-      r = self.routers[self.next_exit_by_port[self.to_port]]
+      r = self.sorted_r[self.next_exit_by_port[self.to_port]]
       self.next_exit_by_port[self.to_port] += 1
-      yield r
+      if self.rstr_list.r_is_ok(r): yield r
       if self.last_idx == self.next_exit_by_port[self.to_port]:
         break
 
@@ -438,35 +398,35 @@ class SelectionManager:
 
   def reconfigure(self, sorted_r):
     if self.use_all_exits:
-      self.path_rstr = PathRestrictionList([])
+      self.path_rstr = PathRestrictionList([UniqueRestriction()])
     else:
       self.path_rstr = PathRestrictionList(
            [Subnet16Restriction(), UniqueRestriction()])
+  
+    if self.use_guards: entry_flags = ["Guard", "Valid", "Running"]
+    else: entry_flags = ["Valid", "Running"]
       
-    self.entry_rstr = NodeRestrictionList(
-      [
-       PercentileRestriction(self.percent_skip, self.percent_fast,
-        sorted_r),
+    entry_rstr = NodeRestrictionList(
+      [PercentileRestriction(self.percent_skip, self.percent_fast, sorted_r),
        ConserveExitsRestriction(),
-       FlagsRestriction(["Guard", "Valid", "Running"], [])
-       ], sorted_r)
-    self.mid_rstr = NodeRestrictionList(
-      [PercentileRestriction(self.percent_skip, self.percent_fast,
-        sorted_r),
+       FlagsRestriction(entry_flags, [])]
+    )
+    mid_rstr = NodeRestrictionList(
+      [PercentileRestriction(self.percent_skip, self.percent_fast, sorted_r),
        ConserveExitsRestriction(),
-       FlagsRestriction(["Valid", "Running"], [])], sorted_r)
-
+       FlagsRestriction(["Running"], [])]
+    )
     if self.use_all_exits:
       self.exit_rstr = NodeRestrictionList(
-        [FlagsRestriction(["Valid", "Running"], ["BadExit"])], sorted_r)
+        [FlagsRestriction(["Valid", "Running"], ["BadExit"])])
     else:
       self.exit_rstr = NodeRestrictionList(
-        [PercentileRestriction(self.percent_skip, self.percent_fast,
-           sorted_r),
-         FlagsRestriction(["Valid", "Running"], ["BadExit"])],
-         sorted_r)
+        [PercentileRestriction(self.percent_skip, self.percent_fast, sorted_r),
+         FlagsRestriction(["Valid", "Running"], ["BadExit"])])
 
     if self.exit_name:
+      self.exit_rstr.del_restriction(IdHexRestriction)
+      self.exit_rstr.del_restriction(NickRestriction)
       if self.exit_name[0] == '$':
         self.exit_rstr.add_restriction(IdHexRestriction(self.exit_name))
       else:
@@ -478,14 +438,14 @@ class SelectionManager:
         exitgen = self.__ordered_exit_gen
       else:
         exitgen = self.__ordered_exit_gen = \
-          OrderedExitGenerator(self.exit_rstr, 80)
+          OrderedExitGenerator(80, sorted_r, self.exit_rstr)
     else:
-      exitgen = UniformGenerator(self.exit_rstr)
+      exitgen = UniformGenerator(sorted_r, self.exit_rstr)
 
     if self.uniform:
       self.path_selector = PathSelector(
-         UniformGenerator(self.entry_rstr),
-         UniformGenerator(self.mid_rstr),
+         UniformGenerator(sorted_r, entry_rstr),
+         UniformGenerator(sorted_r, mid_rstr),
          exitgen, self.path_rstr)
     else:
       raise NotImplemented()
@@ -495,17 +455,13 @@ class SelectionManager:
     self.exit_rstr.add_restriction(ExitPolicyRestriction(ip, port))
     if self.__ordered_exit_gen: self.__ordered_exit_gen.set_port(port)
 
-  def update_routers(self, new_rlist):
-    self.entry_rstr.update_routers(new_rlist)
-    self.mid_rstr.update_routers(new_rlist)
-    self.exit_rstr.update_routers(new_rlist)
-
 class Circuit:
   def __init__(self):
     self.cid = 0
     self.path = [] # routers
     self.exit = None
     self.built = False
+    self.dirty = False
     self.detached_cnt = 0
     self.last_extended_at = time.time()
     self.pending_streams = [] # Which stream IDs are pending us
@@ -525,9 +481,7 @@ class Stream:
     self.bytes_read = 0
     self.bytes_written = 0
 
-  # XXX: Use event timestamps
-  def lifespan(self): return time.time()-self.attached_at
-  def write_bw(self): return self.bytes_written/self.lifespan()
+  def lifespan(self, now): return now-self.attached_at
 
 # TODO: Make passive "PathWatcher" so people can get aggregate 
 # node reliability stats for normal usage without us attaching streams
@@ -606,13 +560,12 @@ class PathBuilder(TorCtl.EventHandler):
       return
     
     # If event is stream:NEW*/DETACHED or circ BUILT/FAILED, 
-    # don't run low prio jobs.. No need to delay streams or delay bandwidth
-    # counting for them.
+    # don't run low prio jobs.. No need to delay streams for them.
     if isinstance(event, TorCtl.CircuitEvent):
-      if event.status in ("BUILT", "FAILED", "EXTENDED"):
+      if event.status in ("BUILT", "FAILED"):
         return
     elif isinstance(event, TorCtl.StreamEvent):
-      if event.status in ("NEW", "NEWRESOLVE", "DETACHED", "FAILED", "CLOSED"):
+      if event.status in ("NEW", "NEWRESOLVE", "DETACHED"):
         return
     
     # Do the low prio jobs one at a time in case a 
@@ -639,6 +592,7 @@ class PathBuilder(TorCtl.EventHandler):
         new_routers.append(rc)
     self.sorted_r.extend(new_routers)
     self.sorted_r.sort(lambda x, y: cmp(y.bw, x.bw))
+    for i in xrange(len(self.sorted_r)): self.sorted_r[i].list_rank = i
 
   def attach_stream_any(self, stream, badcircs):
     # Newnym, and warn if not built plus pending
@@ -653,11 +607,10 @@ class PathBuilder(TorCtl.EventHandler):
              +" pending streams")
           unattached_streams.extend(self.circuits[key].pending_streams)
         # FIXME: Consider actually closing circ if no streams.
-        # XXX: Circ chosen&failed count before doing this?
-        del self.circuits[key]
+        self.circuits[key].dirty = True
       
     for circ in self.circuits.itervalues():
-      if circ.built and circ.cid not in badcircs:
+      if circ.built and not circ.dirty and circ.cid not in badcircs:
         if circ.exit.will_exit_to(stream.host, stream.port):
           try:
             self.c.attach_stream(stream.sid, circ.cid)
@@ -671,8 +624,8 @@ class PathBuilder(TorCtl.EventHandler):
           break
     else:
       circ = None
+      self.selmgr.set_target(stream.host, stream.port)
       while circ == None:
-        self.selmgr.set_target(stream.host, stream.port)
         try:
           circ = self.c.build_circuit(
                   self.selmgr.pathlen,
@@ -701,7 +654,7 @@ class PathBuilder(TorCtl.EventHandler):
       plog("DEBUG", "Ignoring circ " + str(c.circ_id))
       return
     if c.status == "EXTENDED":
-      self.circuits[c.circ_id].last_extended_at = time.time()
+      self.circuits[c.circ_id].last_extended_at = c.arrived_at
     elif c.status == "FAILED" or c.status == "CLOSED":
       circ = self.circuits[c.circ_id]
       del self.circuits[c.circ_id]
@@ -757,7 +710,7 @@ class PathBuilder(TorCtl.EventHandler):
       self.streams[s.strm_id].circ = self.streams[s.strm_id].pending_circ
       self.streams[s.strm_id].circ.pending_streams.remove(self.streams[s.strm_id])
       self.streams[s.strm_id].pending_circ = None
-      self.streams[s.strm_id].attached_at = time.time()
+      self.streams[s.strm_id].attached_at = s.arrived_at
     elif s.status == "FAILED" or s.status == "CLOSED":
       # FIXME stats
       if s.strm_id not in self.streams:
@@ -773,8 +726,7 @@ class PathBuilder(TorCtl.EventHandler):
       if s.status == "FAILED":
         # Avoid busted circuits that will not resolve or carry
         # traffic. 
-        # XXX: Circ chosen&failed count before doing this?
-        if s.circ_id in self.circuits: del self.circuits[s.circ_id]
+        if s.circ_id in self.circuits: self.circuits[s.circ_id].dirty = True
         else: plog("WARN","Failed stream on unknown circ "+str(s.circ_id))
         return
 
@@ -806,14 +758,12 @@ class PathBuilder(TorCtl.EventHandler):
     self.read_routers(n.nslist)
     plog("DEBUG", "Read " + str(len(n.nslist))+" NS => " 
        + str(len(self.sorted_r)) + " routers")
-    self.selmgr.update_routers(self.sorted_r)
   
   def new_desc_event(self, d):
     for i in d.idlist: # Is this too slow?
       self.read_routers(self.c.get_network_status("id/"+i))
     plog("DEBUG", "Read " + str(len(d.idlist))+" Desc => " 
        + str(len(self.sorted_r)) + " routers")
-    self.selmgr.update_routers(self.sorted_r)
 
   def bandwidth_event(self, b): pass # For heartbeat only..
 
@@ -846,6 +796,9 @@ if __name__ == '__main__':
     if r.will_exit_to("211.11.21.22", 465):
       print r.nickname+" "+str(r.bw)
 
+  do_unit(ExitPolicyRestriction("2.11.2.2", 80), sorted_rlist,
+          lambda r: "exits to 80")
+  exit(0)
   do_unit(PercentileRestriction(0, 100, sorted_rlist), sorted_rlist,
           lambda r: "")
   do_unit(PercentileRestriction(10, 20, sorted_rlist), sorted_rlist,
@@ -867,15 +820,14 @@ if __name__ == '__main__':
   do_unit(ConserveExitsRestriction(), sorted_rlist, lambda r: " ".join(r.flags))
   do_unit(FlagsRestriction([], ["Valid"]), sorted_rlist, lambda r: " ".join(r.flags))
 
-  # XXX: Need unittest
   do_unit(IdHexRestriction("$FFCB46DB1339DA84674C70D7CB586434C4370441"),
           sorted_rlist, lambda r: r.idhex)
 
   rl =  [AtLeastNNodeRestriction([ExitPolicyRestriction("255.255.255.255", 80), ExitPolicyRestriction("255.255.255.255", 443), ExitPolicyRestriction("255.255.255.255", 6667)], 2), FlagsRestriction([], ["BadExit"])]
 
-  exit_rstr = NodeRestrictionList(rl, sorted_rlist)
+  exit_rstr = NodeRestrictionList(rl)
 
-  ug = UniformGenerator(exit_rstr)
+  ug = UniformGenerator(sorted_rlist, exit_rstr)
 
   rlist = []
   for r in ug.next_r():

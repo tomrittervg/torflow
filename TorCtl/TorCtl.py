@@ -71,17 +71,20 @@ class NetworkStatus:
 class NetworkStatusEvent:
   def __init__(self, event_name, nslist):
     self.event_name = event_name
+    self.arrived_at = 0
     self.nslist = nslist # List of NetworkStatus objects
 
 class NewDescEvent:
   def __init__(self, event_name, idlist):
     self.event_name = event_name
+    self.arrived_at = 0
     self.idlist = idlist
 
 class CircuitEvent:
   def __init__(self, event_name, circ_id, status, path, reason,
          remote_reason):
     self.event_name = event_name
+    self.arrived_at = 0
     self.circ_id = circ_id
     self.status = status
     self.path = path
@@ -92,6 +95,7 @@ class StreamEvent:
   def __init__(self, event_name, strm_id, status, circ_id, target_host,
          target_port, reason, remote_reason):
     self.event_name = event_name
+    self.arrived_at = 0
     self.strm_id = strm_id
     self.status = status
     self.circ_id = circ_id
@@ -104,6 +108,7 @@ class ORConnEvent:
   def __init__(self, event_name, status, endpoint, age, read_bytes,
          wrote_bytes, reason, ncircs):
     self.event_name = event_name
+    self.arrived_at = 0
     self.status = status
     self.endpoint = endpoint
     self.age = age
@@ -200,6 +205,7 @@ class Router:
     self.ip = struct.unpack(">I", socket.inet_aton(ip))[0]
     self.version = RouterVersion(version)
     self.os = os
+    self.list_rank = 0 # position in a sorted list of routers.
 
   def update_to(self, new):
     if self.idhex != new.idhex:
@@ -218,7 +224,7 @@ class Router:
       ret = line.check(ip, port)
       if ret != -1:
         return ret
-    plog("NOTICE", "No matching exit line for "+self.nickname)
+    plog("WARN", "No matching exit line for "+self.nickname)
     return False
    
 class Connection:
@@ -253,7 +259,7 @@ class Connection:
     self._sendLock.acquire()
     try:
       self._queue.put("CLOSE")
-      self._eventQueue.put("CLOSE")
+      self._eventQueue.put((time.time(), "CLOSE"))
       self._s.close()
       self._s = None
       self._closed = 1
@@ -286,9 +292,9 @@ class Connection:
         self._err(sys.exc_info())
         return
 
-      if isEvent: # XXX: timestamp these, and pass timestamp to EventHandler
+      if isEvent:
         if self._handler is not None:
-          self._eventQueue.put(reply)
+          self._eventQueue.put((time.time(), reply))
       else:
         cb = self._queue.get() # atomic..
         cb(reply)
@@ -322,11 +328,11 @@ class Connection:
   def _eventLoop(self):
     """DOCDOC"""
     while 1:
-      reply = self._eventQueue.get()
+      (timestamp, reply) = self._eventQueue.get()
       if reply == "CLOSE":
         return
       try:
-        self._handleFn(reply)
+        self._handleFn(timestamp, reply)
       except:
         self._err(sys.exc_info(), 1)
         return
@@ -421,9 +427,8 @@ class Connection:
         if isEvent: # Need "250 OK" if it's not an event. Otherwise, end
           return (isEvent, lines)
 
-    # XXX: Notreached
-    isEvent = (lines and lines[0][0][0] == '6')
-    return (isEvent, lines)
+    # Notreached
+    raise TorCtlError()
 
   def _doSend(self, msg):
     if self._debugFile:
@@ -700,10 +705,11 @@ class EventHandler:
       "NS" : self.ns_event
       }
 
-  def handle1(self, lines):
+  def handle1(self, timestamp, lines):
     """Dispatcher: called from Connection when an event is received."""
     for code, msg, data in lines:
       event = self.decode1(msg, data)
+      event.arrived_at = timestamp
       self.heartbeat_event(event)
       self._map1.get(event.event_name, self.unknown_event)(event)
 

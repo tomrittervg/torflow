@@ -41,7 +41,7 @@ errors_lock = thread.allocate_lock()
 key_to_name = {}
 name_to_key = {}
 
-# XXX: Move these to config file
+# TODO: Move these to config file
 control_host = "127.0.0.1"
 control_port = 9051
 max_detach = 3
