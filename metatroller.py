@@ -100,12 +100,12 @@ class StatsRouter(TorCtl.Router):
   def reset(self):
     self.circ_uncounted = 0
     self.circ_failed = 0
-    self.circ_succeeded = 0 # disjoint from failed (for verification only)
+    self.circ_succeeded = 0 # disjoint from failed
     self.circ_suspected = 0
     self.circ_chosen = 0 # above 4 should add to this
     self.strm_failed = 0 # Only exits should have these
     self.strm_succeeded = 0
-    self.strm_suspected = 0 # disjoint from failed (for verification only)
+    self.strm_suspected = 0 # disjoint from failed
     self.strm_uncounted = 0
     self.strm_chosen = 0 # above 4 should add to this
     self.reason_suspected = {}
@@ -148,6 +148,7 @@ class StatsRouter(TorCtl.Router):
   def failed_per_hour(self):
     return (3600.*(self.circ_failed+self.strm_failed))/self.current_uptime()
 
+  # XXX: Seperate suspected from failed in totals 
   def suspected_per_hour(self):
     return (3600.*(self.circ_suspected+self.strm_suspected
           +self.circ_failed+self.strm_failed))/self.current_uptime()
@@ -237,14 +238,16 @@ class ReasonRouterList:
     rlist = self.sort_list()
     for r in rlist:
       susp = 0
-      f.write(r.idhex+" ("+r.nickname+") Fail=")
+      tot_failed = r.circ_failed+r.strm_failed
+      tot_susp = tot_failed+r.circ_suspected+r.strm_suspected
+      f.write(r.idhex+" ("+r.nickname+") F=")
       if self.reason in r.reason_failed:
         susp = r.reason_failed[self.reason]
-      f.write(str(susp))
-      f.write(" Susp=")
+      f.write(str(susp)+"/"+str(tot_failed))
+      f.write(" S=")
       if self.reason in r.reason_suspected:
         susp += r.reason_suspected[self.reason]
-      f.write(str(susp)+"\n")
+      f.write(str(susp)+"/"+str(tot_susp)+"\n")
     
   def add_r(self, r):
     self.rlist[r] = 1
@@ -338,7 +341,7 @@ class StatsHandler(PathSupport.PathBuilder):
   def write_reasons(self, f, reasons, name):
     f.write("\n\n\t----------------- "+name+" -----------------\n")
     for rsn in reasons:
-      f.write("\nReason="+rsn.reason+". Failed: "+str(rsn.total_failed())
+      f.write("\n"+rsn.reason+". Failed: "+str(rsn.total_failed())
           +", Suspected: "+str(rsn.total_suspected())+"\n")
       rsn.write_list(f)
 
@@ -349,9 +352,10 @@ class StatsHandler(PathSupport.PathBuilder):
       if r.circ_chosen+r.strm_chosen > 0: f.write(str(r))
 
   def write_stats(self, filename):
+    # TODO: all this shit should be configurable. Some of it only makes
+    # sense when scanning in certain modes.
     plog("DEBUG", "Writing stats")
     # Sanity check routers
-    # TODO: all sanity checks should be turned off once its stable.
     for r in self.sorted_r: r.sanity_check()
 
     # Sanity check the router reason lists.
@@ -380,7 +384,6 @@ class StatsHandler(PathSupport.PathBuilder):
     bw_rate.sort(lambda x, y: cmp(y.bw_ratio(), x.bw_ratio()))
     self.write_routers(f, bw_rate, "Bandwidth Ratios")
 
-    # FIXME: Print out key/legend header
     failed = copy.copy(self.sorted_r)
     failed.sort(lambda x, y:
           cmp(y.circ_failed+y.strm_failed,
@@ -424,13 +427,6 @@ class StatsHandler(PathSupport.PathBuilder):
     self.suspect_reasons.clear()
     self.failed_reasons.clear()
     for r in self.sorted_r: r.reset()
-
-  # TODO: Use stream bandwidth events to implement reputation system
-  # from
-  # http://www.cs.colorado.edu/department/publications/reports/docs/CU-CS-1025-07.pdf
-  # aha! the way to detect lying nodes as a client is to test 
-  # their bandwidths in tiers.. only make circuits of nodes of 
-  # the same bandwidth.. Then look for nodes with odd avg bandwidths
 
   def circ_status_event(self, c):
     if c.circ_id in self.circuits:
@@ -494,6 +490,30 @@ class StatsHandler(PathSupport.PathBuilder):
               self.suspect_reasons[reason] = SuspectRouterList(reason)
             self.suspect_reasons[reason].add_r(r)
     PathBuilder.circ_status_event(self, c)
+
+  def count_stream_reason_failed(self, s, reason):
+    # Update failed count,reason_failed for exit
+    r = self.circuits[s.circ_id].exit
+    if not reason in r.reason_failed: r.reason_failed[reason] = 1
+    else: r.reason_failed[reason]+=1
+    r.strm_failed += 1
+    if reason not in self.failed_reasons:
+      self.failed_reasons[reason] = FailedRouterList(reason)
+    self.failed_reasons[reason].add_r(r)
+
+  def count_stream_suspects(self, s, lreason, reason):
+    if lreason in ("TIMEOUT", "INTERNAL", "TORPROTOCOL" "DESTROY"):
+      for r in self.circuits[s.circ_id].path[:-1]:
+        r.strm_suspected += 1
+        if not reason in r.reason_suspected:
+          r.reason_suspected[reason] = 1
+        else: r.reason_suspected[reason]+=1
+        if reason not in self.suspect_reasons:
+          self.suspect_reasons[reason] = SuspectRouterList(reason)
+        self.suspect_reasons[reason].add_r(r)
+    else:
+      for r in self.circuits[s.circ_id].path[:-1]:
+        r.strm_uncounted += 1
   
   def stream_status_event(self, s):
     if s.strm_id in self.streams:
@@ -519,83 +539,43 @@ class StatsHandler(PathSupport.PathBuilder):
         if circ and circ.cid != s.circ_id:
           plog("WARN", str(s.strm_id) + " has mismatch of "
                 +str(s.circ_id)+" v "+str(circ.cid))
-
-      if s.status == "DETACHED" or s.status == "FAILED":
+      
+      if s.status == "DETACHED":
+        if self.streams[s.strm_id].attached_at:
+          plog("WARN", str(s.strm_id)+" detached after succeeded")
         # Update strm_chosen count
-        # FIXME: use SENTRESOLVE/SENTCONNECT instead?
         for r in self.circuits[s.circ_id].path: r.strm_chosen += 1
-        
+        self.count_stream_suspects(s, lreason, reason)
+        self.count_stream_reason_failed(s, reason)
+      elif s.status == "FAILED":
+        # HACK. We get both failed and closed for the same stream,
+        # with different reasons. Might as well record both, since they 
+        # often differ.
+        self.streams[s.strm_id].failed_reason = reason
+      elif s.status == "CLOSED":
+        # Always get both a closed and a failed.. 
+        #   - Check if the circuit exists still
+        # Update strm_chosen count
+        for r in self.circuits[s.circ_id].path: r.strm_chosen += 1
+
         # Update bw stats
         if self.streams[s.strm_id].attached_at:
-          if s.status == "DETACHED":
-            plog("WARN", str(s.strm_id)+" detached after succeeded")
           lifespan = self.streams[s.strm_id].lifespan(s.arrived_at)
           for r in self.streams[s.strm_id].circ.path:
             r.bwstats.add_bw(self.streams[s.strm_id].bytes_written+
                              self.streams[s.strm_id].bytes_read, lifespan)
- 
-        # Update failed count,reason_failed for exit
+
+        if self.streams[s.strm_id].failed:
+          reason = self.streams[s.strm_id].failed_reason+":"+lreason+":"+rreason
+
+        self.count_stream_suspects(s, lreason, reason)
+          
         r = self.circuits[s.circ_id].exit
-        if not reason in r.reason_failed: r.reason_failed[reason] = 1
-        else: r.reason_failed[reason]+=1
-        r.strm_failed += 1
-        if reason not in self.failed_reasons:
-          self.failed_reasons[reason] = FailedRouterList(reason)
-        self.failed_reasons[reason].add_r(r)
-
-        # If reason=timeout, update suspected for all
-        if lreason in ("TIMEOUT", "INTERNAL", "TORPROTOCOL", "DESTROY"):
-          for r in self.circuits[s.circ_id].path[:-1]:
-            r.strm_suspected += 1
-            if not reason in r.reason_suspected:
-              r.reason_suspected[reason] = 1
-            else: r.reason_suspected[reason]+=1
-            if reason not in self.suspect_reasons:
-              self.suspect_reasons[reason] = SuspectRouterList(reason)
-            self.suspect_reasons[reason].add_r(r)
+        if (not self.streams[s.strm_id].failed
+          and (lreason == "DONE" or (lreason == "END" and rreason == "DONE"))):
+          r.strm_succeeded += 1
         else:
-          for r in self.circuits[s.circ_id].path[:-1]:
-            r.strm_uncounted += 1
-      elif s.status == "CLOSED":
-        # Always get both a closed and a failed.. 
-        #   - Check if the circuit exists still
-        # XXX: Save both closed and failed reason in stream object
-        #      and rely on a flag instead of this
-        if s.circ_id in self.circuits:
-          # Update strm_chosen count
-          for r in self.circuits[s.circ_id].path: r.strm_chosen += 1
-
-          # Update bw stats
-          if self.streams[s.strm_id].attached_at:
-            lifespan = self.streams[s.strm_id].lifespan(s.arrived_at)
-            for r in self.streams[s.strm_id].circ.path:
-              r.bwstats.add_bw(self.streams[s.strm_id].bytes_written+
-                               self.streams[s.strm_id].bytes_read, lifespan)
-
-          if lreason in ("TIMEOUT", "INTERNAL", "TORPROTOCOL" "DESTROY"):
-            for r in self.circuits[s.circ_id].path[:-1]:
-              r.strm_suspected += 1
-              if not reason in r.reason_suspected:
-                r.reason_suspected[reason] = 1
-              else: r.reason_suspected[reason]+=1
-              if reason not in self.suspect_reasons:
-                self.suspect_reasons[reason] = SuspectRouterList(reason)
-              self.suspect_reasons[reason].add_r(r)
-          else:
-            for r in self.circuits[s.circ_id].path[:-1]:
-              r.strm_uncounted += 1
-            
-          r = self.circuits[s.circ_id].exit
-          if lreason == "DONE" or (lreason == "END" and rreason == "DONE"):
-            r.strm_succeeded += 1
-          else:
-            if not reason in r.reason_failed:
-              r.reason_failed[reason] = 1
-            else: r.reason_failed[reason]+=1
-            r.strm_failed += 1
-            if reason not in self.failed_reasons:
-              self.failed_reasons[reason] = FailedRouterList(reason)
-            self.failed_reasons[reason].add_r(r)
+          self.count_stream_reason_failed(s, reason)
     PathBuilder.stream_status_event(self, s)
 
   def ns_event(self, n):
@@ -769,7 +749,7 @@ def listenloop(c, h):
     client = srv.accept()
     if not client: break
     thr = threading.Thread(None, lambda: commandloop(BufSock(client), c, h))
-    thr.run()
+    thr.start()
   srv.close()
 
 def startup():

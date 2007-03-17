@@ -68,6 +68,7 @@ def unescape_dots(s, translate_nl=1):
   else:
     return "\r\n".join(lines)
 
+# XXX: Exception handling
 class BufSock:
   def __init__(self, s):
     self._s = s

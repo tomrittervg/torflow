@@ -480,6 +480,8 @@ class Stream:
     self.attached_at = 0
     self.bytes_read = 0
     self.bytes_written = 0
+    self.failed = False
+    self.failed_reason = None # Cheating a little.. Only used by StatsHandler
 
   def lifespan(self, now): return now-self.attached_at
 
@@ -722,10 +724,10 @@ class PathBuilder(TorCtl.EventHandler):
 
       # We get failed and closed for each stream. OK to return 
       # and let the closed do the cleanup
-      # (FIXME: be careful about double stats)
       if s.status == "FAILED":
         # Avoid busted circuits that will not resolve or carry
         # traffic. 
+        self.streams[s.strm_id].failed = True
         if s.circ_id in self.circuits: self.circuits[s.circ_id].dirty = True
         else: plog("WARN","Failed stream on unknown circ "+str(s.circ_id))
         return
