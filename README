@@ -22,10 +22,9 @@ constraints on node and path selection.
 
 The basic structure is that the EventHandler class in TorCtl.py receives
 Tor controller events packaged into python classes. PathSupport.py
-provides an additional class that extends from EventHandler called
-PathBuilder that handles circuit construction and stream attachment
-subject to policies defined by NodeRestrictor and PathRestrictor
-implementations.
+provides a PathBuilder class that extends from EventHandler that handles
+circuit construction and stream attachment subject to policies defined
+by NodeRestrictor and PathRestrictor implementations.
 
 
 2. metatroller.py 

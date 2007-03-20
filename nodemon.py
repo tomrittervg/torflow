@@ -5,7 +5,7 @@
 Nodemon - Tor node monitor
 """
 
-import TorCtl
+from TorCtl import *
 import sys
 import socket
 import traceback
@@ -155,29 +155,31 @@ def save_stats(s):
   errors_lock.acquire()
   # Yes yes, adding + 0.005 to age is bloody.. but who cares,
   #  1. Routers sorted by bytes read
-  bw_stats(lambda x: x.tot_read, file("./data/r_by_rbytes", "w"))
+  bw_stats(lambda x: x.tot_read, file("./data/nodemon/r_by_rbytes", "w"))
   #  2. Routers sorted by bytes written
-  bw_stats(lambda x: x.tot_wrote, file("./data/r_by_wbytes", "w"))
+  bw_stats(lambda x: x.tot_wrote, file("./data/nodemon/r_by_wbytes", "w"))
   #  3. Routers sorted by tot bytes
-  bw_stats(lambda x: x.tot_read+x.tot_wrote, file("./data/r_by_tbytes", "w"))
+  bw_stats(lambda x: x.tot_read+x.tot_wrote,
+     file("./data/nodemon/r_by_tbytes", "w"))
   #  4. Routers sorted by downstream bw
   bw_stats(lambda x: x.tot_read/(x.tot_age+0.005),
-       file("./data/r_by_rbw", "w"))
+     file("./data/nodemon/r_by_rbw", "w"))
   #  5. Routers sorted by upstream bw
-  bw_stats(lambda x: x.tot_wrote/(x.tot_age+0.005), file("./data/r_by_wbw", "w"))
+  bw_stats(lambda x: x.tot_wrote/(x.tot_age+0.005),
+      file("./data/nodemon/r_by_wbw", "w"))
   #  6. Routers sorted by total bw
   bw_stats(lambda x: (x.tot_read+x.tot_wrote)/(x.tot_age+0.005),
-       file("./data/r_by_tbw", "w"))
+      file("./data/nodemon/r_by_tbw", "w"))
 
   bw_stats(lambda x: x.running_read,
-      file("./data/r_by_rrunbytes", "w"))
+      file("./data/nodemon/r_by_rrunbytes", "w"))
   bw_stats(lambda x: x.running_wrote,
-      file("./data/r_by_wrunbytes", "w"))
+      file("./data/nodemon/r_by_wrunbytes", "w"))
   bw_stats(lambda x: x.running_read+x.running_wrote,
-      file("./data/r_by_trunbytes", "w"))
+      file("./data/nodemon/r_by_trunbytes", "w"))
   
   
-  f = file("./data/reasons", "w")
+  f = file("./data/nodemon/reasons", "w")
   routers = errors.values()
   def notlambda(x, y):
     if y.tot_ncircs or x.tot_ncircs:
@@ -211,7 +213,7 @@ def startmon(c):
 def main(argv):
   s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
   s.connect((control_host,control_port))
-  c = TorCtl.get_connection(s)
+  c = TorCtl.Connection(s)
   c.set_event_handler(NodeHandler(c))
   c.launch_thread()
   c.authenticate()
