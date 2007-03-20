@@ -450,6 +450,7 @@ class StatsHandler(PathSupport.PathBuilder):
         else: start_f = len(c.path)-1 
 
         # Count failed
+        # XXX: Differentiate between extender and extendee
         for r in self.circuits[c.circ_id].path[start_f:len(c.path)+1]:
           r.circ_failed += 1
           if not reason in r.reason_failed:
@@ -533,12 +534,12 @@ class StatsHandler(PathSupport.PathBuilder):
         return
 
       # Verify circ id matches stream.circ
-      if s.status not in ("NEW" or "NEWRESOLVE"):
+      if s.status not in ("NEW", "NEWRESOLVE", "REMAP"):
         circ = self.streams[s.strm_id].circ
         if not circ: circ = self.streams[s.strm_id].pending_circ
-        if circ and circ.cid != s.circ_id:
+        if circ and circ.circ_id != s.circ_id:
           plog("WARN", str(s.strm_id) + " has mismatch of "
-                +str(s.circ_id)+" v "+str(circ.cid))
+                +str(s.circ_id)+" v "+str(circ.circ_id))
       
       if s.status == "DETACHED":
         if self.streams[s.strm_id].attached_at:
@@ -558,7 +559,7 @@ class StatsHandler(PathSupport.PathBuilder):
         # Update strm_chosen count
         for r in self.circuits[s.circ_id].path: r.strm_chosen += 1
 
-        # Update bw stats
+        # Update bw stats. XXX: Don't do this for resolve streams
         if self.streams[s.strm_id].attached_at:
           lifespan = self.streams[s.strm_id].lifespan(s.arrived_at)
           for r in self.streams[s.strm_id].circ.path:
@@ -623,6 +624,7 @@ def commandloop(s, c, h):
       else:
         s.write("250 LASTEXIT=0 (0) OK\r\n")
     elif command == "NEWEXIT" or command == "NEWNYM":
+      # XXX: Seperate this
       clear_dns_cache(c)
       h.new_nym = True # GIL hack
       plog("DEBUG", "Got new nym")

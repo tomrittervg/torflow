@@ -1,0 +1,73 @@
+- Add an ORCONN_BW event to Tor to emit read/write info and also queue sizes
+  - See tordiffs/orconn-bw.diff but it probably should be a separate event,
+    not hacked onto ORCONN
+  - Use nodemon.py to rank nodes based on total bytes, queue sizes, and the 
+    ratio of these two
+    - Does it agree with results from metatroller's bandwidth stats?
+
+- More NodeRestrictions/PathRestrictions in TorCtl/PathSupport.py
+  - BwWeightedGenerator
+  - NodeRestrictions:
+    - Uptime/LongLivedPorts (Does/should hibernation count?)
+    - Published/Updated
+    - GeoIP (http://www.maxmind.com/app/python)
+      - NodeCountry
+  - PathRestrictions:
+    - Family
+    - GeoIP (http://www.maxmind.com/app/python)
+      - OceanPhobicRestrictor (avoids Pacific Ocean or two atlantic crossings)
+        or ContinentRestrictor (avoids doing more than N continent crossings)
+      - EchelonPhobicRestrictor
+        - Does not cross international boundaries for client->Entry or
+          Exit->destination hops
+  - Perform statistical analysis on paths
+    - How often does Tor choose foolish paths normally? 
+      - (4 atlantic/pacific crossings)
+    - What is the distribution for Pr(ClientLocation|MiddleNode,ExitNode)
+      and Pr(EntryNode|MiddleNode,ExitNode) for these various path choices?
+      - Mathematical analysis probably required because this is a large joint
+        distribution (not GSoC)
+      - Empirical observation possible if you limit to the top 10% of the
+        nodes (which carry something like 90% of bandwidth anyways). 
+        - Make few million paths without actually building real 
+          circuits and tally them up in a 3D table
+        - See PathSupport.py unit tests for some examples on this
+  - See also:
+    http://swiki.cc.gatech.edu:8080/ugResearch/uploads/7/ImprovingTor.pdf
+    - You can also perform predecessor observation of this strategy
+      empirically. But it is likely the GeoIP stuff is easier to implement 
+      and just as effective.
+
+- Create a PathWatcher that StatsHandler can extend from so people can gather
+  stats from regular Tor usage
+
+- Use GeoIP to make a map of tor servers color coded by their reliability
+  - Or augment an existing Tor map project with this data
+
+- Add circuit prebuilding and port history learning for keeping an optimal
+  pool of circuits available for use
+  - Build circuits in parallel to speed up scanning
+
+- Rewrite soat.pl in python/C++ and leverage an html parser to extract
+  object/script tags to make a fingerprint of a dynamic page. 
+   - Scan for changes to this fingerprint and also to any original embedded
+     objects
+   - Make a multilingual keyword list of commonly censored terms to google for
+     using this scanner
+   - Improve checking of changes to documents outside of Tor
+   - Improve SSL handling/verification. openssl client is broken.
+   - Parallelize scanning
+     - Improve interaction between soat+metatroller so soat knows
+       which exit was responsible for a given ip/url
+
+- Design Reputation System (not for GSoC)
+  - Emit some kind of penalty multiplier based on circuit/stream failure rate
+    and the ratio of directory "observed" bandwidth vs avg stream bandwidth
+    - Add keyword to directory for clients to use instead of observed
+      bandwidth for routing decisions
+      - Make sure scanners don't listen to this keyword to avoid 
+        "Creeping Death" 
+    - Queue lengths from the node monitor can also figure into this penalty
+      multiplier
+  - Figure out interface to report this and also BadExit determinations
+    - Probably involves voting among many scanners

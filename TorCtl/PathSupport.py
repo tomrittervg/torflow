@@ -87,6 +87,9 @@ class NodeGenerator:
     self.sorted_r = sorted_r
     self.rewind()
 
+  def reset_restriction(self, rstr_list):
+    self.rstr_list = rstr_list
+
   def rewind(self):
     self.routers = copy.copy(self.sorted_r)
 
@@ -104,14 +107,14 @@ class Connection(TorCtl.Connection):
     if pathlen == 1:
       circ.exit = path_sel.exit_chooser(circ.path)
       circ.path = [circ.exit]
-      circ.cid = self.extend_circuit(0, circ.id_path())
+      circ.circ_id = self.extend_circuit(0, circ.id_path())
     else:
       circ.path.append(path_sel.entry_chooser(circ.path))
       for i in xrange(1, pathlen-1):
         circ.path.append(path_sel.middle_chooser(circ.path))
       circ.exit = path_sel.exit_chooser(circ.path)
       circ.path.append(circ.exit)
-      circ.cid = self.extend_circuit(0, circ.id_path())
+      circ.circ_id = self.extend_circuit(0, circ.id_path())
     return circ
 
 ######################## Node Restrictions ########################
@@ -436,6 +439,7 @@ class SelectionManager:
     if self.order_exits:
       if self.__ordered_exit_gen:
         exitgen = self.__ordered_exit_gen
+        exitgen.reset_restriction(self.exit_rstr)
       else:
         exitgen = self.__ordered_exit_gen = \
           OrderedExitGenerator(80, sorted_r, self.exit_rstr)
@@ -457,7 +461,7 @@ class SelectionManager:
 
 class Circuit:
   def __init__(self):
-    self.cid = 0
+    self.circ_id = 0
     self.path = [] # routers
     self.exit = None
     self.built = False
@@ -470,7 +474,7 @@ class Circuit:
 
 class Stream:
   def __init__(self, sid, host, port, kind):
-    self.sid = sid
+    self.strm_id = sid
     self.detached_from = [] # circ id #'s
     self.pending_circ = None
     self.circ = None
@@ -603,19 +607,21 @@ class PathBuilder(TorCtl.EventHandler):
       self.new_nym = False
       plog("DEBUG", "Obeying new nym")
       for key in self.circuits.keys():
-        if len(self.circuits[key].pending_streams):
+        if (not self.circuits[key].dirty
+            and len(self.circuits[key].pending_streams)):
           plog("WARN", "New nym called, destroying circuit "+str(key)
              +" with "+str(len(self.circuits[key].pending_streams))
              +" pending streams")
           unattached_streams.extend(self.circuits[key].pending_streams)
+          self.circuits[key].pending_streams.clear()
         # FIXME: Consider actually closing circ if no streams.
         self.circuits[key].dirty = True
       
     for circ in self.circuits.itervalues():
-      if circ.built and not circ.dirty and circ.cid not in badcircs:
+      if circ.built and not circ.dirty and circ.circ_id not in badcircs:
         if circ.exit.will_exit_to(stream.host, stream.port):
           try:
-            self.c.attach_stream(stream.sid, circ.cid)
+            self.c.attach_stream(stream.strm_id, circ.circ_id)
             stream.pending_circ = circ # Only one possible here
             circ.pending_streams.append(stream)
           except TorCtl.ErrorReply, e:
@@ -639,10 +645,10 @@ class PathBuilder(TorCtl.EventHandler):
           plog("NOTICE", "Error building circ: "+str(e.args))
       for u in unattached_streams:
         plog("DEBUG",
-           "Attaching "+str(u.sid)+" pending build of "+str(circ.cid))
+           "Attaching "+str(u.strm_id)+" pending build of "+str(circ.circ_id))
         u.pending_circ = circ
       circ.pending_streams.extend(unattached_streams)
-      self.circuits[circ.cid] = circ
+      self.circuits[circ.circ_id] = circ
     self.last_exit = circ.exit
 
   def circ_status_event(self, c):
@@ -658,16 +664,17 @@ class PathBuilder(TorCtl.EventHandler):
     if c.status == "EXTENDED":
       self.circuits[c.circ_id].last_extended_at = c.arrived_at
     elif c.status == "FAILED" or c.status == "CLOSED":
+      # XXX: Can still get a STREAM FAILED for this circ after this
       circ = self.circuits[c.circ_id]
       del self.circuits[c.circ_id]
       for stream in circ.pending_streams:
-        plog("DEBUG", "Finding new circ for " + str(stream.sid))
+        plog("DEBUG", "Finding new circ for " + str(stream.strm_id))
         self.attach_stream_any(stream, stream.detached_from)
     elif c.status == "BUILT":
       self.circuits[c.circ_id].built = True
       try:
         for stream in self.circuits[c.circ_id].pending_streams:
-          self.c.attach_stream(stream.sid, c.circ_id)
+          self.c.attach_stream(stream.strm_id, c.circ_id)
       except TorCtl.ErrorReply, e:
         # No need to retry here. We should get the failed
         # event for either the circ or stream next
@@ -709,8 +716,16 @@ class PathBuilder(TorCtl.EventHandler):
       if s.strm_id not in self.streams:
         plog("NOTICE", "Succeeded stream "+str(s.strm_id)+" not found")
         return
-      self.streams[s.strm_id].circ = self.streams[s.strm_id].pending_circ
-      self.streams[s.strm_id].circ.pending_streams.remove(self.streams[s.strm_id])
+      if s.circ_id and self.streams[s.strm_id].pending_circ.circ_id != s.circ_id:
+        # Hrmm.. this can happen on a new-nym.. Very rare, putting warn
+        # in because I'm still not sure this is correct
+        plog("WARN", "Mismatch of pending: "
+          +str(self.streams[s.strm_id].pending_circ.circ_id)+" vs "
+          +str(s.circ_id))
+        self.streams[s.strm_id].circ = self.circuits[s.circ_id]
+      else:
+        self.streams[s.strm_id].circ = self.streams[s.strm_id].pending_circ
+      self.streams[s.strm_id].pending_circ.pending_streams.remove(self.streams[s.strm_id])
       self.streams[s.strm_id].pending_circ = None
       self.streams[s.strm_id].attached_at = s.arrived_at
     elif s.status == "FAILED" or s.status == "CLOSED":
