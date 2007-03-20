@@ -719,7 +719,7 @@ def commandloop(s, c, h):
       s.write("250 OK\r\n")
     elif command == "SAVESTATS":
       if arg: filename = arg
-      else: filename = "./data/stats-"+time.strftime("20%y-%m-%d-%H:%M:%S")
+      else: filename="./data/stats/stats-"+time.strftime("20%y-%m-%d-%H:%M:%S")
       def notlambda(this): this.write_stats(filename)
       h.schedule_low_prio(notlambda)
       s.write("250 OK\r\n")

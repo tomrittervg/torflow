@@ -10,8 +10,8 @@ my $META_PORT = "9052";
 my $META_HOST = "127.0.0.1";
 
 my $WORD_LIST = "./wordlist.txt";
-my $CERT_DIR = "./certs";
-my $DOC_DIR = "./docs";
+my $CERT_DIR = "./data/soat/certs";
+my $DOC_DIR = "./data/soat/docs";
 my $USER_AGENT = "Mozilla/5.0 (Windows; U; Windows NT 5.1; de; rv:1.8.1) Gecko/20061010 Firefox/2.0";
 #my $USER_AGENT = "Mozilla/4.0 (compatible; MSIE 6.0; Windows NT 5.1; .NET CLR 1.0.3705; .NET CLR 1.1.4322)";
 

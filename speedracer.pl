@@ -246,7 +246,7 @@ sub main
         plog "DEBUG", "Reset stats\n";
         speedrace($mcp, $pct, $pct+$PCT_STEP); 
         plog "DEBUG", "speedroced\n";
-        print $mcp "SAVESTATS ./speed/stats-$pct:".($pct+$PCT_STEP)."\r\n";
+        print $mcp "SAVESTATS ./data/speedraces/stats-$pct:".($pct+$PCT_STEP)."\r\n";
         $line = <$mcp>;
         die "Error on SAVESTATS: $line" if (not $line =~ /^250/);
         plog "DEBUG", "Wrote stats\n";

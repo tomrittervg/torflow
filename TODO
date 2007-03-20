@@ -56,6 +56,8 @@
      using this scanner
    - Improve checking of changes to documents outside of Tor
    - Improve SSL handling/verification. openssl client is broken.
+     - Also the way we store certs is lame. No need to store so many copies
+       for diff IPs if they are all the same.
    - Parallelize scanning
      - Improve interaction between soat+metatroller so soat knows
        which exit was responsible for a given ip/url
