@@ -17,12 +17,15 @@
     - GeoIP (http://www.maxmind.com/app/python)
       - OceanPhobicRestrictor (avoids Pacific Ocean or two atlantic crossings)
         or ContinentRestrictor (avoids doing more than N continent crossings)
+      - OceanPhilicRestrictor or ContinentJumperRestrictor
+        - Can be used as counterpoint to see how bad for performance it is
       - EchelonPhobicRestrictor
         - Does not cross international boundaries for client->Entry or
           Exit->destination hops
   - Perform statistical analysis on paths
     - How often does Tor choose foolish paths normally? 
       - (4 atlantic/pacific crossings)
+      - Use speedracer to determine how much slower these paths relly are
     - What is the distribution for Pr(ClientLocation|MiddleNode,ExitNode)
       and Pr(EntryNode|MiddleNode,ExitNode) for these various path choices?
       - Mathematical analysis probably required because this is a large joint

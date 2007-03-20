@@ -1,0 +1,62 @@
+                            TorFlow
+
+
+TorFlow is a set of python scripts written to scan the Tor network for
+misbehaving, misconfigured, and overloaded Tor nodes. The ultimate goal
+is to build an automated, distributed reputation system that feeds into
+the directory servers and provides them with information on the
+reliability, capacity, and trustworthiness of routers, so that they can
+set flags that clients can use in routing decisions. 
+
+This is admittedly a lofty goal. In the meantime it should be able to
+figure out a bunch of neat stuff about Tor. 
+
+
+TorFlow consists of the following components:
+
+1. TorCtl package
+
+TorCtl is an updated version of the python Tor controller written by
+Nick Mathewson with extensions to support path building and various
+constraints on node and path selection.
+
+The basic structure is that the EventHandler class in TorCtl.py receives
+Tor controller events packaged into python classes. PathSupport.py
+provides an additional class that extends from EventHandler called
+PathBuilder that handles circuit construction and stream attachment
+subject to policies defined by NodeRestrictor and PathRestrictor
+implementations.
+
+
+2. metatroller.py 
+
+Metatroller observes the paths created by PathSupport and gathers
+statistics on stream bandwidth, circuit construction time, circuit
+failures and stream failures. It also provides a meta control port for
+use by Tor scanners.
+
+
+3. soat.pl
+
+SoaT scans exit nodes to verify that SSL, SSH, and Web connections
+through them are unmolested. It currently does this primarily by
+checking MD5s of these items.
+
+
+4. speedracer.pl
+
+SpeedRacer fetches a file repeatedly through circuits built by
+metatroller. It divides the Tor network into tiers based on percentiles
+of directory-reported node bandwidth and compiles statistics for each of
+these tiers itself and via metatroller.
+
+
+5. nodemon.py
+
+Nodemon uses TorCtl to monitor ORCONN events on a Tor node to measure
+how much bandwidth is going to each peer node. It also measures how many
+circuits are killed by OR connections being shut down prematurely.
+
+
+Each of these components has a lot of room for improvement. Please see
+the TODO file for more information.
