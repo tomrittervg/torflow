@@ -10,7 +10,7 @@ import sys
 import socket
 import traceback
 import re
-from TorUtil import *
+from TorCtl.TorUtil import *
 import sched, time
 import thread
 

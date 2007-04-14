@@ -24,7 +24,7 @@ mt_version = "0.1.0-dev"
 
 # TODO: Move these to config file
 control_host = "127.0.0.1"
-control_port = 9061
+control_port = 9051
 meta_host = "127.0.0.1"
 meta_port = 9052
 max_detach = 3
@@ -33,8 +33,8 @@ max_detach = 3
 # Use PathBuilder.schedule_selmgr instead.
 # (Modifying the arguments here is OK)
 __selmgr = PathSupport.SelectionManager(
-      pathlen=3,
-      order_exits=False,
+      pathlen=2,
+      order_exits=True,
       percent_fast=100,
       percent_skip=0,
       min_bw=1024,
@@ -709,6 +709,7 @@ def commandloop(s, c, h):
         s.write("510 Integer expected\r\n")
     elif command == "SETEXIT":
       if arg:
+        # XXX: This is broken.
         # FIXME: Hrmm.. if teh user is a dumbass this will fail silently
         def notlambda(sm): sm.exit_name=arg
         h.schedule_selmgr(notlambda)

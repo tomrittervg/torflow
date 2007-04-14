@@ -68,11 +68,29 @@
 - Design Reputation System (not for GSoC)
   - Emit some kind of penalty multiplier based on circuit/stream failure rate
     and the ratio of directory "observed" bandwidth vs avg stream bandwidth
-    - Add keyword to directory for clients to use instead of observed
-      bandwidth for routing decisions
-      - Make sure scanners don't listen to this keyword to avoid 
-        "Creeping Death" 
-    - Queue lengths from the node monitor can also figure into this penalty
-      multiplier
+	- Add keyword to directory for clients to use instead of observed
+	  bandwidth for routing decisions
+	  - Make sure scanners don't listen to this keyword to avoid "Creeping
+	    Death" 
+	- Queue lengths from the node monitor can also figure into this penalty
+	  multiplier
   - Figure out interface to report this and also BadExit determinations
-    - Probably involves voting among many scanners
+	- Probably involves voting among many scanners
+  - Justify this is worthwhile, sane, and at least as resistant as the current
+    Tor network to attack
+	- Does a reputation system make it easier for an adversary w/ X% of the
+	  network to influence it?
+	  - Preliminary: http://archives.seul.org/or/dev/Nov-2006/msg00004.html
+      - Sybil attacks
+	- What about clients that ignore the reputations? Can their behavior game
+	  the system, or are they just behaving suboptimally?
+      - First impressions: meh; suboptimal
+	- Does changings in ratings leak any information about clients? 
+	  - Does it influence their paths in predictable ways in a greater degree
+	    than bandwidth ranking already does?
+    - What about detecting the scan and giving better service? Time of day, 
+      source IP, exit IP?
+
+- Stopgap for bootstrapping
+  - push traffic through the 0.1.1.x with 0 dirport and earlier servers 
+    that claim less than 20KB traffic
