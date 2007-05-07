@@ -182,9 +182,13 @@ class ExitPolicyLine:
 
 class RouterVersion:
   def __init__(self, version):
-    v = re.search("^(\d+).(\d+).(\d+).(\d+)", version).groups()
-    self.version = int(v[0])*0x1000000 + int(v[1])*0x10000 + int(v[2])*0x100 + int(v[3])
-    self.ver_string = version
+    if version:
+      v = re.search("^(\d+).(\d+).(\d+).(\d+)", version).groups()
+      self.version = int(v[0])*0x1000000 + int(v[1])*0x10000 + int(v[2])*0x100 + int(v[3])
+      self.ver_string = version
+    else: 
+      self.version = version
+      self.ver_string = "unknown"
 
   def __lt__(self, other): return self.version < other.version
   def __gt__(self, other): return self.version > other.version
@@ -522,6 +526,8 @@ class Connection:
     exitpolicy = []
     dead = not ("Running" in ns.flags)
     bw_observed = 0
+    version = None
+    os = None
     if router != ns.nickname:
       plog("NOTICE", "Got different names " + ns.nickname + " vs " +
              router + " for " + ns.idhex)
@@ -547,6 +553,8 @@ class Connection:
         version, os = pl.groups()
     if not bw_observed and not dead and ("Valid" in ns.flags):
       plog("INFO", "No bandwidth for live router " + ns.nickname)
+    if not version or not os:
+      plog("INFO", "No version and/or OS for router " + ns.nickname)
     return Router(ns.idhex, ns.nickname, bw_observed, dead, exitpolicy,
         ns.flags, ip, version, os)
 
