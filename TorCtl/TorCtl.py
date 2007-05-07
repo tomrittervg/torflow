@@ -662,10 +662,17 @@ class Connection:
     else:
       self.sendAndRecv("REDIRECTSTREAM %d %s\r\n"%(streamid, newaddr))
 
-  def attach_stream(self, streamid, circid):
-    """DOCDOC"""
-    plog("DEBUG", "Attaching stream: "+str(streamid)+" to "+str(circid))
-    self.sendAndRecv("ATTACHSTREAM %d %d\r\n"%(streamid, circid))
+  def attach_stream(self, streamid, circid, hop=None):
+    """Attach a stream to a circuit, specify both by IDs. 
+       If hop is given, try to use the specified hop in 
+       the circuit as the exit node for this stream.
+    """
+    if hop:
+      self.sendAndRecv("ATTACHSTREAM %d %d HOP=%d\r\n"%(streamid, circid, hop))
+      plog("DEBUG", "Attaching stream: "+str(streamid)+" to hop "+str(hop)+" of circuit "+str(circid))
+    else:
+      self.sendAndRecv("ATTACHSTREAM %d %d\r\n"%(streamid, circid))
+      plog("DEBUG", "Attaching stream: "+str(streamid)+" to circuit "+str(circid))
 
   def close_stream(self, streamid, reason=0, flags=()):
     """DOCDOC"""
