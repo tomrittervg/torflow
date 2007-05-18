@@ -1,2 +1,2 @@
 
-__all__ = ["TorUtil", "PathSupport", "TorCtl"]
+__all__ = ["TorUtil", "GeoIPSupport", "PathSupport", "TorCtl"]

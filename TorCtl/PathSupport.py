@@ -17,7 +17,8 @@ __all__ = ["NodeRestrictionList", "PathRestrictionList",
 "AtLeastNNodeRestriction", "NotNodeRestriction", "Subnet16Restriction",
 "UniqueRestriction", "UniformGenerator", "OrderedExitGenerator",
 "PathSelector", "Connection", "NickRestriction", "IdHexRestriction",
-"PathBuilder", "SelectionManager"]
+"PathBuilder", "SelectionManager", "CountryCodeRestriction", 
+"CountryRestriction", "UniqueCountryRestriction", "ContinentRestriction" ]
 
 #################### Path Support Interfaces #####################
 
@@ -297,6 +298,51 @@ class Subnet16Restriction(PathRestriction):
 class UniqueRestriction(PathRestriction):
   def r_is_ok(self, path, r): return not r in path
 
+#################### GeoIP Restrictions ###################
+
+# Ensure country_code is set
+class CountryCodeRestriction(NodeRestriction):
+  def r_is_ok(self, r):
+    return r.country_code != None
+
+# Ensure a specific country_code
+class CountryRestriction(NodeRestriction):
+  def __init__(self, country_code):
+    self.country_code = country_code
+
+  def r_is_ok(self, r):
+    return r.country_code == self.country_code
+
+# Ensure every router to have distinct country
+class UniqueCountryRestriction(PathRestriction):
+  def r_is_ok(self, path, router):
+    for r in path:
+      if router.country_code == r.country_code:
+        return False
+    return True
+
+# Do not more than n continent crossings
+class ContinentRestriction(PathRestriction):
+  def __init__(self, n):
+    self.n = n
+
+  # TODO: Include our location
+  def r_is_ok(self, path, router):
+    crossings = 0
+    last = None
+    # Compute crossings until now
+    for r in path:
+      # Jump over the first router
+      if last:
+        if r.continent != last.continent:
+          crossings += 1
+      last = r
+    # Check what happens if we add 'router'	  
+    if len(path)>=1:
+      if router.continent != last.continent:
+        crossings += 1
+    if crossings > self.n: return False
+    else: return True
 
 #################### Node Generators ######################
 
@@ -387,7 +433,7 @@ class SelectionManager:
     """
   def __init__(self, pathlen, order_exits,
          percent_fast, percent_skip, min_bw, use_all_exits,
-         uniform, use_exit, use_guards):
+         uniform, use_exit, use_guards, use_geoip=False):
     self.__ordered_exit_gen = None 
     self.pathlen = pathlen
     self.order_exits = order_exits
@@ -398,6 +444,8 @@ class SelectionManager:
     self.uniform = uniform
     self.exit_name = use_exit
     self.use_guards = use_guards
+    # Replace with a geoip-config object?
+    self.use_geoip = use_geoip
 
   def reconfigure(self, sorted_r):
     if self.use_all_exits:
@@ -434,6 +482,22 @@ class SelectionManager:
         self.exit_rstr.add_restriction(IdHexRestriction(self.exit_name))
       else:
         self.exit_rstr.add_restriction(NickRestriction(self.exit_name))
+
+    # GeoIP configuration
+    # TODO: Make configurable, config-object?
+    if self.use_geoip:
+      # Restrictions for Entry
+      entry_rstr.add_restriction(CountryCodeRestriction())
+      # First hop in our country
+      #entry_rstr.add_restriction(CountryRestriction("DE"))
+      # Middle
+      mid_rstr.add_restriction(CountryCodeRestriction())
+      # Exit
+      self.exit_rstr.add_restriction(CountryCodeRestriction())
+      # Path
+      self.path_rstr.add_restriction(UniqueCountryRestriction())
+      # Specify max number of crossings here
+      self.path_rstr.add_restriction(ContinentRestriction(1))
 
     # This is kind of hokey..
     if self.order_exits:
