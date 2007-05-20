@@ -313,11 +313,21 @@ class CountryRestriction(NodeRestriction):
   def r_is_ok(self, r):
     return r.country_code == self.country_code
 
+# Exclude a list of country_codes
+class ExcludeCountriesRestriction(NodeRestriction):
+  def __init__(self, countries):
+    self.countries = countries
+
+  def r_is_ok(self, r):
+    return not (r.country_code in self.countries)
+
 # Ensure every router to have distinct country
 class UniqueCountryRestriction(PathRestriction):
   def r_is_ok(self, path, router):
     for r in path:
       if router.country_code == r.country_code:
+        # Exceptionally allow US because of so many states
+        if router.country_code == "US": return True	  
         return False
     return True
 
@@ -433,7 +443,7 @@ class SelectionManager:
     """
   def __init__(self, pathlen, order_exits,
          percent_fast, percent_skip, min_bw, use_all_exits,
-         uniform, use_exit, use_guards, use_geoip=False):
+         uniform, use_exit, use_guards, geoip_config=None):
     self.__ordered_exit_gen = None 
     self.pathlen = pathlen
     self.order_exits = order_exits
@@ -444,8 +454,7 @@ class SelectionManager:
     self.uniform = uniform
     self.exit_name = use_exit
     self.use_guards = use_guards
-    # Replace with a geoip-config object?
-    self.use_geoip = use_geoip
+    self.geoip_config = geoip_config
 
   def reconfigure(self, sorted_r):
     if self.use_all_exits:
@@ -484,20 +493,27 @@ class SelectionManager:
         self.exit_rstr.add_restriction(NickRestriction(self.exit_name))
 
     # GeoIP configuration
-    # TODO: Make configurable, config-object?
-    if self.use_geoip:
-      # Restrictions for Entry
+    if self.geoip_config:
+      # Every node needs country_code 
       entry_rstr.add_restriction(CountryCodeRestriction())
-      # First hop in our country
-      #entry_rstr.add_restriction(CountryRestriction("DE"))
-      # Middle
       mid_rstr.add_restriction(CountryCodeRestriction())
-      # Exit
       self.exit_rstr.add_restriction(CountryCodeRestriction())
-      # Path
-      self.path_rstr.add_restriction(UniqueCountryRestriction())
+      # First hop in our country?
+      src = self.geoip_config.src_country
+      if src:  
+	entry_rstr.add_restriction(CountryRestriction(src))
+      # Excludes
+      plog("INFO", "Excluded countries: " + str(self.geoip_config.excludes))
+      if len(self.geoip_config.excludes) > 0:
+        entry_rstr.add_restriction(ExcludeCountriesRestriction(self.geoip_config.excludes))
+        mid_rstr.add_restriction(ExcludeCountriesRestriction(self.geoip_config.excludes))
+        self.exit_rstr.add_restriction(ExcludeCountriesRestriction(self.geoip_config.excludes))      
+      # Unique countries?
+      if self.geoip_config.unique_countries:
+        self.path_rstr.add_restriction(UniqueCountryRestriction())
       # Specify max number of crossings here
-      self.path_rstr.add_restriction(ContinentRestriction(1))
+      n = self.geoip_config.max_cont_crossings
+      self.path_rstr.add_restriction(ContinentRestriction(n))
 
     # This is kind of hokey..
     if self.order_exits:

@@ -73,11 +73,24 @@ class GeoIPRouter(TorCtl.Router):
     # Select method to get the country_code here
     self.country_code = geoip.country_code_by_addr(self.get_ip_dotted())
     #self.country_code = get_country_from_record(self.get_ip_dotted())    
-    self.continent = None
-    if self.country_code == None:
+    if self.country_code == None: 
       plog("WARN", self.nickname + ": Country code not found")
+      self.continent = None
     else: self.continent = get_continent(self.country_code)
 
   # Convert long int back to dotted quad string
   def get_ip_dotted(self):
     return socket.inet_ntoa(struct.pack('>I', self.ip))
+
+# Class to configure GeoIP-based path building
+class GeoIPConfig:
+  def __init__(self, unique_countries, src_country, crossings, excludes):    
+    # Do not use a country twice in a route
+    self.unique_countries = unique_countries
+    # Pass the country we are staying at for getting 
+    # Entry in src_country, None if not wished
+    self.src_country = src_country
+    # Configure max continent crossings in one path
+    self.max_cont_crossings = crossings
+    # List of countries to not use in routes
+    self.excludes = excludes
