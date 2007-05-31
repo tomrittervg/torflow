@@ -4,6 +4,7 @@ import struct
 import socket
 import GeoIP
 import TorCtl
+
 from TorUtil import plog
 
 # GeoIP data object: choose database here
@@ -19,10 +20,13 @@ class Continent:
   def contains(self, country_code):
     return country_code in self.countries
 
-# The continents
+# Setup the continents
 africa = Continent("AF")
-# TODO: Add more countries
-africa.countries = ["CI"]
+africa.countries = ["AO","BF","BI","BJ","BV","BW","CD","CF","CG","CI","CM","CV","DJ","DZ",
+                    "EG","EH","ER","ET","GA","GH","GM","GN","GQ","GW","HM","KE","KM","LR",
+		    "LS","LY","MA","MG","ML","MR","MU","MW","MZ","NA","NE","NG","RE","RW",
+		    "SC","SD","SH","SL","SN","SO","ST","SZ","TD","TF","TG","TN","TZ","UG",
+		    "YT","ZA","ZM","ZR","ZW"]
 
 asia = Continent("AS")
 asia.countries = ["AP","AE","AF","AM","AZ","BD","BH","BN","BT","CC","CN","CX","CY","GE",

@@ -15,9 +15,9 @@ import binascii
 import sha
 import math
 
-__all__ = ["Enum", "Enum2", "quote", "escape_dots", "unescape_dots",
-      "BufSock", "secret_to_key", "urandom_rng", "s2k_gen", "s2k_check",
-      "plog", "ListenSocket", "zprob"]
+__all__ = ["Enum", "Enum2", "sort_list", "quote", "escape_dots", "unescape_dots",
+      "BufSock", "secret_to_key", "urandom_rng", "s2k_gen", "s2k_check", "plog", 
+      "ListenSocket", "zprob"]
 
 class Enum:
   # Helper: define an ordered dense name-to-number 1-1 mapping.
@@ -36,6 +36,11 @@ class Enum2:
     self.nameOf = {}
     for k,v in args.items():
       self.nameOf[v] = k
+
+def sort_list(list, key):
+  """ Sort a list by a specified key """
+  list.sort(lambda x,y: cmp(key(x), key(y))) # Python < 2.4 hack
+  return list
 
 def quote(s):
   return re.sub(r'([\r\n\\\"])', r'\\\1', s)

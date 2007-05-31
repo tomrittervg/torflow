@@ -326,8 +326,6 @@ class UniqueCountryRestriction(PathRestriction):
   def r_is_ok(self, path, router):
     for r in path:
       if router.country_code == r.country_code:
-        # Exceptionally allow US because of so many states
-        if router.country_code == "US": return True	  
         return False
     return True
 
