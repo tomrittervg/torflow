@@ -352,6 +352,13 @@ class ContinentRestriction(PathRestriction):
     if crossings > self.n: return False
     else: return True
 
+# Continent crossings between all hops
+class ContinentJumperRestriction(PathRestriction):
+  def r_is_ok(self, path, router):
+    if len(path) > 0 and path[len(path)-1].continent == router.continent:
+      return False
+    else: return True
+
 #################### Node Generators ######################
 
 class UniformGenerator(NodeGenerator):
@@ -509,9 +516,11 @@ class SelectionManager:
       # Unique countries?
       if self.geoip_config.unique_countries:
         self.path_rstr.add_restriction(UniqueCountryRestriction())
-      # Specify max number of crossings here
+      # Specify max number of crossings here, None means ContinentJumper
       n = self.geoip_config.max_cont_crossings
-      self.path_rstr.add_restriction(ContinentRestriction(n))
+      if n == None:
+        self.path_rstr.add_restriction(ContinentJumperRestriction())
+      else: self.path_rstr.add_restriction(ContinentRestriction(n))
 
     # This is kind of hokey..
     if self.order_exits:
