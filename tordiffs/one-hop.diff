@@ -1,0 +1,14 @@
+--- tor/src/or/control.c	2007-06-08 10:55:51.000000000 +0200
++++ tor-mine/src/or/control.c	2007-06-08 11:03:14.000000000 +0200
+@@ -2014,11 +2014,6 @@
+                     conn);
+     return 0;
+   }
+-  if (circ && (circuit_get_cpath_len(circ)<2 || hop==1)) {
+-    connection_write_str_to_buf(
+-                    "551 Can't attach stream to one-hop circuit.\r\n", conn);
+-    return 0;
+-  }
+   if (circ && hop>0) {
+     /* find this hop in the circuit, and set cpath */
+     cpath = circuit_get_cpath_hop(circ, hop);
