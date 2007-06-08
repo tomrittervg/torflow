@@ -18,7 +18,8 @@ __all__ = ["NodeRestrictionList", "PathRestrictionList",
 "UniqueRestriction", "UniformGenerator", "OrderedExitGenerator",
 "PathSelector", "Connection", "NickRestriction", "IdHexRestriction",
 "PathBuilder", "SelectionManager", "CountryCodeRestriction", 
-"CountryRestriction", "UniqueCountryRestriction", "ContinentRestriction" ]
+"CountryRestriction", "UniqueCountryRestriction", "ContinentRestriction",
+"ContinentJumperRestriction"]
 
 #################### Path Support Interfaces #####################
 
