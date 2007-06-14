@@ -10,7 +10,6 @@
 # from or-addons/alternate directory, building fast circuits from all 
 # of these infos and attaching streams to fast circuits.
 
-# TODO: import 'with'-statement for Lock objects (Python 2.5: "with some_lock: do something")
 import re
 import sys
 import copy
@@ -41,35 +40,44 @@ socks_port = 9050
 ping_dummy_host = "127.0.0.1"
 ping_dummy_port = 100
 
-# Close circ after n timeouts or avg measured slownesses
-timeout_limit = 1
-slowness_limit = 3
-# Slow RTT := x seconds 
-slow = 0.7
-# Note: Tor-internal lifetime of a circuit is 10 min --> 600/sleep_interval = max-age
-# Sleep interval between working loads in sec
-sleep_interval = 5
 # No of idle circuits to build preemptively
 # TODO: Also configure ports to use
-idle_circuits = 5
+idle_circuits = 4
 
 # Measure complete circuits
 measure_circs = True
+# Note: Tor-internal lifetime of a circuit is 10 min --> 600/sleep_interval = max-age
+# Sleep interval between working loads in sec
+initial_interval = 8
+sleep_interval = 1
+# Close circ after n timeouts or avg measured slownesses
+timeout_limit = 1
+# Slow RTT := x seconds, close circs slower & create only circs faster than this
+slowness_limit = 5
+slow = 1.
+
 # Set to True if we want to measure partial circuits
-measure_partial_circs = False
+# This also enables circuit creation from the model
+measure_partial_circs = True
+# Minimum number of proposals to choose from
+min_proposals = 10
+# Min ratio of traditionally created circs
+# ensures growing of the explored subnet
+min_ratio = 1./3.
 
 # Testing mode: Close circuits after num_tests measures + 
 # involves a FileHandler to write collected data to a file
-testing_mode = False
+testing_mode = True
 # Number of tests per circuit
 num_tests = 5
 
-# Do configuration here TODO: use my_country for src
-# Set src_country below when setting up our location
-path_config = GeoIPSupport.GeoIPConfig(unique_countries = True,
-                                       src_country = None,
-				       crossings = 1,
-				       excludes = [])
+# Do geoip-configuration here
+# TODO: Set src_country below when setting up our location
+path_config = GeoIPSupport.GeoIPConfig(unique_countries = None,
+                                       entry_country = None,
+				       exit_country = None,
+				       max_crossings = 1,
+				       excludes = None)
 
 # Configure Selection Manager here!!
 # Do NOT modify this object directly after it is handed to 
@@ -86,13 +94,10 @@ __selmgr = PathSupport.SelectionManager(
       use_guards=True,
       geoip_config=path_config)
 
-# Signalize that a round has finished
-finished_event = threading.Event()
-
 ######################################### BEGIN: Connection         #####################
 
 class Connection(TorCtl.Connection):
-  """ Connection class that uses my Circuit class """
+  """ Connection class that uses my own Circuit class """
   def build_circuit(self, pathlen, path_sel):
     circ = Circuit()
     if pathlen == 1:
@@ -109,7 +114,7 @@ class Connection(TorCtl.Connection):
     return circ
 
   def build_circuit_from_path(self, path):
-    """ Build circuit using a given path shall be used to build circs from NetworkModel """
+    """ Build circuit using a given path, used to build circs from NetworkModel """
     circ = Circuit()
     circ.rtt_created = True
     # Set path to circuit
@@ -123,6 +128,7 @@ class Connection(TorCtl.Connection):
 ######################################### Stats                    #####################
 
 class Stats:
+  """ Statistics class that can be used for recording stats about measured RTTs """
   def __init__(self):
     self.values = []
     self.min = 0.0
@@ -205,13 +211,13 @@ class Circuit(PathSupport.Circuit):
     self.age += 1
 
   def to_string(self):
-    """ Create a string representation """
+    """ Create a current string representation """
     s = "Circuit " + str(self.circ_id) + ": "
     for r in self.path: s += " " + r.nickname + "(" + str(r.country_code) + ")"
     if not self.built: s += " (not yet built)"
     else: s += " (age=" + str(self.age) + ")"
     if self.current_rtt: 
-      s += ": " "RTT current/median/mean/dev: "
+      s += ": " "RTT (current/median/mean/dev): "
       s += str(self.current_rtt) + "/" + str(self.stats.median) + "/"
       s += str(self.stats.mean) + "/" + str(self.stats.dev)
     if self.rtt_created: s += "*"
@@ -243,11 +249,11 @@ class LinkInfo:
     self.stats.add_value(rtt)
 
 class PathProposal:
-  """ Instances of this class are path-proposals """
+  """ Instances of this class are path-proposals found in the model """
   def __init__(self, links, path):
     # This is a list of LinkInfo objects
     self.links = links
-    # Also save the path for passing to build_circuit, cut off ROOT
+    # Also save the path for passing to build_circuit, cut off ROOT here
     self.path = path[1:len(path)]
     # Compute the expected RTT (from current value?)
     self.rtt = reduce(lambda x,y: x + y.current_rtt, self.links, 0.0)
@@ -289,10 +295,14 @@ class NetworkModel:
     # Reset list of proposals and prefixes for DFS
     self.proposals = []
     self.prefixes = {}
+    # Measure for info
+    start = time.time()
     # Start the search
     self.visit(self.root, [])
     # Sort proposals for their RTTs
     sort_list(self.proposals, lambda x: x.rtt)
+    # Some logging
+    plog("DEBUG", "Finding the proposals and sorting them took us " + str(time.time()-start) + " seconds")
     # Print all of them for debugging/info
     for p in self.proposals:
       print(p.to_string())
@@ -330,30 +340,44 @@ class NetworkModel:
 
 ######################################### BEGIN: EventHandlers     #####################
 
-# TODO: Store the number of circuits here
 class CircuitHandler(PathSupport.PathBuilder):
   """ CircuitHandler that extends from PathBuilder """
-  def __init__(self, c, selmgr):
+  def __init__(self, c, selmgr, num_circuits):
     # Init the PathBuilder
-    PathSupport.PathBuilder.__init__(self, c, selmgr, GeoIPSupport.GeoIPRouter)    
-    self.circs_sorted = []	# list of circs sorted by mean RTT
-    self.check_circuit_pool()	# bring up the pool of circs
- 
+    PathSupport.PathBuilder.__init__(self, c, selmgr, GeoIPSupport.GeoIPRouter)
+    self.num_circuits = num_circuits    # size of the circuit pool
+    self.check_circuit_pool()	        # bring up the pool of circs
+    self.sorted_circs = None		# attribute to hold a sorted list of the circuits
+
   def check_circuit_pool(self):
     """ Init or check the status of our pool of circuits """
     # Get current number of circuits
     n = len(self.circuits.values())
-    i = idle_circuits-n
+    i = self.num_circuits - n
     if i > 0:
       plog("INFO", "Checked pool of circuits: we need to build " + str(i) + " circuits")
-    # Schedule (idle_circuits-n) circuit-buildups
-    while (n < idle_circuits):      
+    # Schedule (num_circs - n) circuit-buildups
+    while (n < self.num_circuits):      
       self.build_idle_circuit()
       plog("DEBUG", "Scheduled circuit No. " + str(n+1))
       n += 1
 
+  def close_circuit(self, id):
+    """ Try to close a circuit with given id """
+    self.circuits[id].closed = True
+    try: self.c.close_circuit(id)
+    except TorCtl.ErrorReply, e: 
+      plog("ERROR", "Failed closing circuit " + str(id) + ": " + str(e))	    
+
+  def print_circuits(self):
+    """ Print out our circuits plus some info """
+    circs = self.circuits.values()
+    plog("INFO", "We have " + str(len(circs)) + " circuits:")
+    for c in circs:
+      print("+ " + c.to_string())
+
   def check_path(self, path):
-    """ Check if we already have a circuit with this path """
+    """ Check if we currently do not have (TODO: had?) a circuit with the given path """
     for c in self.circuits.values():
       if c.path == path:
         return False
@@ -364,26 +388,7 @@ class CircuitHandler(PathSupport.PathBuilder):
     circ = None
     while circ == None:
       try:
-        if measure_partial_circs:
-	  # Get the proposals RTT <= 0.5
-	  proposals = self.model.check_proposals(slow)
-	  # TODO: Ensure we also create new paths (check number of circs with rtt_created)
-	  # TODO: Check if we have > m proposals
-	  while len(proposals) > 0:
-	    choice = random.choice(proposals)
-	    # Check if we already have a circ with this path
-	    if self.check_path(choice.path):
-	      plog("INFO", "Chosen proposal: " + choice.to_string())
-	      circ = self.c.build_circuit_from_path(choice.path)
-	      self.circuits[circ.circ_id] = circ
-	      return
-	    else:
-	      plog("DEBUG", "Proposed circuit already exists")
-	      # Remove from the proposals
-	      proposals.remove(choice)
-	  plog("DEBUG", "Falling back to normal path selection") 
-
-        # Build the circuit
+        # Build the circuit, configure which ports to use
 	self.selmgr.set_target("255.255.255.255", 80)
         circ = self.c.build_circuit(self.selmgr.pathlen, self.selmgr.path_selector)
 	self.circuits[circ.circ_id] = circ
@@ -391,18 +396,6 @@ class CircuitHandler(PathSupport.PathBuilder):
         # FIXME: How come some routers are non-existant? Shouldn't
         # we have gotten an NS event to notify us they disappeared?
         plog("NOTICE", "Error building circuit: " + str(e.args))
-
-  def print_circuits(self):
-    """ Print out our circuits plus some info """
-    circs = self.circuits.values()
-    plog("INFO", "We have " + str(len(circs)) + " circuits:")
-    for c in circs:
-      print("+ " + c.to_string())
-
-  def refresh_sorted_list(self):
-    """ Sort the list for their mean RTTs """
-    self.circs_sorted = sort_list(self.circuits.values(), lambda x: x.stats.mean)
-    plog("DEBUG", "Refreshed sorted list of circuits")
  
   def circ_status_event(self, c):
     """ Handle circuit status events """
@@ -432,8 +425,6 @@ class CircuitHandler(PathSupport.PathBuilder):
       for stream in circ.pending_streams:
 	plog("DEBUG", "Finding new circ for " + str(stream.strm_id))
         self.attach_stream_any(stream, stream.detached_from)
-      # Refresh the list 
-      self.refresh_sorted_list()
       # Check if there are enough circs
       self.check_circuit_pool()
       return
@@ -459,11 +450,9 @@ class CircuitHandler(PathSupport.PathBuilder):
 
 class StreamHandler(CircuitHandler):
   """ This is a StreamHandler that extends from the CircuitHandler """
-  def __init__(self, c, selmgr):    
+  def __init__(self, c, selmgr, num_circs):    
     # Call constructor of superclass
-    CircuitHandler.__init__(self, c, selmgr)
-    # NEWNYM is needed for testing bandwidth
-    #self.new_nym = True
+    CircuitHandler.__init__(self, c, selmgr, num_circs)
  
   def clear_dns_cache(self):
     """ Send signal CLEARDNSCACHE """
@@ -471,10 +460,12 @@ class StreamHandler(CircuitHandler):
     for _, msg, more in lines:
       plog("DEBUG", "CLEARDNSCACHE: " + msg)
 
+  def close_stream(self, id, reason):
+    """ Close a stream with given id and reason """
+    self.c.close_stream(id, reason)
+
   def attach_stream_any(self, stream, badcircs):
     """ Attach a regular user stream """
-    # To be able to always choose the fastest: slows down attaching?
-    #self.clear_dns_cache()
     # Newnym, and warn if not built plus pending
     unattached_streams = [stream]
     if self.new_nym:
@@ -490,11 +481,13 @@ class StreamHandler(CircuitHandler):
         # FIXME: Consider actually closing circ if no streams.
         self.circuits[key].dirty = True
 
-    # Choose from the sorted list
-    # TODO: We don't have a sorted list if we don't measure!
-    for circ in self.circs_sorted:
-      # Only attach if we already measured
-      if circ.built and not circ.closed and circ.circ_id not in badcircs and circ.current_rtt:
+    # Check if there is a sorted list of circs
+    if self.sorted_circs: list = self.sorted_circs
+    else: list = self.circuits.values()
+    # Choose a circuit
+    for circ in list:
+      # Check each circuit
+      if circ.built and not circ.closed and circ.circ_id not in badcircs:
         if circ.exit.will_exit_to(stream.host, stream.port):
           try:
             self.c.attach_stream(stream.strm_id, circ.circ_id)
@@ -517,8 +510,6 @@ class StreamHandler(CircuitHandler):
         try:
           circ = self.c.build_circuit(self.selmgr.pathlen, self.selmgr.path_selector)
         except TorCtl.ErrorReply, e:
-          # FIXME: How come some routers are non-existant? Shouldn't
-          # we have gotten an NS event to notify us they disappeared?
           plog("NOTICE", "Error building circ: " + str(e.args))
       for u in unattached_streams:
         plog("DEBUG", "Attaching " + str(u.strm_id) + " pending build of circuit " + str(circ.circ_id))
@@ -562,8 +553,8 @@ class StreamHandler(CircuitHandler):
         self.streams[s.strm_id].detached_from.append(s.circ_id)      
       # Detect timeouts on user streams
       if s.reason == "TIMEOUT":
-	# Increase a timeout counter on the stream?
-	#self.circuits[s.circ_id].timeout_counter += 1
+	# TODO: Increase a timeout counter on the stream?
+	#self.streams[s.strm_id].timeout_counter += 1
 	plog("DEBUG", "User stream timed out on circuit " + str(s.circ_id))
       # Stream was pending
       if self.streams[s.strm_id] in self.streams[s.strm_id].pending_circ.pending_streams:
@@ -596,8 +587,7 @@ class StreamHandler(CircuitHandler):
         plog("NOTICE", "Failed stream " + str(s.strm_id) + " not found")
         return
       #if not s.circ_id: plog("WARN", "Stream " + str(s.strm_id) + " closed/failed from no circuit")
-      # We get failed and closed for each stream. OK to return 
-      # and let the CLOSED do the cleanup
+      # We get failed and closed for each stream. OK to return and let the CLOSED do the cleanup
       if s.status == "FAILED":
         # Avoid busted circuits that will not resolve or carry traffic
         self.streams[s.strm_id].failed = True
@@ -626,33 +616,41 @@ class StreamHandler(CircuitHandler):
 
 class PingHandler(StreamHandler):
   """ This class extends the general StreamHandler to handle ping-requests """
-  def __init__(self, c, selmgr, router):
+  def __init__(self, c, selmgr, num_circs, router, partial=False):
     # Anything ping-related
     self.ping_queue = Queue.Queue()	# (circ_id, hop)-pairs
     self.start_times = {}		# dict mapping (circ_id, hop):start_time TODO: cleanup
-    # Start the Pinger that triggers the connections
-    self.pinger = Pinger(self)
-    self.pinger.setDaemon(True)
-    self.pinger.start()
     # Additional stuff for partial measurings
-    if measure_partial_circs:
+    self.partial_circs = partial
+    if self.partial_circs:
       self.router = router			# this object represents this OR
       self.model = NetworkModel(self.router)	# model for recording link-RTTs
     # Handle testing_mode
     if testing_mode:
       self.filehandler = FileHandler("data/circuits")
     # Init the StreamHandler
-    StreamHandler.__init__(self, c, selmgr)    
+    StreamHandler.__init__(self, c, selmgr, num_circs)    
+    # Start the Pinger that triggers the connections
+    self.pinger = Pinger(self)
+    self.pinger.setDaemon(True)
+    self.pinger.start()
+    # Sorted circuit list
+    self.sorted_circs = []		# list of circs sorted by mean RTT
+
+  def refresh_sorted_list(self):
+    """ Sort the list for their mean RTTs or something else? """
+    self.sorted_circs = sort_list(self.circuits.values(), lambda x: x.stats.mean)
+    plog("DEBUG", "Refreshed sorted list of circuits")
 
   def enqueue_pings(self):
-    """ To be schedule_immediated by pinger before the first connection is triggered """
-    print("\n")
+    """ To be schedule_immediated by pinger before the initial connection is triggered """
+    print("")
     circs = self.circuits.values()
     for c in circs:
       if c.built:
         # Get id of c
       	id = c.circ_id
-        if measure_partial_circs:
+        if self.partial_circs:
 	  # If partial measures wanted: get length
 	  path_len = len(c.path)
 	  for i in xrange(1, path_len):
@@ -705,15 +703,14 @@ class PingHandler(StreamHandler):
     """ Attach a ping stream to its circuit """
     if self.ping_queue.empty():
       # This round has finished
-      plog("INFO", "Queue is empty --> round finished, closing stream " + str(stream.strm_id))
-      self.c.close_stream(stream.strm_id, 5)
-      # Fire the event
-      finished_event.set()
+      plog("INFO", "Queue is empty --> no circuits to test, closing stream " + str(stream.strm_id))
+      self.close_stream(stream.strm_id, 5)
       # Call the rest from here?
       self.print_circuits()
-      if measure_partial_circs:
+      if self.partial_circs:
         self.compute_link_RTTs()
-      return
+      self.enqueue_pings()
+
     else:
       # Get the info and extract
       ping_info = self.ping_queue.get()
@@ -733,14 +730,53 @@ class PingHandler(StreamHandler):
             plog("WARN", "Circuit not built or closed")
 	    self.attach_ping(stream)
         else:
-          # Go to next test if circuit is gone
+          # Go to next test if circuit is gone or we get an ErrorReply
           plog("WARN", "Circuit " + str(circ_id) + " does not exist anymore --> passing")
           self.attach_ping(stream)
       except TorCtl.ErrorReply, e:
-        plog("WARN", "Error attaching stream: " + str(e.args))
+        plog("WARN", "Error attaching stream " + str(stream.strm_id) + " :" + str(e.args))
+	self.attach_ping(stream)
+
+  def record_ping(self, s):
+    """ Record a ping from a stream event (DETACHED or CLOSED) """
+    # No timeout, this is a successful ping: measure here	  
+    hop = self.streams[s.strm_id].hop
+    # Compute RTT using arrived_at 
+    rtt = s.arrived_at - self.start_times[(s.circ_id, hop)]
+    plog("INFO", "Measured RTT: " + str(rtt) + " sec")
+    # Save RTT to circuit
+    self.circuits[s.circ_id].part_rtts[hop] = rtt
+    
+    if hop == None:
+      # This is a total circuit measuring
+      self.circuits[s.circ_id].add_rtt(rtt)
+      plog("DEBUG", "Added RTT to history: " + str(self.circuits[s.circ_id].stats.values))	  
+      
+      # Close if num_tests is reached in testing_mode         
+      if testing_mode:
+        if self.circuits[s.circ_id].age == num_tests:
+          plog("DEBUG", "Closing circ " + str(s.circ_id) + ": num_tests is reached")
+          # Save stats to a file for generating plots etc.
+          if self.partial_circs:
+	    if self.circuits[s.circ_id].rtt_created:
+	      # TODO: Do we have to check if this circuit is _really_ new?
+              self.filehandler.write(str(self.circuits[s.circ_id].stats.mean))
+          else:
+	    self.filehandler.write(str(self.circuits[s.circ_id].stats.mean))
+	  # Close the circuit
+          self.close_circuit(s.circ_id)
+      
+      # Close if slow-max is reached on mean RTT
+      if self.circuits[s.circ_id].stats.mean >= slow:
+        self.circuits[s.circ_id].slowness_counter += 1
+        if self.circuits[s.circ_id].slowness_counter >= slowness_limit and not self.circuits[s.circ_id].closed:
+          plog("DEBUG", "Slow-max (" + str(slowness_limit) + ") is reached --> closing circuit " + str(s.circ_id))
+          self.close_circuit(s.circ_id)
+      # Resort only if this is for the complete circ
+      self.refresh_sorted_list()
 
   def stream_status_event(self, s):
-    """ Separate Pings from regular streams directly """
+    """ Separate pings from regular streams directly """
     if not (s.target_host == ping_dummy_host and s.target_port == ping_dummy_port):
       # This is no ping, call the other method
       return StreamHandler.stream_status_event(self, s)
@@ -763,67 +799,79 @@ class PingHandler(StreamHandler):
       # Measure here, means save arrived_at in the dict
       self.start_times[(s.circ_id, self.streams[s.strm_id].hop)] = s.arrived_at
   
-    # DETACHED (CLOSED + TORPROTOCOL is also ping, some routers send it when measuring 1-hop)
-    elif s.status == "DETACHED" or (s.status == "CLOSED" and s.remote_reason == "TORPROTOCOL"):
+    # DETACHED
+    elif s.status == "DETACHED":      
       if (s.reason == "TIMEOUT"):
         self.circuits[s.circ_id].timeout_counter += 1
-	self.circuits[s.circ_id].slowness_counter += 1
-	plog("DEBUG", str(self.circuits[s.circ_id].timeout_counter) + " timeout(s) on circuit " + str(s.circ_id))
-	if self.circuits[s.circ_id].timeout_counter >= timeout_limit and not self.circuits[s.circ_id].closed:
-	  # Close the circuit
-	  plog("DEBUG", "Reached limit on timeouts --> closing circuit " + str(s.circ_id))
-	  self.circuits[s.circ_id].closed = True
-	  try: self.c.close_circuit(s.circ_id)
-	  except TorCtl.ErrorReply, e: 
-	    plog("ERROR", "Failed closing circuit " + str(s.circ_id) + ": " + str(e))	    
-	# Set RTT for circ to None
-	self.circuits[s.circ_id].current_rtt = None
-      
+        self.circuits[s.circ_id].slowness_counter += 1
+        plog("DEBUG", str(self.circuits[s.circ_id].timeout_counter) + " timeout(s) on circuit " + str(s.circ_id))
+        if self.circuits[s.circ_id].timeout_counter >= timeout_limit and not self.circuits[s.circ_id].closed:
+          # Close the circuit
+          plog("DEBUG", "Reached limit on timeouts --> closing circuit " + str(s.circ_id))
+          self.close_circuit(s.circ_id)
+        # Set RTT for this circ to None
+        self.circuits[s.circ_id].current_rtt = None
       else:
-        # No timeout, this is a successful ping: measure here	  
-        hop = self.streams[s.strm_id].hop
-        # Compute RTT using arrived_at 
-        rtt = s.arrived_at - self.start_times[(s.circ_id, hop)]
-        plog("INFO", "Measured RTT: " + str(rtt) + " sec")
-        # Save RTT to circuit
-        self.circuits[s.circ_id].part_rtts[hop] = rtt
+        # No timeout: Record the result
+        self.record_ping(s)              
+      # Close the stream
+      self.close_stream(s.strm_id, 5)
 
-        if hop == None:
-          # This is a total circuit measuring
-	  self.circuits[s.circ_id].add_rtt(rtt)
-	  plog("DEBUG", "Added RTT to history: " + str(self.circuits[s.circ_id].stats.values))
-	  
-	  # Close if num_tests is reached          
-	  if testing_mode:
-	    if self.circuits[s.circ_id].age >= num_tests:
-	      plog("DEBUG", "Closing circ " + str(s.circ_id) + ": num_tests is reached")
-	      self.circuits[s.circ_id].closed = True
-	      # Save stats to a file in for generating plots etc.
-	      self.filehandler.write(str(self.circuits[s.circ_id].stats.mean) + "\t" + str(self.circuits[s.circ_id].stats.dev))
-	      self.c.close_circuit(s.circ_id)
+    # CLOSED + END is also ping, some routers send it when measuring 1-hop
+    # better measure on FAILED?
+    elif s.status == "CLOSED":
+      if s.reason == "END":
+        # Only record
+        self.record_ping(s)
 
-	  # Close if slow-max is reached on mean RTT
-          if self.circuits[s.circ_id].stats.mean >= slow:
-	    self.circuits[s.circ_id].slowness_counter += 1
-	    if self.circuits[s.circ_id].slowness_counter >= slowness_limit and not self.circuits[s.circ_id].closed:
-	      plog("DEBUG", "Slow-max (" + str(slowness_limit) + ") is reached --> closing circuit " + str(s.circ_id))
-	      self.circuits[s.circ_id].closed = True
-	      self.c.close_circuit(s.circ_id)
+  def get_trad_circs(self):
+    """ Count the circuits with rtt_created == False """
+    trad_circs = 0
+    for c in self.circuits.values():
+      if c.rtt_created == False:
+        trad_circs += 1
+    return trad_circs
 
-          # Resort only if this is for the complete circ
-          self.refresh_sorted_list()
-
-      if s.status == "CLOSED":
-        # Stream is gone .. we have to create a new ping :(
-        t = threading.Thread(None, self.pinger.ping, "Ping")
-	t.setDaemon(True)
-	t.start()
-	return
-
-      # Call attach ping here and use only one stream for all tests
-      self.attach_ping(self.streams[s.strm_id])
-      return
-
+  def build_idle_circuit(self):
+    """ Override from CircuitHandler to support circuit-creation from the NetworkModel """
+    if self.partial_circs:
+      circ = None
+      # This is to ensure expansion of the explored subnet
+      # Check if ratio would be ok when adding new rtt_created circ
+      trad = float(self.get_trad_circs())
+      ratio = trad/(len(self.circuits.values())+1)
+      plog("DEBUG","Expected Ratio = " + str(ratio) + " >= " + str(min_ratio) + " ?")
+      if ratio >= min_ratio:
+        # Get the proposals RTT <= slow
+	proposals = self.model.check_proposals(slow)
+	# Check if we have >= min_proposals
+        if len(proposals) >= min_proposals:
+	  proposals = sort_list(proposals, lambda x: x.rtt)
+	  # Check them out
+	  while len(proposals) >= 1:
+	    # Random choice or choose the fastest!
+	      
+	    choice = random.choice(proposals)
+            #choice = proposals[0]
+	    
+            # Check if we already have a circ with this path
+            if self.check_path(choice.path):
+              plog("INFO", "Chosen proposal: " + choice.to_string())
+              try:
+                circ = self.c.build_circuit_from_path(choice.path)
+                self.circuits[circ.circ_id] = circ
+	        return
+              except TorCtl.ErrorReply, e:
+                plog("NOTICE", "Error building circuit: " + str(e.args))
+            else:
+              # Remove this proposals
+              plog("DEBUG", "Proposed circuit already exists")
+	      proposals.remove(choice)
+    
+    # Build a circuit with the standard method
+    plog("DEBUG", "Falling back to normal path selection")
+    CircuitHandler.build_idle_circuit(self)
+        
 ######################################### BEGIN: Pinger            #####################
 
 class Pinger(threading.Thread):
@@ -834,21 +882,11 @@ class Pinger(threading.Thread):
   
   def run(self):
     """ The run()-method """
-    while self.isAlive():
-      time.sleep(sleep_interval)
-      self.do_work()
-
-  def do_work(self):
-    """ Do the work """
-    # Event is only needed, because some routers close our connection if trying 
-    # to use them as one-hop, so we need to create a new connection sometimes and
-    # cannot rely on the failing of our first connection
-    finished_event.clear()
-    # Let all circs to test be enqueued 
+    time.sleep(initial_interval)
     self.handler.schedule_immediate(lambda x: x.enqueue_pings())
-    # Simply trigger only _one_ connection
-    self.ping()
-    finished_event.wait()
+    while self.isAlive():
+      self.ping()
+      time.sleep(sleep_interval)
   
   # No "try .. except .. finally .." in Python < 2.5 !
   def ping(self):
@@ -879,18 +917,20 @@ def setup_location(conn):
   """ Setup a router object representing this proxy """
   global path_config
   plog("INFO","Setting up our location")
-  ip = 0
+  ip = None
   # Try to get our IP from Tor
   try:
     info = conn.get_info("address")
     ip = info["address"]
   except: 
     plog("ERROR", "Could not get our IP")
+    ip = "127.0.0.1"
   # Set up a router object
   router = GeoIPSupport.GeoIPRouter(TorCtl.Router(None,"ROOT",None,False,None,None,ip,None,None))
-  plog("INFO", "Our IP address is " + router.get_ip_dotted() + " [" + router.country_code + "]")
-  # To be configured
-  path_config.src_country = router.country_code
+  # TODO: Check if ip == None
+  plog("INFO", "Our IP address is " + router.get_ip_dotted() + " [" + str(router.country_code) + "]")
+  # Set entry_country from here?
+  # path_config.entry_country = router.country_code
   return router
  
 def configure(conn):
@@ -914,9 +954,13 @@ def startup(argv):
   configure(conn)
   # Set Handler to the connection
   if measure_circs:
-    handler = PingHandler(conn, __selmgr, router)
+    if measure_partial_circs:
+      handler = PingHandler(conn, __selmgr, idle_circuits, router, True)
+    else:
+      handler = PingHandler(conn, __selmgr, idle_circuits, router)
   else:
-    handler = StreamHandler(conn, __selmgr)
+    # No pings, only a StreamHandler
+    handler = StreamHandler(conn, __selmgr, idle_circuits)
   conn.set_event_handler(handler)
   # Go to sleep to be able to get killed from the commandline
   try:
