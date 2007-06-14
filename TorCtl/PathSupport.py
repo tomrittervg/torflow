@@ -18,7 +18,8 @@ __all__ = ["NodeRestrictionList", "PathRestrictionList",
 "UniqueRestriction", "UniformGenerator", "OrderedExitGenerator",
 "PathSelector", "Connection", "NickRestriction", "IdHexRestriction",
 "PathBuilder", "SelectionManager", "CountryCodeRestriction", 
-"CountryRestriction", "UniqueCountryRestriction", "ContinentRestriction",
+"CountryRestriction", "UniqueCountryRestriction", 
+"SingleCountryRestriction", "ContinentRestriction", 
 "ContinentJumperRestriction"]
 
 #################### Path Support Interfaces #####################
@@ -330,6 +331,14 @@ class UniqueCountryRestriction(PathRestriction):
         return False
     return True
 
+# Ensure every router to have the same country
+class SingleCountryRestriction(PathRestriction):
+  def r_is_ok(self, path, router):
+    for r in path:
+      if router.country_code != r.country_code:
+        return False
+    return True
+
 # Do not more than n continent crossings
 class ContinentRestriction(PathRestriction):
   def __init__(self, n):
@@ -504,21 +513,31 @@ class SelectionManager:
       entry_rstr.add_restriction(CountryCodeRestriction())
       mid_rstr.add_restriction(CountryCodeRestriction())
       self.exit_rstr.add_restriction(CountryCodeRestriction())
-      # First hop in our country?
-      src = self.geoip_config.src_country
-      if src:  
-	entry_rstr.add_restriction(CountryRestriction(src))
-      # Excludes
-      plog("INFO", "Excluded countries: " + str(self.geoip_config.excludes))
-      if len(self.geoip_config.excludes) > 0:
-        entry_rstr.add_restriction(ExcludeCountriesRestriction(self.geoip_config.excludes))
-        mid_rstr.add_restriction(ExcludeCountriesRestriction(self.geoip_config.excludes))
-        self.exit_rstr.add_restriction(ExcludeCountriesRestriction(self.geoip_config.excludes))      
-      # Unique countries?
-      if self.geoip_config.unique_countries:
-        self.path_rstr.add_restriction(UniqueCountryRestriction())
+      # First hop in a specified country?
+      entry_country = self.geoip_config.entry_country
+      if entry_country:  
+	entry_rstr.add_restriction(CountryRestriction(entry_country))
+      # Last hop in a specified country?
+      exit_country = self.geoip_config.exit_country
+      if exit_country:
+        self.exit_rstr.add_restriction(CountryRestriction(exit_country))
+      # Excluded countries
+      if self.geoip_config.excludes:
+        plog("INFO", "Excluded countries: " + str(self.geoip_config.excludes))
+        if len(self.geoip_config.excludes) > 0:
+          entry_rstr.add_restriction(ExcludeCountriesRestriction(self.geoip_config.excludes))
+          mid_rstr.add_restriction(ExcludeCountriesRestriction(self.geoip_config.excludes))
+          self.exit_rstr.add_restriction(ExcludeCountriesRestriction(self.geoip_config.excludes))      
+      # Unique countries set? None --> pass
+      if self.geoip_config.unique_countries != None:
+        if self.geoip_config.unique_countries:
+	  # If True: unique countries 
+          self.path_rstr.add_restriction(UniqueCountryRestriction())
+        else:
+	  # False: use the same country for all nodes in a path
+	  self.path_rstr.add_restriction(SingleCountryRestriction())
       # Specify max number of crossings here, None means ContinentJumper
-      n = self.geoip_config.max_cont_crossings
+      n = self.geoip_config.max_crossings
       if n == None:
         self.path_rstr.add_restriction(ContinentJumperRestriction())
       else: self.path_rstr.add_restriction(ContinentRestriction(n))

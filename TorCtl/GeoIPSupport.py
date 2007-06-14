@@ -86,15 +86,17 @@ class GeoIPRouter(TorCtl.Router):
   def get_ip_dotted(self):
     return socket.inet_ntoa(struct.pack('>I', self.ip))
 
-# Class to configure GeoIP-based path building
 class GeoIPConfig:
-  def __init__(self, unique_countries, src_country, crossings, excludes):    
+  """ Class to configure GeoIP-based path building """		    
+  def __init__(self, unique_countries, entry_country, exit_country, max_crossings, excludes):    
+    # TODO: Somehow ensure validity of the configuration
     # Do not use a country twice in a route
     self.unique_countries = unique_countries
-    # Pass the country we are staying at for getting 
-    # Entry in src_country, None if not wished
-    self.src_country = src_country
+    # entry in entry_country
+    self.entry_country = entry_country
+    # exit in exit_country
+    self.exit_country = exit_country
     # Configure max continent crossings in one path
-    self.max_cont_crossings = crossings
+    self.max_crossings = max_crossings
     # List of countries to not use in routes
     self.excludes = excludes
