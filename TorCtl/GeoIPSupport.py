@@ -64,7 +64,7 @@ def get_continent(country_code):
   plog("WARN", country_code + " is not on any continent")
   return None
 
-# Get the country code out of a GeoLiteCity record
+# Get the country code out of a GeoLiteCity record (not used)
 def get_country_from_record(ip):
   record = geoip.record_by_addr(ip)
   if record != None:
@@ -72,7 +72,7 @@ def get_country_from_record(ip):
 
 # Router class extended to GeoIP
 class GeoIPRouter(TorCtl.Router):  
-  def __init__(self, router): # Promotion constructor :)
+  def __init__(self, router):
     self.__dict__ = router.__dict__
     # Select method to get the country_code here
     self.country_code = geoip.country_code_by_addr(self.get_ip_dotted())
@@ -90,13 +90,20 @@ class GeoIPConfig:
   """ Class to configure GeoIP-based path building """		    
   def __init__(self, unique_countries, entry_country, exit_country, max_crossings, excludes):    
     # TODO: Somehow ensure validity of the configuration
-    # Do not use a country twice in a route
+    
+    # Do not use a country twice in a route 
+    # [True --> unique, False --> same or None --> pass] 
     self.unique_countries = unique_countries
-    # entry in entry_country
+    
+    # entry in entry_country [single country code or None]
     self.entry_country = entry_country
-    # exit in exit_country
+    # exit in exit_country [single country code or None]
     self.exit_country = exit_country
-    # Configure max continent crossings in one path
+    
+    # Configure max continent crossings in one path 
+    # [integer number 0-n or None --> ContinentJumper/UniqueContinent]
     self.max_crossings = max_crossings
-    # List of countries to not use in routes
+    
+    # List of countries to not use in routes 
+    # [(empty) list of country codes or None]
     self.excludes = excludes
