@@ -16,9 +16,9 @@ __all__ = ["NodeRestrictionList", "PathRestrictionList",
 "VersionExcludeRestriction", "ExitPolicyRestriction", "OrNodeRestriction",
 "AtLeastNNodeRestriction", "NotNodeRestriction", "Subnet16Restriction",
 "UniqueRestriction", "UniformGenerator", "OrderedExitGenerator",
-"PathSelector", "Connection", "NickRestriction", "IdHexRestriction",
-"PathBuilder", "SelectionManager", "CountryCodeRestriction", 
-"CountryRestriction", "UniqueCountryRestriction", 
+"BwWeightedGenerator", "PathSelector", "Connection", "NickRestriction", 
+"IdHexRestriction", "PathBuilder", "SelectionManager", 
+"CountryCodeRestriction", "CountryRestriction", "UniqueCountryRestriction",
 "SingleCountryRestriction", "ContinentRestriction", 
 "ContinentJumperRestriction", "UniqueContinentRestriction"]
 
@@ -416,6 +416,77 @@ class OrderedExitGenerator(NodeGenerator):
       if self.last_idx == self.next_exit_by_port[self.to_port]:
         break
 
+class BwWeightedGenerator(NodeGenerator):
+  """ Pass exit=True to create a generator for exit-nodes """
+  def __init__(self, sorted_r, rstr_list, exit=None):
+    # Out for an exit-node?
+    self.exit = exit
+    # Different sums of bandwidths
+    self.total_bw = 0
+    self.total_exit_bw = 0
+    self.exit_bw_to_dest = 0
+    NodeGenerator.__init__(self,sorted_r, rstr_list)
+
+  def rewind(self):
+    # Set the exit_weight
+    if self.exit:
+      self.exit_bw_to_dest = 0
+      # We are choosing an exit-node
+      for r in self.sorted_r:
+        if self.rstr_list.r_is_ok(r):
+          self.exit_bw_to_dest += r.bw
+      plog("DEBUG", "Exit-bandwidth to this destination is " + 
+         str(self.exit_bw_to_dest))
+      self.weight = 1.0
+    else:
+      # We are choosing a non-exit
+      self.total_exit_bw = 0
+      self.total_bw = 0
+      for r in self.sorted_r:        
+        if self.rstr_list.r_is_ok(r):
+          self.total_bw += r.bw
+          if "Exit" in r.flags:
+            self.total_exit_bw += r.bw
+
+      third = self.total_bw/3.0
+      ratio = self.total_exit_bw/float(self.total_bw)
+      plog("DEBUG", "E = " + str(self.total_exit_bw) + 
+         ", T = " + str(self.total_bw) +
+         ", T/3 = " + str(third) +
+         ", ratio = " + str(ratio))
+      
+      if self.total_exit_bw < third:
+        # Don't use exit nodes at all
+        # add a ConserveExitsRestriction?
+        self.weight = 0
+      else:
+        self.weight = ((self.total_exit_bw-third)/self.total_exit_bw)
+    plog("DEBUG", "The exit-weight is: " + str(self.weight))
+
+  # Just in case: 
+  def mark_chosen(self, r): raise NotImplemented()
+  def all_chosen(self): raise NotImplemented()
+
+  def next_r(self):
+    while True:
+      # Choose a suitable random int
+      if self.exit:
+        i = random.randint(0, self.exit_bw_to_dest)
+      else:
+        i = random.randint(0, (self.total_bw-self.total_exit_bw))
+      # Go through the routers
+      for r in self.sorted_r:
+        # Below zero here --> choose a new random int
+        if i < 0: break
+        if self.rstr_list.r_is_ok(r):
+          # Only weight exit nodes
+          if "Exit" in r.flags:
+            i -= self.weight * r.bw
+          else: i -= r.bw
+          if i < 0:
+            plog("DEBUG", "Chosen router with a bandwidth of: " + str(r.bw))
+            yield r
+
 ####################### Secret Sauce ###########################
 
 class PathError(Exception):
@@ -465,7 +536,8 @@ class SelectionManager:
     """
   def __init__(self, pathlen, order_exits,
          percent_fast, percent_skip, min_bw, use_all_exits,
-         uniform, use_exit, use_guards, geoip_config=None):
+         uniform, use_exit, use_guards, bw_weighted=False,
+         geoip_config=None):
     self.__ordered_exit_gen = None 
     self.pathlen = pathlen
     self.order_exits = order_exits
@@ -476,6 +548,7 @@ class SelectionManager:
     self.uniform = uniform
     self.exit_name = use_exit
     self.use_guards = use_guards
+    self.bw_weighted = bw_weighted
     self.geoip_config = geoip_config
 
   def reconfigure(self, sorted_r):
@@ -545,10 +618,23 @@ class SelectionManager:
 	  # False: use the same country for all nodes in a path
 	  self.path_rstr.add_restriction(SingleCountryRestriction())
       
-      # Specify max number of crossings here, None means ContinentJumper/UniqueContinents
+      # Specify max number of crossings here, None means UniqueContinents
       if self.geoip_config.max_crossings == None:
         self.path_rstr.add_restriction(UniqueContinentRestriction())
       else: self.path_rstr.add_restriction(ContinentRestriction(self.geoip_config.max_crossings))
+    
+    if self.bw_weighted:
+      # Remove ConserveExitsRestrictions for entry and middle positions
+      entry_rstr.del_restriction(ConserveExitsRestriction)
+      mid_rstr.del_restriction(ConserveExitsRestriction)
+      # Initially setup the PathSelector to port 80 and return      
+      self.exit_rstr.add_restriction(ExitPolicyRestriction("255.255.255.255", 80))
+      self.path_selector = PathSelector(
+         BwWeightedGenerator(sorted_r, entry_rstr),
+         BwWeightedGenerator(sorted_r, mid_rstr),
+         BwWeightedGenerator(sorted_r, self.exit_rstr, exit=True),
+         self.path_rstr)
+      return
 
     # This is kind of hokey..
     if self.order_exits:
