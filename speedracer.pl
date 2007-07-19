@@ -17,10 +17,10 @@ my $CURL_PROXY = "--socks5 $SOCKS_PROXY";
 # http://bitter.stalin.se/torfile
 # http://www.sigma.su.se/~who/torfile
 my $URL = "http://bitter.stalin.se/torfile1"; 
-my $COUNT = 500;
+my $COUNT = 200;
 my $START_PCT = 0;
-my $STOP_PCT = 20;
-my $PCT_STEP = 5;
+my $STOP_PCT = 8;
+my $PCT_STEP = 4;
 my $DOUBLE_FETCH = 0;
 
 my $LOG_LEVEL = "DEBUG";
@@ -122,8 +122,8 @@ sub speedrace
             
             $t0 = [gettimeofday()];
             $ret = 
-#                system("tsocks wget -U \"$USER_AGENT\" \'$URL\' -O - >& /dev/null");
-                system("curl $CURL_PROXY -m 600 -A \"$USER_AGENT\" \'$URL\' >& /dev/null");
+                system("tsocks wget -U \"$USER_AGENT\" \'$URL\' -O - >& /dev/null");
+#                system("curl $CURL_PROXY -m 600 -A \"$USER_AGENT\" \'$URL\' >& /dev/null");
 
             if($ret == 2) {
                 plog "NOTICE", "wget got Sigint. Dying\n";
@@ -134,7 +134,8 @@ sub speedrace
             $delta_build = tv_interval $t0;
             plog "NOTICE", "Timer exceeded limit: $delta_build\n"
                 if($delta_build >= 550.0);
-        } while($ret != 0 || $delta_build >= 550.0);
+        } while(0);
+#        } while($ret != 0 || $delta_build >= 550.0);
 
         $build_exit = query_exit($mcp);
         $fetch_exit = $build_exit;
@@ -147,8 +148,8 @@ sub speedrace
                 $i++;
                 $t0 = [gettimeofday()];
                 $ret = 
-#                system("tsocks wget -U \"$USER_AGENT\" \'$URL\' -O - >& /dev/null");
-                    system("curl $CURL_PROXY -m 600 -A \"$USER_AGENT\" \'$URL\' >& /dev/null");
+                system("tsocks wget -U \"$USER_AGENT\" \'$URL\' -O - >& /dev/null");
+#                    system("curl $CURL_PROXY -m 600 -A \"$USER_AGENT\" \'$URL\' >& /dev/null");
 
                 if($ret == 2) {
                     plog "NOTICE", "wget got Sigint. Dying\n";
