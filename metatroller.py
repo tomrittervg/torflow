@@ -16,7 +16,8 @@ import struct
 import copy
 import time
 import math
-from TorCtl import *
+#from TorCtl import *
+from TorCtl import TorUtil, PathSupport, TorCtl
 from TorCtl.TorUtil import *
 from TorCtl.PathSupport import *
 
