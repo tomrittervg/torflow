@@ -535,7 +535,7 @@ class Connection:
     # Use http://docs.python.org/lib/profile.html to verify this is 
     # the part of startup that is slow
     for line in desc:
-      pl = re.search(r"^platform Tor (\S+) on (\S+)", line)
+      pl = re.search(r"^platform Tor (\S+).*on (\S+)", line)
       ac = re.search(r"^accept (\S+):([^-]+)(?:-(\d+))?", line)
       rj = re.search(r"^reject (\S+):([^-]+)(?:-(\d+))?", line)
       bw = re.search(r"^bandwidth \d+ \d+ (\d+)", line)
