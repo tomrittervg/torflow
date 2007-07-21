@@ -410,7 +410,7 @@ class BwWeightedGenerator(NodeGenerator):
     self.total_exit_bw = 0
     self.exit_bw_to_dest = 0
     self.pathlen = pathlen
-    NodeGenerator.__init__(self,sorted_r, rstr_list)
+    NodeGenerator.__init__(self, sorted_r, rstr_list)
 
   def rewind(self):
     NodeGenerator.rewind(self)
@@ -439,8 +439,8 @@ class BwWeightedGenerator(NodeGenerator):
       ratio = self.total_exit_bw/float(self.total_bw)
       plog("DEBUG", "E = " + str(self.total_exit_bw) +
          ", T = " + str(self.total_bw) +
-         ", T/3 = " + str(bw_per_hop) +
-         ", ratio = " + str(ratio))
+         ", ratio = " + str(ratio) +
+         ", bw_per_hop = " + str(bw_per_hop))
       
       if self.total_exit_bw < bw_per_hop:
         # Don't use exit nodes at all
@@ -457,8 +457,8 @@ class BwWeightedGenerator(NodeGenerator):
         i = random.randint(0, self.exit_bw_to_dest)
       else:
         i = random.randint(0,
-                     (self.total_bw-self.total_exit_bw) # nonexit
-                     +self.total_exit_bw*self.weight)   # + weighted exit
+                     (self.total_bw-self.total_exit_bw)    # nonexit
+                     +int(self.total_exit_bw*self.weight)) # + weighted exit
       # Go through the routers
       for r in self.routers:
         # Below zero here --> choose a new random int+router
@@ -630,8 +630,7 @@ class SelectionManager:
     elif self.uniform:
       exitgen = UniformGenerator(sorted_r, self.exit_rstr)
     else:
-      exitgen = BwWeightedGenerator(sorted_r, self.exit_rstr, self.pathlen, exit=True),
-
+      exitgen = BwWeightedGenerator(sorted_r, self.exit_rstr, self.pathlen, exit=True)
 
     if self.uniform:
       self.path_selector = PathSelector(
