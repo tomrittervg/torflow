@@ -19,7 +19,7 @@ my $USER_AGENT = "Mozilla/5.0 (Windows; U; Windows NT 5.1; de; rv:1.8.1) Gecko/2
 #baseline md5s of html
 my $SOCKS_PROXY = "127.0.0.1:9060";
 
-my @TO_SCAN = ("ssl", "urls");
+my @TO_SCAN = ("urls");
 my $ALLOW_NEW_SSL_IPS = 1;
 
 # doc and ppt may also be good ones to check.. They are frequently vulnerable
@@ -27,8 +27,8 @@ my $ALLOW_NEW_SSL_IPS = 1;
 # php, cgi, etc to this list.. The multiple "all" filetypes mean 2 * 5 sets
 # of results without a filetype. Hopefully we can snag some static php,
 # shtml, cgi files.
-my @FILETYPES = ("all", "all"); #"xpi", "exe", "msi", "doc", "ppt", "all", "all"); 
-my $RESULTS_PER_TYPE = 3;
+my @FILETYPES = ("all", "all", "all", "all"); #"xpi", "exe", "msi", "doc", "ppt", "all", "all"); 
+my $RESULTS_PER_TYPE = 5;
 
 # Maxium number of tries before giving up on a URL
 my $MAX_TRIES = 3; 
@@ -674,7 +674,7 @@ sub main
     print $mcp "USEALLEXITS 1\r\n";
     $line = <$mcp>;
     die "Error setting fastexits: $line" if (not $line =~ /^250/);
-    print $mcp "UNIFORM 1\r\n";
+    print $mcp "UNIFORM 0\r\n";
     $line = <$mcp>;
     die "Error setting uniform: $line" if (not $line =~ /^250/);
     print $mcp "BWCUTOFF 1\r\n";

@@ -638,7 +638,9 @@ def commandloop(s, c, h):
           order_exits = int(arg)
           def notlambda(sm): sm.order_exits=order_exits
           h.schedule_selmgr(notlambda)
-        s.write("250 ORDEREXITS="+str(order_exits)+" OK\r\n")
+          s.write("250 ORDEREXITS="+str(order_exits)+" OK\r\n")
+        else:
+          s.write("250 ORDEREXITS="+str(h.selmgr.order_exits)+" OK\r\n")
       except ValueError:
         s.write("510 Integer expected\r\n")
     elif command == "USEALLEXITS":
@@ -647,16 +649,20 @@ def commandloop(s, c, h):
           use_all_exits = int(arg)
           def notlambda(sm): sm.use_all_exits=use_all_exits
           h.schedule_selmgr(notlambda)
-        s.write("250 USEALLEXITS="+str(use_all_exits)+" OK\r\n")
+          s.write("250 USEALLEXITS="+str(use_all_exits)+" OK\r\n")
+        else:
+          s.write("250 USEALLEXITS="+str(h.selmgr.use_all_exits)+" OK\r\n")
       except ValueError:
         s.write("510 Integer expected\r\n")
-    elif command == "PRECIRCUITS":
+    elif command == "PRECIRCUITS": # XXX: Use op-addon code for this..
       try:
         if arg:
           num_circuits = int(arg)
           def notlambda(pb): pb.num_circuits=num_circuits
           h.schedule_immediate(notlambda)
-        s.write("250 PRECIRCUITS="+str(num_circuits)+" OK\r\n")
+          s.write("250 PRECIRCUITS="+str(num_circuits)+" OK\r\n")
+        else:
+          s.write("250 PRECIRCUITS="+str(h.num_circuits)+" OK\r\n")
       except ValueError:
         s.write("510 Integer expected\r\n")
     elif command == "RESOLVEPORT":
@@ -665,7 +671,9 @@ def commandloop(s, c, h):
           resolve_port = int(arg)
           def notlambda(pb): pb.resolve_port=resolve_port
           h.schedule_immediate(notlambda)
-        s.write("250 RESOLVEPORT="+str(resolve_port)+" OK\r\n")
+          s.write("250 RESOLVEPORT="+str(resolve_port)+" OK\r\n")
+        else:
+          s.write("250 RESOLVEPORT="+str(h.resolve_port)+" OK\r\n")
       except ValueError:
         s.write("510 Integer expected\r\n")
     elif command == "PERCENTFAST":
@@ -674,7 +682,9 @@ def commandloop(s, c, h):
           percent_fast = int(arg)
           def notlambda(sm): sm.percent_fast=percent_fast
           h.schedule_selmgr(notlambda)
-        s.write("250 PERCENTFAST="+str(percent_fast)+" OK\r\n")
+          s.write("250 PERCENTFAST="+str(percent_fast)+" OK\r\n")
+        else:
+          s.write("250 PERCENTFAST="+str(h.selmgr.percent_fast)+" OK\r\n")
       except ValueError:
         s.write("510 Integer expected\r\n")
     elif command == "PERCENTSKIP":
@@ -683,7 +693,9 @@ def commandloop(s, c, h):
           percent_skip = int(arg)
           def notlambda(sm): sm.percent_skip=percent_skip
           h.schedule_selmgr(notlambda)
-        s.write("250 PERCENTSKIP="+str(percent_skip)+" OK\r\n")
+          s.write("250 PERCENTSKIP="+str(percent_skip)+" OK\r\n")
+        else:
+          s.write("250 PERCENTSKIP="+str(h.selmgr.percent_skip)+" OK\r\n")
       except ValueError:
         s.write("510 Integer expected\r\n")
     elif command == "BWCUTOFF":
@@ -692,11 +704,22 @@ def commandloop(s, c, h):
           min_bw = int(arg)
           def notlambda(sm): sm.min_bw=min_bw
           h.schedule_selmgr(notlambda)
-        s.write("250 BWCUTOFF="+str(min_bw)+" OK\r\n")
+          s.write("250 BWCUTOFF="+str(min_bw)+" OK\r\n")
+        else:
+          s.write("250 BWCUTOFF="+str(h.selmgr.min_bw)+" OK\r\n")
       except ValueError:
         s.write("510 Integer expected\r\n")
     elif command == "UNIFORM":
-      s.write("250 OK\r\n")
+      try:
+        if arg:
+          uniform = int(arg)
+          def notlambda(sm): sm.uniform=uniform
+          h.schedule_selmgr(notlambda)
+          s.write("250 UNIFORM="+str(uniform)+" OK\r\n")
+        else:
+          s.write("250 UNIFORM="+str(h.selmgr.uniform)+" OK\r\n")
+      except ValueError:
+        s.write("510 Integer expected\r\n")
     elif command == "PATHLEN":
       try:
         if arg:
@@ -705,7 +728,9 @@ def commandloop(s, c, h):
           # the user shouldn't be changing it very often..
           def notlambda(sm): sm.pathlen=pathlen
           h.schedule_selmgr(notlambda)
-        s.write("250 PATHLEN="+str(pathlen)+" OK\r\n")
+          s.write("250 PATHLEN="+str(pathlen)+" OK\r\n")
+        else:
+          s.write("250 PATHLEN="+str(h.selmgr.pathlen)+" OK\r\n")
       except ValueError:
         s.write("510 Integer expected\r\n")
     elif command == "SETEXIT":

@@ -48,30 +48,15 @@ class NodeRestrictionList:
 
 class PathRestriction:
   "Interface for path restriction policies"
-  def r_is_ok(self, path, r): return True  
-  def entry_is_ok(self, path, r): return self.r_is_ok(path, r)
-  def middle_is_ok(self, path, r): return self.r_is_ok(path, r)
-  def exit_is_ok(self, path, r): return self.r_is_ok(path, r)
+  def path_is_ok(self, path): return True  
 
 class PathRestrictionList:
   def __init__(self, restrictions):
     self.restrictions = restrictions
   
-  def entry_is_ok(self, path, r):
+  def path_is_ok(self, path):
     for rs in self.restrictions:
-      if not rs.entry_is_ok(path, r):
-        return False
-    return True
-
-  def middle_is_ok(self, path, r):
-    for rs in self.restrictions:
-      if not rs.middle_is_ok(path, r):
-        return False
-    return True
-
-  def exit_is_ok(self, path, r):
-    for rs in self.restrictions:
-      if not rs.exit_is_ok(path, r):
+      if not rs.path_is_ok(path):
         return False
     return True
 
@@ -107,28 +92,17 @@ class NodeGenerator:
 class Connection(TorCtl.Connection):
   def build_circuit(self, pathlen, path_sel):
     circ = Circuit()
-    if pathlen == 1:
-      circ.exit = path_sel.exit_chooser(circ.path)
-      circ.path = [circ.exit]
-      circ.circ_id = self.extend_circuit(0, circ.id_path())
-    else:
-      circ.path.append(path_sel.entry_chooser(circ.path))
-      for i in xrange(1, pathlen-1):
-        circ.path.append(path_sel.middle_chooser(circ.path))
-      circ.exit = path_sel.exit_chooser(circ.path)
-      circ.path.append(circ.exit)
-      circ.circ_id = self.extend_circuit(0, circ.id_path())
+    circ.path = path_sel.build_path(pathlen)
+    circ.exit = circ.path[pathlen-1]
+    circ.circ_id = self.extend_circuit(0, circ.id_path())
     return circ
 
 ######################## Node Restrictions ########################
 
 # TODO: We still need more path support implementations
-#  - BwWeightedGenerator
 #  - NodeRestrictions:
 #    - Uptime/LongLivedPorts (Does/should hibernation count?)
 #    - Published/Updated
-#    - GeoIP
-#      - NodeCountry
 #  - PathRestrictions:
 #    - Family
 #    - GeoIP:
@@ -289,16 +263,20 @@ class AtLeastNNodeRestriction(MetaNodeRestriction):
 #################### Path Restrictions #####################
 
 class Subnet16Restriction(PathRestriction):
-  def r_is_ok(self, path, router):
+  def path_is_ok(self, path):
     mask16 = struct.unpack(">I", socket.inet_aton("255.255.0.0"))[0]
-    ip16 = router.ip & mask16
-    for r in path:
+    ip16 = path[0].ip & mask16
+    for r in path[1:]:
       if ip16 == (r.ip & mask16):
         return False
     return True
 
 class UniqueRestriction(PathRestriction):
-  def r_is_ok(self, path, r): return not r in path
+  def path_is_ok(self, path):
+    for i in xrange(0,len(path)):
+      if path[i] in path[:i]:
+        return False
+    return True
 
 #################### GeoIP Restrictions ###################
 
@@ -325,17 +303,19 @@ class ExcludeCountriesRestriction(NodeRestriction):
 
 class UniqueCountryRestriction(PathRestriction):
   """ Ensure every router to have a distinct country_code """
-  def r_is_ok(self, path, router):
-    for r in path:
-      if router.country_code == r.country_code:
-        return False
-    return True
+  def path_is_ok(self, path):
+    for i in xrange(0, len(path)-1):
+      for j in xrange(i+1, len(path)):
+        if path[i].country_code == path[j].country_code:
+          return False;
+    return True;
 
 class SingleCountryRestriction(PathRestriction):
   """ Ensure every router to have the same country_code """
-  def r_is_ok(self, path, router):
+  def path_is_ok(self, path):
+    country_code = path[0].country_code
     for r in path:
-      if router.country_code != r.country_code:
+      if country_code != r.country_code:
         return False
     return True
 
@@ -344,37 +324,40 @@ class ContinentRestriction(PathRestriction):
   def __init__(self, n):
     self.n = n
 
-  def r_is_ok(self, path, router):
+  def path_is_ok(self, path):
     crossings = 0
-    last = None
+    prev = None
     # Compute crossings until now
     for r in path:
       # Jump over the first router
-      if last:
-        if r.continent != last.continent:
+      if prev:
+        if r.continent != prev.continent:
           crossings += 1
-      last = r
-    # Check what happens if we add 'router'	  
-    if len(path)>=1:
-      if router.continent != last.continent:
-        crossings += 1
+      prev = r
     if crossings > self.n: return False
     else: return True
 
 class ContinentJumperRestriction(PathRestriction):
   """ Ensure continent crossings between all hops """
-  def r_is_ok(self, path, router):
-    if len(path) > 0 and path[len(path)-1].continent == router.continent:
-      return False
-    else: return True
+  def path_is_ok(self, path):
+    prev = None
+    # Compute crossings until now
+    for r in path:
+      # Jump over the first router
+      if prev:
+        if r.continent == prev.continent:
+          return False
+      prev = r
+    return True
 
 class UniqueContinentRestriction(PathRestriction):
   """ Ensure every hop to be on a different continent """
-  def r_is_ok(self, path, router):
-    for r in path:
-      if router.continent == r.continent:
-        return False
-    return True    
+  def path_is_ok(self, path):
+    for i in xrange(0, len(path)-1):
+      for j in xrange(i+1, len(path)):
+        if path[i].continent == path[j].continent:
+          return False;
+    return True;
 
 #################### Node Generators ######################
 
@@ -382,7 +365,6 @@ class UniformGenerator(NodeGenerator):
   def next_r(self):
     while not self.all_chosen():
       r = random.choice(self.routers)
-      self.mark_chosen(r)
       if self.rstr_list.r_is_ok(r): yield r
 
 class OrderedExitGenerator(NodeGenerator):
@@ -402,32 +384,36 @@ class OrderedExitGenerator(NodeGenerator):
     self.to_port = port
     self.rewind()
      
-  # Just in case: 
-  def mark_chosen(self, r): raise NotImplemented()
-  def all_chosen(self): raise NotImplemented()
+  def mark_chosen(self, r):
+    self.next_exit_by_port[self.to_port] += 1
+  
+  def all_chosen(self):
+    return self.last_idx == self.next_exit_by_port[self.to_port]
 
   def next_r(self):
     while True: # A do..while would be real nice here..
       if self.next_exit_by_port[self.to_port] >= len(self.sorted_r):
         self.next_exit_by_port[self.to_port] = 0
       r = self.sorted_r[self.next_exit_by_port[self.to_port]]
-      self.next_exit_by_port[self.to_port] += 1
       if self.rstr_list.r_is_ok(r): yield r
+      else: self.next_exit_by_port[self.to_port] += 1
       if self.last_idx == self.next_exit_by_port[self.to_port]:
         break
 
 class BwWeightedGenerator(NodeGenerator):
   """ Pass exit=True to create a generator for exit-nodes """
-  def __init__(self, sorted_r, rstr_list, exit=None):
+  def __init__(self, sorted_r, rstr_list, pathlen, exit=False):
     # Out for an exit-node?
     self.exit = exit
     # Different sums of bandwidths
     self.total_bw = 0
     self.total_exit_bw = 0
     self.exit_bw_to_dest = 0
+    self.pathlen = pathlen
     NodeGenerator.__init__(self,sorted_r, rstr_list)
 
   def rewind(self):
+    NodeGenerator.rewind(self)
     # Set the exit_weight
     if self.exit:
       self.exit_bw_to_dest = 0
@@ -435,37 +421,34 @@ class BwWeightedGenerator(NodeGenerator):
       for r in self.sorted_r:
         if self.rstr_list.r_is_ok(r):
           self.exit_bw_to_dest += r.bw
-      plog("DEBUG", "Exit-bandwidth to this destination is " + 
+      plog("DEBUG", "Exit-bandwidth to this destination is " +
          str(self.exit_bw_to_dest))
       self.weight = 1.0
     else:
       # We are choosing a non-exit
       self.total_exit_bw = 0
       self.total_bw = 0
-      for r in self.sorted_r:        
+      for r in self.sorted_r:
+        # Should this be outside the restriction checks?
         if self.rstr_list.r_is_ok(r):
           self.total_bw += r.bw
           if "Exit" in r.flags:
             self.total_exit_bw += r.bw
 
-      third = self.total_bw/3.0
+      bw_per_hop = (1.0*self.total_bw)/self.pathlen
       ratio = self.total_exit_bw/float(self.total_bw)
-      plog("DEBUG", "E = " + str(self.total_exit_bw) + 
+      plog("DEBUG", "E = " + str(self.total_exit_bw) +
          ", T = " + str(self.total_bw) +
-         ", T/3 = " + str(third) +
+         ", T/3 = " + str(bw_per_hop) +
          ", ratio = " + str(ratio))
       
-      if self.total_exit_bw < third:
+      if self.total_exit_bw < bw_per_hop:
         # Don't use exit nodes at all
         # add a ConserveExitsRestriction?
         self.weight = 0
       else:
-        self.weight = ((self.total_exit_bw-third)/self.total_exit_bw)
+        self.weight = ((self.total_exit_bw-bw_per_hop)/self.total_exit_bw)
     plog("DEBUG", "The exit-weight is: " + str(self.weight))
-
-  # Just in case: 
-  def mark_chosen(self, r): raise NotImplemented()
-  def all_chosen(self): raise NotImplemented()
 
   def next_r(self):
     while True:
@@ -473,10 +456,12 @@ class BwWeightedGenerator(NodeGenerator):
       if self.exit:
         i = random.randint(0, self.exit_bw_to_dest)
       else:
-        i = random.randint(0, (self.total_bw-self.total_exit_bw))
+        i = random.randint(0,
+                     (self.total_bw-self.total_exit_bw) # nonexit
+                     +self.total_exit_bw*self.weight)   # + weighted exit
       # Go through the routers
-      for r in self.sorted_r:
-        # Below zero here --> choose a new random int
+      for r in self.routers:
+        # Below zero here --> choose a new random int+router
         if i < 0: break
         if self.rstr_list.r_is_ok(r):
           # Only weight exit nodes
@@ -503,26 +488,39 @@ class PathSelector:
     self.exit_gen = exit_gen
     self.path_restrict = path_restrict
 
-  def entry_chooser(self, path):
+  def build_path(self, pathlen):
     self.entry_gen.rewind()
-    for r in self.entry_gen.next_r():
-      if self.path_restrict.entry_is_ok(path, r):
-        return r
-    raise NoRouters();
-    
-  def middle_chooser(self, path):
     self.mid_gen.rewind()
-    for r in self.mid_gen.next_r():
-      if self.path_restrict.middle_is_ok(path, r):
-        return r
-    raise NoRouters();
-
-  def exit_chooser(self, path):
     self.exit_gen.rewind()
-    for r in self.exit_gen.next_r():
-      if self.path_restrict.exit_is_ok(path, r):
-        return r
-    raise NoRouters();
+    entry = self.entry_gen.next_r()
+    mid = self.mid_gen.next_r()
+    ext = self.exit_gen.next_r()
+
+    while True:
+      path = []
+      try:
+        if pathlen == 1:
+          path = [ext.next()]
+        else:
+          path.append(entry.next())
+          for i in xrange(1, pathlen-1):
+            path.append(mid.next())
+          path.append(ext.next())
+        if self.path_restrict.path_is_ok(path):
+          self.entry_gen.mark_chosen(path[0])
+          for i in xrange(1, pathlen-1):
+            self.mid_gen.mark_chosen(path[i])
+          self.exit_gen.mark_chosen(path[pathlen-1])
+          break
+      except StopIteration:
+        plog("NOTICE", "Ran out of routers during buildpath..");
+        self.entry_gen.rewind()
+        self.mid_gen.rewind()
+        self.exit_gen.rewind()
+        entry = self.entry_gen.next_r()
+        mid = self.entry_gen.next_r()
+        ext = self.entry_gen.next_r()
+    return path
 
 class SelectionManager:
   """Helper class to handle configuration updates
@@ -536,8 +534,7 @@ class SelectionManager:
     """
   def __init__(self, pathlen, order_exits,
          percent_fast, percent_skip, min_bw, use_all_exits,
-         uniform, use_exit, use_guards, bw_weighted=False,
-         geoip_config=None):
+         uniform, use_exit, use_guards, geoip_config=None):
     self.__ordered_exit_gen = None 
     self.pathlen = pathlen
     self.order_exits = order_exits
@@ -548,7 +545,6 @@ class SelectionManager:
     self.uniform = uniform
     self.exit_name = use_exit
     self.use_guards = use_guards
-    self.bw_weighted = bw_weighted
     self.geoip_config = geoip_config
 
   def reconfigure(self, sorted_r):
@@ -596,7 +592,7 @@ class SelectionManager:
       
       # First hop in a specified country?
       if self.geoip_config.entry_country:  
-	entry_rstr.add_restriction(CountryRestriction(self.geoip_config.entry_country))
+        entry_rstr.add_restriction(CountryRestriction(self.geoip_config.entry_country))
       # Last hop in a specified country?
       if self.geoip_config.exit_country:
         self.exit_rstr.add_restriction(CountryRestriction(self.geoip_config.exit_country))
@@ -612,30 +608,17 @@ class SelectionManager:
       # Unique countries set? None --> pass
       if self.geoip_config.unique_countries != None:
         if self.geoip_config.unique_countries:
-	  # If True: unique countries 
+          # If True: unique countries 
           self.path_rstr.add_restriction(UniqueCountryRestriction())
         else:
-	  # False: use the same country for all nodes in a path
-	  self.path_rstr.add_restriction(SingleCountryRestriction())
+          # False: use the same country for all nodes in a path
+          self.path_rstr.add_restriction(SingleCountryRestriction())
       
       # Specify max number of crossings here, None means UniqueContinents
       if self.geoip_config.max_crossings == None:
         self.path_rstr.add_restriction(UniqueContinentRestriction())
       else: self.path_rstr.add_restriction(ContinentRestriction(self.geoip_config.max_crossings))
     
-    if self.bw_weighted:
-      # Remove ConserveExitsRestrictions for entry and middle positions
-      entry_rstr.del_restriction(ConserveExitsRestriction)
-      mid_rstr.del_restriction(ConserveExitsRestriction)
-      # Initially setup the PathSelector to port 80 and return      
-      self.exit_rstr.add_restriction(ExitPolicyRestriction("255.255.255.255", 80))
-      self.path_selector = PathSelector(
-         BwWeightedGenerator(sorted_r, entry_rstr),
-         BwWeightedGenerator(sorted_r, mid_rstr),
-         BwWeightedGenerator(sorted_r, self.exit_rstr, exit=True),
-         self.path_rstr)
-      return
-
     # This is kind of hokey..
     if self.order_exits:
       if self.__ordered_exit_gen:
@@ -644,8 +627,11 @@ class SelectionManager:
       else:
         exitgen = self.__ordered_exit_gen = \
           OrderedExitGenerator(80, sorted_r, self.exit_rstr)
-    else:
+    elif self.uniform:
       exitgen = UniformGenerator(sorted_r, self.exit_rstr)
+    else:
+      exitgen = BwWeightedGenerator(sorted_r, self.exit_rstr, self.pathlen, exit=True),
+
 
     if self.uniform:
       self.path_selector = PathSelector(
@@ -653,7 +639,16 @@ class SelectionManager:
          UniformGenerator(sorted_r, mid_rstr),
          exitgen, self.path_rstr)
     else:
-      raise NotImplemented()
+      # Remove ConserveExitsRestrictions for entry and middle positions
+      entry_rstr.del_restriction(ConserveExitsRestriction)
+      mid_rstr.del_restriction(ConserveExitsRestriction)
+      # Initially setup the PathSelector to port 80 and return      
+      self.exit_rstr.add_restriction(ExitPolicyRestriction("255.255.255.255", 80))
+      self.path_selector = PathSelector(
+         BwWeightedGenerator(sorted_r, entry_rstr, self.pathlen),
+         BwWeightedGenerator(sorted_r, mid_rstr, self.pathlen),
+         exitgen, self.path_rstr)
+      return
 
   def set_target(self, ip, port):
     self.exit_rstr.del_restriction(ExitPolicyRestriction)
@@ -992,8 +987,22 @@ def do_unit(rst, r_list, plamb):
   print "\n"
   print "-----------------------------------"
   print rst.r_is_ok.im_class
+  above_i = 0
+  above_bw = 0
+  below_i = 0
+  below_bw = 0
   for r in r_list:
-    print r.nickname+" "+plamb(r)+"="+str(rst.r_is_ok(r))
+    if rst.r_is_ok(r):
+      print r.nickname+" "+plamb(r)+"="+str(rst.r_is_ok(r))+" "+str(r.bw)
+      if r.bw > 400000:
+        above_i = above_i + 1
+        above_bw += r.bw
+      else:
+        below_i = below_i + 1
+        below_bw += r.bw
+        
+  print "Routers above: " + str(above_i) + " bw: " + str(above_bw)
+  print "Routers below: " + str(below_i) + " bw: " + str(below_bw)
 
 # TODO: Tests:
 #  - Test each NodeRestriction and print in/out lines for it
@@ -1009,14 +1018,20 @@ if __name__ == '__main__':
   c.authenticate()
   nslist = c.get_network_status()
   sorted_rlist = c.read_routers(c.get_network_status())
+
+  sorted_rlist.sort(lambda x, y: cmp(y.bw, x.bw))
+  for i in xrange(len(sorted_rlist)): sorted_rlist[i].list_rank = i
   
   for r in sorted_rlist:
     if r.will_exit_to("211.11.21.22", 465):
       print r.nickname+" "+str(r.bw)
 
+  do_unit(FlagsRestriction(["Guard"], []), sorted_rlist, lambda r: " ".join(r.flags))
+  do_unit(FlagsRestriction(["Fast"], []), sorted_rlist, lambda r: " ".join(r.flags))
+  exit(0)
+
   do_unit(ExitPolicyRestriction("2.11.2.2", 80), sorted_rlist,
           lambda r: "exits to 80")
-  exit(0)
   do_unit(PercentileRestriction(0, 100, sorted_rlist), sorted_rlist,
           lambda r: "")
   do_unit(PercentileRestriction(10, 20, sorted_rlist), sorted_rlist,
