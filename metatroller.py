@@ -306,6 +306,10 @@ class FailedRouterList(ReasonRouterList):
 class StatsHandler(PathSupport.PathBuilder):
   def __init__(self, c, slmgr):
     PathBuilder.__init__(self, c, slmgr, StatsRouter)
+    self.circ_count = 0
+    self.strm_count = 0
+    self.strm_failed = 0
+    self.circ_failed = 0
     self.failed_reasons = {}
     self.suspect_reasons = {}
 
@@ -378,8 +382,25 @@ class StatsHandler(PathSupport.PathBuilder):
     f.write("\n\nBW stats: u="+str(round(avg,1))+" s="+str(round(dev,1))+"\n")
 
     (avg, dev) = self.run_zrtest()
-    f.write("BW ratio stats: u="+str(round(avg,1)) +" s="+str(round(dev,1)))
+    f.write("BW ratio stats: u="+str(round(avg,1))+" s="+str(round(dev,1))+"\n")
 
+    # Circ, strm infoz
+    f.write("Circ failure ratio: "+str(self.circ_failed)
+            +"/"+str(self.circ_count)+"\n")
+
+    f.write("Stream failure ratio: "+str(self.strm_failed)
+            +"/"+str(self.strm_count)+"\n")
+
+    # Extend times 
+    n = reduce(lambda x, y: x+(y.avg_extend_time() > 0), self.sorted_r, 0)
+    avg_extend = reduce(lambda x, y: x+y.avg_extend_time(), self.sorted_r, 0)/n
+    def notlambda(x, y):
+      return x+(y.avg_extend_time()-avg_extend)*(y.avg_extend_time()-avg_extend) 
+    dev_extend = math.sqrt(reduce(notlambda, self.sorted_r, 0)/float(n))
+
+    f.write("Extend time: u="+str(round(avg_extend,1))
+             +" s="+str(round(dev_extend,1)))
+    
     # sort+print by bandwidth
     bw_rate = copy.copy(self.sorted_r)
     bw_rate.sort(lambda x, y: cmp(y.bw_ratio(), x.bw_ratio()))
@@ -425,6 +446,10 @@ class StatsHandler(PathSupport.PathBuilder):
 
   def reset_stats(self):
     plog("DEBUG", "Resetting stats")
+    self.circ_count = 0
+    self.strm_count = 0
+    self.strm_failed = 0
+    self.circ_failed = 0
     self.suspect_reasons.clear()
     self.failed_reasons.clear()
     for r in self.sorted_r: r.reset()
@@ -438,6 +463,8 @@ class StatsHandler(PathSupport.PathBuilder):
       else: rreason = "NONE"
       reason = c.event_name+":"+c.status+":"+lreason+":"+rreason
       if c.status == "EXTENDED":
+        # Update circ_chosen count
+        self.circ_count += 1
         delta = c.arrived_at - self.circuits[c.circ_id].last_extended_at
         r_ext = c.path[-1]
         if r_ext[0] != '$': r_ext = self.name_to_key[r_ext]
@@ -445,12 +472,14 @@ class StatsHandler(PathSupport.PathBuilder):
         self.routers[r_ext[1:]].total_extended += 1
       elif c.status == "FAILED":
         # update selection count
+        self.circ_count += 1
         for r in self.circuits[c.circ_id].path: r.circ_chosen += 1
         
         if len(c.path)-1 < 0: start_f = 0
         else: start_f = len(c.path)-1 
 
         # Count failed
+        self.circ_failed += 1
         # XXX: Differentiate between extender and extendee
         for r in self.circuits[c.circ_id].path[start_f:len(c.path)+1]:
           r.circ_failed += 1
@@ -477,10 +506,8 @@ class StatsHandler(PathSupport.PathBuilder):
       elif c.status == "CLOSED":
         # Since PathBuilder deletes the circuit on a failed, 
         # we only get this for a clean close
-        # Update circ_chosen count
         for r in self.circuits[c.circ_id].path:
           r.circ_chosen += 1
-        
           if lreason in ("REQUESTED", "FINISHED", "ORIGIN"):
             r.circ_succeeded += 1
           else:
@@ -546,7 +573,9 @@ class StatsHandler(PathSupport.PathBuilder):
         if self.streams[s.strm_id].attached_at:
           plog("WARN", str(s.strm_id)+" detached after succeeded")
         # Update strm_chosen count
+        self.strm_count += 1
         for r in self.circuits[s.circ_id].path: r.strm_chosen += 1
+        self.strm_failed += 1
         self.count_stream_suspects(s, lreason, reason)
         self.count_stream_reason_failed(s, reason)
       elif s.status == "FAILED":
@@ -558,6 +587,7 @@ class StatsHandler(PathSupport.PathBuilder):
         # Always get both a closed and a failed.. 
         #   - Check if the circuit exists still
         # Update strm_chosen count
+        self.strm_count += 1
         for r in self.circuits[s.circ_id].path: r.strm_chosen += 1
 
         # Update bw stats. XXX: Don't do this for resolve streams
@@ -577,6 +607,7 @@ class StatsHandler(PathSupport.PathBuilder):
           and (lreason == "DONE" or (lreason == "END" and rreason == "DONE"))):
           r.strm_succeeded += 1
         else:
+          self.strm_failed += 1
           self.count_stream_reason_failed(s, reason)
     PathBuilder.stream_status_event(self, s)
 
