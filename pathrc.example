@@ -1,0 +1,86 @@
+[HostPort]
+# Tor Host/Port configuration
+control_host = 127.0.0.1
+control_port = 9051
+
+[CircuitManagement]
+# No of idle circuits to build preemptively
+idle_circuits = 3
+
+# TODO: Configure ports to use
+
+[NodeSelection]
+# General
+pathlen = 3
+min_bw = 1024
+
+# Percentiles
+percent_fast = 100
+percent_skip = 0
+use_all_exits = yes
+
+# UniformGenerator with optionally ordered exits
+# (uniform = no) means bandwidth weighted selection
+uniform = no
+order_exits = no
+
+# Guards
+use_guards = yes
+
+# Use a specific exit node
+#use_exit = commodore64
+
+[GeoIP]
+# Use GeoIP?
+use_geoip = yes
+
+# True, False or comment out
+unique_countries = yes
+
+# Country codes for single positions
+#entry_country = DE
+#exit_country = US
+
+# 0-n or comment out
+max_crossings = 1
+
+# TODO: excludes = ["FR"]
+
+[RTT]
+# Measure complete circuits
+measure_circs = no
+
+# Tor socks-properties
+socks_host = 127.0.0.1
+socks_port = 9050
+# Any ideas/proposals?
+ping_dummy_host = 127.0.0.1
+ping_dummy_port = 100
+
+# Sleep interval between working each ping in sec
+initial_interval = 10
+sleep_interval = 3
+# Close circ after n timeouts
+# Set to 0 to don't close circs
+timeout_limit = 1
+# Slow RTT := x seconds, close circs slower &
+# create only circs faster than this
+slowness_limit = 0
+slow = 1.5
+
+# Set to True if we want to measure partial circuits
+# This also enables circuit creation from the model
+measure_partial_circs = no
+# Minimum number of proposals to choose from
+min_proposals = 10
+# Min ratio of traditionally created circs
+# ensures growing of the explored subnet
+min_ratio = 0.5
+
+# Testing mode: Close circuits after num_tests latency-tests + 
+# involve a FileHandler to write collected data to a file
+testing_mode = no
+# Number of latency-tests per circuit
+num_tests = 5
+# Exit after collecting this number of records
+num_records = 100

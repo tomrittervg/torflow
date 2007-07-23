@@ -1,15 +1,12 @@
 #!/usr/bin/python
+
 """
   RWTH Aachen University, Informatik IV
   Copyright (C) 2007 Johannes Renner 
   Contact: renner <AT> i4.informatik.rwth-aachen.de
 """
-# Addon for Onion Proxies (prototype-v0.0-alpha):
-# Shall eventually improve the performance of anonymous communications 
-# and browsing by measuring RTTs of circuits/links, receiving infos
-# from or-addons/alternate directory, building fast circuits from all 
-# of these infos and attaching streams to fast circuits.
 
+import os
 import re
 import sys
 import copy
@@ -19,117 +16,143 @@ import random
 import socket
 import threading
 import Queue
-#import ConfigParser
+import ConfigParser
 
-# Non-standard packages
-import socks
-import networkx
-
-# TorCtl
-import TorCtl.PathSupport
-import TorCtl.GeoIPSupport
 from TorCtl import *
 from TorCtl.TorUtil import plog, sort_list
 
-# TODO: Move all of the configuration to a .pathrc
-control_host = "127.0.0.1"
-control_port = 9051
-socks_host = "127.0.0.1"
-socks_port = 9050
+## CONFIGURATION ##############################################################
 
-# Host and port to use for ping streams
-# Choose randomly from a set of hosts/ports to prevent from fasttracking?
-ping_dummy_host = "127.0.0.1"
-ping_dummy_port = 100
+# Set the version
+VERSION = "0.0.01-alpha"
 
-# No of idle circuits to build preemptively
-# TODO: Also configure ports to use
-idle_circuits = 6
+# Try to get the config-file from the commandline
+if len(sys.argv) == 1:
+  CONFIG_FILE = "pathrc.example"
+elif len(sys.argv) == 2:
+  CONFIG_FILE = sys.argv[1]
+else: 
+  plog("ERROR", "Too many arguments, exiting.")
+  sys.exit(0)
 
-# Measure complete circuits
-measure_circs = True
-# Sleep interval between working loads in sec
-initial_interval = 8
-sleep_interval = 1
-# Close a circ after n timeouts or avg measured slownesses
-timeout_limit = 1
-# Close a circ after n measured slownesses
-slowness_limit = 5
-# Close circs slower & create only circs faster than this
-slow = 1.
+# Set some defaults for string-variables that can be None
+string_defaults = {"use_exit":None, "entry_country":None, "exit_country":None}
+config = ConfigParser.SafeConfigParser(string_defaults)
+if os.path.exists(CONFIG_FILE):
+  plog("INFO", "Loading configuration from '" + CONFIG_FILE + "'")
+  config.read(CONFIG_FILE)
+else:
+  plog("ERROR", "Config file '" + CONFIG_FILE + "' does not exist, exiting.")
+  sys.exit(0)
+  
+# Sections
+HOST_PORT = "HostPort"
+CIRC_MANAGEMENT = "CircuitManagement"
+NODE_SELECTION = "NodeSelection"
+GEOIP = "GeoIP"
+RTT = "RTT"
 
-# Set to True if we want to measure partial circuits
-# This also enables circuit creation from the model
-measure_partial_circs = True
-# Minimum number of proposals to choose from
-min_proposals = 1
-# Min ratio of traditionally created circs
-# ensures growing of the explored subnet
-min_ratio = 1./2.
+# Set global variables here
+# Measure the circuits
+measure_circs = config.getboolean(RTT, "measure_circs")
+if measure_circs:
+  import socks  
+  # Hosts and ports to use for ping streams
+  socks_host = config.get(RTT, "socks_host")
+  socks_port = config.getint(RTT, "socks_port")
+  # Choose randomly from a set of hosts/ports?
+  ping_dummy_host = config.get(RTT, "ping_dummy_host")
+  ping_dummy_port = config.getint(RTT, "ping_dummy_port")
 
-# Testing mode: Collect latencies of circuits and links in the network + global circ_stats
-# Close circuits after num_tests measures + involve FileHandlers to write data to files
-testing_mode = False
-num_tests = 5
+  # Sleep interval between working loads in sec
+  initial_interval = config.getfloat(RTT, "initial_interval")
+  sleep_interval = config.getfloat(RTT, "sleep_interval")
+  # Close a circ after n timeouts or avg measured slownesses
+  timeout_limit = config.getint(RTT, "timeout_limit")
+  # Close a circ after n measured slownesses
+  slowness_limit = config.getint(RTT, "slowness_limit")
+  # Close circs slower & create only circs faster than this
+  slow = config.getfloat(RTT, "slow")
 
-# Do geoip-configuration here
-# Set entry_country when setting up our location?
-path_config = GeoIPSupport.GeoIPConfig(unique_countries = True,
-                                       entry_country = None,
-				       exit_country = None,
-				       max_crossings = 1,
-				       excludes = None)
+  # Set to True if we want to measure partial circuits
+  # This also enables circuit creation from the model
+  measure_partial_circs = config.getboolean(RTT, "measure_partial_circs")
+  if measure_partial_circs:
+    import networkx    
+    # Minimum number of proposals to choose from
+    min_proposals = config.getint(RTT, "min_proposals")
+    # Min ratio of traditionally created circs
+    # ensures growing of the explored subnet
+    min_ratio = config.getfloat(RTT, "min_ratio")
 
-# Configure Selection Manager here!!
+  # Testing mode: Collect latencies of circuits and links in the 
+  # network. Close circuits after num_tests measures and involve 
+  # a FileHandler to write data to a file
+  testing_mode = config.getboolean(RTT, "testing_mode")
+  if testing_mode:
+    num_tests = config.getint(RTT, "num_tests")
+    num_records = config.getint(RTT, "num_records")
+
+def get_geoip_config():
+  """ Read the geoip-configuration from the config-file """
+  # Check for GeoIP
+  if config.getboolean(GEOIP, "use_geoip"):
+    # Optional options
+    unique_countries = None
+    max_crossings = None
+    if config.has_option(GEOIP, "unique_countries"):
+      unique_countries = config.getboolean(GEOIP, "unique_countries")
+    if config.has_option(GEOIP, "max_crossings"):
+      max_crossings = config.getint(GEOIP, "max_crossings")
+    path_config = GeoIPSupport.GeoIPConfig(
+       unique_countries,
+       max_crossings,
+       entry_country = config.get(GEOIP, "entry_country"),
+       exit_country = config.get(GEOIP, "exit_country"),
+       excludes = None)
+  else: path_config = None
+  return path_config
+
+# Configure the SelectionManager here!!
 # Do NOT modify this object directly after it is handed to 
 # PathBuilder, Use PathBuilder.schedule_selmgr instead.
 __selmgr = PathSupport.SelectionManager(
-      pathlen=3,
-      order_exits=True,
-      percent_fast=100,
-      percent_skip=0,
-      min_bw=1024,
-      use_all_exits=False,
-      uniform=True,
-      use_exit=None,
-      use_guards=False,
-      geoip_config=path_config)
+      pathlen= config.getint(NODE_SELECTION, "pathlen"),
+      order_exits = config.getboolean(NODE_SELECTION, "order_exits"),
+      percent_fast = config.getint(NODE_SELECTION, "percent_fast"),
+      percent_skip = config.getint(NODE_SELECTION, "percent_skip"),
+      min_bw = config.getint(NODE_SELECTION, "min_bw"),
+      use_all_exits = config.getboolean(NODE_SELECTION, "use_all_exits"),
+      uniform = config.getboolean(NODE_SELECTION, "uniform"),
+      use_exit = config.get(NODE_SELECTION, "use_exit"),
+      use_guards = config.getboolean(NODE_SELECTION, "use_guards"),
+      geoip_config = get_geoip_config())
 
-######################################### BEGIN: Connection         #####################
+## Connection #################################################################
 
 class Connection(TorCtl.Connection):
-  """ Connection class that uses my own Circuit class """
+  """ Connection-class that uses the RTTCircuit-class 
+      TODO: add the CircuitClass to be used somewhere """
   def build_circuit(self, pathlen, path_sel):
     circ = Circuit()
-    if pathlen == 1:
-      circ.exit = path_sel.exit_chooser(circ.path)
-      circ.path = [circ.exit]
-      circ.circ_id = self.extend_circuit(0, circ.id_path())
-    else:
-      circ.path.append(path_sel.entry_chooser(circ.path))
-      for i in xrange(1, pathlen-1):
-        circ.path.append(path_sel.middle_chooser(circ.path))
-      circ.exit = path_sel.exit_chooser(circ.path)
-      circ.path.append(circ.exit)
-      circ.circ_id = self.extend_circuit(0, circ.id_path())
+    circ.path = path_sel.build_path(pathlen)
+    circ.exit = circ.path[pathlen-1]
+    circ.circ_id = self.extend_circuit(0, circ.id_path())
     return circ
 
   def build_circuit_from_path(self, path):
-    """ Build circuit using a given path, used to build circs from NetworkModel """
+    """ Build circuit using a given path (= router-objects), 
+        used to build circs from NetworkModel """
     circ = Circuit()
-    circ.rtt_created = True
-    # Set path to circuit
     circ.path = path
-    # Set exit
     circ.exit = path[len(path)-1]
-    if len(path) > 0:
-      circ.circ_id = self.extend_circuit(0, circ.id_path())
+    circ.circ_id = self.extend_circuit(0, circ.id_path())
     return circ
 
-######################################### Stats                    #####################
+## Stats ######################################################################
 
 class Stats:
-  """ Statistics class that is used for recording stats about measured RTTs, circuit creations """
+  """ Statistics class that is used for recording stats """
   def __init__(self):
     self.values = []
     self.min = 0.0
@@ -175,9 +198,9 @@ class Stats:
       return self.values[(len(self.values)-1)/2]
     else: return 0.0
 
-######################################## FileHandler              ######################
+## FileHandler ################################################################
 
-# TODO: Move to TorCtl.TorUtil?
+# TODO: Move this to TorCtl.TorUtil?
 class FileHandler:
   """ FileHandler class for writing/appending collected data to a file """
   def __init__(self, filename):
@@ -192,8 +215,13 @@ class FileHandler:
     self.filehandle = open(self.filename, 'a')
     self.filehandle.write(line + "\n")
     self.filehandle.close() 
+ 
+  def get_line_count(self):
+    self.filehandle = open(self.filename)
+    lines = self.filehandle.readlines()
+    return len(lines)
 
-######################################### Circuit, Stream          #####################
+## Circuit & Stream ###########################################################
 
 class Circuit(PathSupport.Circuit): 
   """ Circuit class extended to RTTs and related stats """
@@ -207,10 +235,12 @@ class Circuit(PathSupport.Circuit):
     self.age = 0		# age in rounds
     self.timeout_counter = 0	# timeout limit
     self.slowness_counter = 0 	# slowness limit
-    self.closed = False		# mark circuit closed
     self.rtt_created = False	# if this was created from the model
-    self.extend_times = []      # list of all extend-times, sum up for setup duration
- 
+    # TODO: Move these to PathSupport.py?
+    self.closed = False		# mark circuit closed
+    self.extend_times = []      # list of all extend-times
+    self.setup_duration = None  # sum of extend-times
+
   def add_rtt(self, rtt):
     """ Add a new value and refresh the stats """
     # Set current
@@ -218,7 +248,8 @@ class Circuit(PathSupport.Circuit):
       self.current_rtt = rtt
     else:
       self.current_rtt = (self.current_rtt * 0.5) + (rtt * 0.5)
-      plog("DEBUG", "Computing new current RTT from " + str(rtt) + " to " + str(self.current_rtt))
+      plog("DEBUG", "Computing new current RTT from " + str(rtt) + " to " + 
+         str(self.current_rtt))
     # Add new RTT to the stats
     self.stats.add_value(rtt)
     # Increase age
@@ -241,9 +272,9 @@ class Stream(PathSupport.Stream):
   """ Stream class extended to hop """
   def __init__(self, sid, host, port, kind):
     PathSupport.Stream.__init__(self, sid, host, port, kind)
-    self.hop = None	# save hop if this is a ping, hop=None means complete circ
+    self.hop = None	# save hop if this is a ping, hop=None is complete circ
 
-######################################### BEGIN: CircuitStats      #####################
+## CircuitBuildingStats #######################################################
 
 # TODO: Move to TorCtl.TorUtil?
 class CircuitBuildingStats(Stats):
@@ -255,12 +286,14 @@ class CircuitBuildingStats(Stats):
   def to_string(self):
     """ Create a string for writing to a file """
     s = "Successful circuit buildups: "
-    s += str(len(self.values)) + " records, median=" + str(self.median) + " sec, avg=" + str(self.mean) + " sec" 
-    s += ", dev=" + str(self.dev) + " sec (min=" + str(self.min) + " sec, max=" + str(self.max) + " sec)\n"
-    s += "Total number of failures during buildup: " + str(self.failures)
+    s += str(len(self.values)) + " records, median=" + str(self.median)
+    s += " s, avg=" + str(self.mean) + " s" 
+    s += ", dev=" + str(self.dev) + " s (min=" + str(self.min)
+    s += " s, max=" + str(self.max) + " s)\n"
+    s += "Circuits that failed during buildup: " + str(self.failures)
     return s
 
-######################################### BEGIN: NetworkModel      #####################
+## NetworkModel ###############################################################
 
 class LinkInfo:
   """ This class contains infos about a link: source, destination, RTT
@@ -279,7 +312,8 @@ class LinkInfo:
     if self.current_rtt == None: self.current_rtt = rtt
     else: 
       self.current_rtt = (self.current_rtt * 0.5) + (rtt * 0.5)
-      plog("DEBUG", "Computing new current RTT from " + str(rtt) + " to " + str(self.current_rtt))
+      plog("DEBUG", "Computing new current RTT from " + str(rtt) + " to " + 
+         str(self.current_rtt))
 
 class PathProposal:
   """ Instances of this class are path-proposals found in the model """
@@ -290,22 +324,24 @@ class PathProposal:
     self.path = path[1:len(path)]
     # Compute the expected RTT (from current value?)
     self.rtt = reduce(lambda x,y: x + y.current_rtt, self.links, 0.0)
- 
+
   def to_string(self):
     """ Create a string for printing out information """
     s = ""
     for l in self.links:
       # Get the single objects
-      s += l.src.nickname + "--" + l.dest.nickname + " (" + str(l.current_rtt) + ") " + ", "
+      s += l.src.nickname + "--" + l.dest.nickname +\
+         " (" + str(l.current_rtt) + ") " + ", "
     return "Route proposal: " + s + "--> " + str(self.rtt) + " sec" 
 
 class NetworkModel:  
-  """ This class is used to record measured RTTs for single links in a model of the 
-      'currently explored subnet' (currently this is an undirected graph!) """  
+  """ This class is used to record measured RTTs for single links in a model 
+      of the 'currently explored subnet' (undirected graph) """  
   def __init__(self, rooter):
     """ Constructor: pass the root of all our circuits """
     # Use XDiGraph() (= directed)?
-    self.graph = networkx.XGraph(name="Explored Tor Subnet", selfloops=False, multiedges=False)
+    self.graph = networkx.XGraph(name="Explored Tor Subnet", 
+       selfloops=False, multiedges=False)
     # Initially add THIS proxy to the model
     self.root = rooter
     self.graph.add_node(self.root)
@@ -317,7 +353,8 @@ class NetworkModel:
     self.graph.add_edge(src, dest, LinkInfo(src, dest, rtt))
 
   def add_circuit(self, c):
-    """ Check if we can compute RTTs of single links for circuit c and store these in the model """
+    """ Check if we can compute RTTs of single links for circuit c and store 
+        these in the model """
     # Get the length
     path_len = len(c.path)
     # Go through the path
@@ -366,7 +403,9 @@ class NetworkModel:
     # Sort proposals for their RTTs
     sort_list(self.proposals, lambda x: x.rtt)
     # Some logging
-    plog("DEBUG", "Finding the proposals and sorting them took us " + str(time.time()-start) + " seconds")
+    plog("DEBUG", "Finding " + str(len(self.proposals)) + 
+       " proposals and sorting them took us " + 
+       str(time.time()-start) + " seconds")
     # Print all of them for debugging/info
     for p in self.proposals:
       print(p.to_string())
@@ -377,7 +416,8 @@ class NetworkModel:
     for p in self.proposals:
       if p.rtt <= n:
 	ret.append(p) 
-    plog("DEBUG", "Found " + str(len(ret)) + " path proposals having RTT <= " + str(n) + " sec")
+    plog("DEBUG", "Found " + str(len(ret)) + 
+       " path proposals having RTT <= " + str(n) + " sec")
     return ret
 
   def visit(self, node, path, i=1):
@@ -398,12 +438,10 @@ class NetworkModel:
   def print_graph(self):
     """ Print current info about the graph """
     print(self.graph.info())
-    #for e in self.graph.edges():
-    #  src, dest, link = e
-    #  plog("INFO", "Edge: " + src.nickname + " -- " + dest.nickname + ", RTT = " + str(link.rtt) + " sec")
 
-######################################### BEGIN: EventHandlers     #####################
+## EventHandlers ##############################################################
 
+# TODO: Move to PathSupport
 class CircuitHandler(PathSupport.PathBuilder):
   """ CircuitHandler that extends from PathBuilder """
   def __init__(self, c, selmgr, num_circuits):
@@ -411,10 +449,10 @@ class CircuitHandler(PathSupport.PathBuilder):
     PathSupport.PathBuilder.__init__(self, c, selmgr, GeoIPSupport.GeoIPRouter)
     self.num_circuits = num_circuits            # size of the circuit pool
     self.check_circuit_pool()	                # bring up the pool of circs
-    self.circ_stats = CircuitBuildingStats()    # record buildup-times, no. of timeouts
-    # Filehandlers for saving general and more detailed stats about circuit building
-    self.stats_logger = FileHandler("data/circ_setup_stats")
-    self.setup_logger = FileHandler("data/circ_setup_durations")
+    self.circ_stats = CircuitBuildingStats()    # record setup-times
+    # Filehandlers for saving stats about circuit building
+    self.stats_logger = FileHandler("data/op-addon/circ-setup-stats")
+    self.setup_logger = FileHandler("data/op-addon/circ-setup-durations")
 
   def check_circuit_pool(self):
     """ Init or check the status of our pool of circuits """
@@ -422,7 +460,8 @@ class CircuitHandler(PathSupport.PathBuilder):
     n = len(self.circuits.values())
     i = self.num_circuits - n
     if i > 0:
-      plog("INFO", "Checked pool of circuits: we need to build " + str(i) + " circuits")
+      plog("INFO", "Checked pool of circuits: we need to build " + 
+         str(i) + " circuits")
     # Schedule (num_circs - n) circuit-buildups
     while (n < self.num_circuits):      
       self.build_idle_circuit()
@@ -431,13 +470,14 @@ class CircuitHandler(PathSupport.PathBuilder):
 
   def close_circuit(self, id):
     """ Try to close a circuit with given id """
+    # TODO: Pass streams to another circ before closing?
     self.circuits[id].closed = True
     try: self.c.close_circuit(id)
     except TorCtl.ErrorReply, e: 
       plog("ERROR", "Failed closing circuit " + str(id) + ": " + str(e))	    
 
   def print_circuits(self, list=None):
-    """ Print out our circuits plus some info, optionally pass a list """
+    """ Print out the circuits + some info, optionally pass a (sorted) list """
     if list: circs = list
     else: circs = self.circuits.values()
     plog("INFO", "We have " + str(len(circs)) + " circuits:")
@@ -451,7 +491,8 @@ class CircuitHandler(PathSupport.PathBuilder):
       try:
         # Configure which port to use here
 	self.selmgr.set_target("255.255.255.255", 80)
-        circ = self.c.build_circuit(self.selmgr.pathlen, self.selmgr.path_selector)
+        circ = self.c.build_circuit(self.selmgr.pathlen, 
+           self.selmgr.path_selector)
 	self.circuits[circ.circ_id] = circ
       except TorCtl.ErrorReply, e:
         # FIXME: How come some routers are non-existant? Shouldn't
@@ -469,7 +510,8 @@ class CircuitHandler(PathSupport.PathBuilder):
     
     # Circuits we don't control get built by Tor
     if c.circ_id not in self.circuits:
-      plog("DEBUG", "Ignoring circuit " + str(c.circ_id) + " (controlled by Tor or not yet in the list)")
+      plog("DEBUG", "Ignoring circuit " + str(c.circ_id) + 
+         " (controlled by Tor or not yet in the list)")
       return
     
     # EXTENDED
@@ -478,7 +520,8 @@ class CircuitHandler(PathSupport.PathBuilder):
       extend_time = c.arrived_at - self.circuits[c.circ_id].last_extended_at
       # Add to the list
       self.circuits[c.circ_id].extend_times.append(extend_time)
-      plog("DEBUG", "Circuit " + str(c.circ_id) + " extended in " + str(extend_time) + " sec")
+      plog("DEBUG", "Circuit " + str(c.circ_id) + " extended in " + 
+         str(extend_time) + " sec")
       self.circuits[c.circ_id].last_extended_at = c.arrived_at
     
     # FAILED & CLOSED
@@ -491,7 +534,8 @@ class CircuitHandler(PathSupport.PathBuilder):
         message = ["FAILED"]
         if c.reason: message.append("REASON=" + c.reason)
         if c.remote_reason: message.append("REMOTE_REASON=" + c.remote_reason)
-        self.setup_logger.append(" ".join(message) + ": " + str(circ.extend_times))
+        self.setup_logger.append(" ".join(message) + ": " + 
+           str(circ.extend_times))
         # Increase counter and write circ_stats to file
         self.circ_stats.failures += 1
         self.stats_logger.write(self.circ_stats.to_string()) 
@@ -510,7 +554,7 @@ class CircuitHandler(PathSupport.PathBuilder):
     elif c.status == "BUILT":
       self.circuits[c.circ_id].built = True
       for stream in self.circuits[c.circ_id].pending_streams:
-        try:  
+        try:
           self.c.attach_stream(stream.strm_id, c.circ_id)
         except TorCtl.ErrorReply, e:
           # No need to retry here. We should get the failed
@@ -520,25 +564,30 @@ class CircuitHandler(PathSupport.PathBuilder):
       # Log setup durations to file
       self.setup_logger.append(str(self.circuits[c.circ_id].extend_times))
       # Compute duration by summing up extend_times
-      duration = reduce(lambda x, y: x+y, self.circuits[c.circ_id].extend_times, 0.0)
-      plog("DEBUG", "Circuit " + str(c.circ_id) + " needed " + str(duration) + " seconds to be built")      
+      duration = reduce(lambda x, y: x+y, 
+         self.circuits[c.circ_id].extend_times, 0.0)
+      plog("DEBUG", "Circuit " + str(c.circ_id) + " needed " + 
+         str(duration) + " seconds to be built")      
       # Add duration to circ_stats and write file
       self.circ_stats.add_value(duration)
-      self.stats_logger.write(self.circ_stats.to_string()) 
+      self.stats_logger.write(self.circ_stats.to_string())
+      # Save the duration to the circuit for later use
+      self.circuits[c.circ_id].setup_duration = duration
     
     # OTHER?
     else:
       # If this was e.g. a LAUNCHED
       pass
 
-######################################### BEGIN: StreamHandler      #####################
+## StreamHandler ##############################################################
 
+# TODO: Move to PathSupport
 class StreamHandler(CircuitHandler):
   """ This is a StreamHandler that extends from the CircuitHandler """
   def __init__(self, c, selmgr, num_circs):    
     # Call constructor of superclass
     CircuitHandler.__init__(self, c, selmgr, num_circs)
-    self.sorted_circs = None    # sorted list of the circs for attaching streams, initially None
+    self.sorted_circs = None    # optional
     #self.new_nym = True
 
   def clear_dns_cache(self):
@@ -552,7 +601,7 @@ class StreamHandler(CircuitHandler):
     self.c.close_stream(id, reason)
 
   def create_and_attach(self, stream, unattached_streams):
-    """ Create a new circuit and attach stream + unattached_streams """
+    """ Create a new circuit and attach (stream + unattached_streams) """
     circ = None
     self.selmgr.set_target(stream.host, stream.port)
     while circ == None:
@@ -580,14 +629,13 @@ class StreamHandler(CircuitHandler):
              +" with "+str(len(self.circuits[key].pending_streams))
              +" pending streams")
           unattached_streams.extend(self.circuits[key].pending_streams)
-          self.circuits[key].pending_streams.clear()
+          del self.circuits[key].pending_streams[:]
         # FIXME: Consider actually closing circs if no streams
         self.circuits[key].dirty = True
 
     # Check if there is a sorted list of circs
     if self.sorted_circs: list = self.sorted_circs
     else: list = self.circuits.values()
-    # Choose a circuit
     for circ in list:
       # Check each circuit
       if circ.built and not circ.closed and circ.circ_id not in badcircs and not circ.dirty:
@@ -703,30 +751,30 @@ class StreamHandler(CircuitHandler):
         self.streams[s.strm_id].host = s.target_host
         self.streams[s.strm_id].port = s.target_port
 
-######################################### BEGIN: PingHandler       #####################
+## PingHandler ################################################################
 
 class PingHandler(StreamHandler):
   """ This class extends the general StreamHandler to handle ping-requests """
   def __init__(self, c, selmgr, num_circs, router, partial=False):
     # Anything ping-related
     self.ping_queue = Queue.Queue()	# (circ_id, hop)-pairs
-    self.start_times = {}		# dict mapping (circ_id, hop):start_time TODO: cleanup
-    # Additional stuff for partial measurings
+    self.start_times = {}		# dict mapping (circ_id, hop):start_time
+    # Additional stuff for measuring single links
     self.partial_circs = partial
     if self.partial_circs:
       self.router = router			# object that represents this OR
       self.model = NetworkModel(self.router)	# model for recording link-RTTs
     # Handle testing_mode
     if testing_mode:
-      self.latency_logger= FileHandler("data/mean_latencies")
+      self.latency_logger= FileHandler("data/op-addon/mean-latencies")
     # Init the StreamHandler
-    StreamHandler.__init__(self, c, selmgr, num_circs)    
+    StreamHandler.__init__(self, c, selmgr, num_circs)
+    # Sorted circuit list
+    self.sorted_circs = []		# list of circs sorted by current RTT
     # Start the Pinger that triggers the connections
     self.pinger = Pinger(self)
     self.pinger.setDaemon(True)
     self.pinger.start()
-    # Sorted circuit list
-    self.sorted_circs = []		# list of circs sorted by mean RTT
 
   def refresh_sorted_list(self):
     """ Sort the list for their current RTTs """
@@ -740,6 +788,8 @@ class PingHandler(StreamHandler):
   def enqueue_pings(self):
     """ To be schedule_immediated by pinger before the initial connection is triggered """
     print("")
+    self.refresh_sorted_list()
+    # XXX: Check if there are any, else let the Pinger wait a bit?
     circs = self.circuits.values()
     for c in circs:
       if c.built:
@@ -755,14 +805,21 @@ class PingHandler(StreamHandler):
         self.ping_queue.put((id, None))
         plog("DEBUG", "Enqueued circuit " + str(id) + " hop None")
 
+  def established(self, circ_list):
+    """ Check if there is at least one circuit built """
+    for c in circ_list:
+      if c.built:
+        return True
+
   def attach_ping(self, stream):
     """ Attach a ping stream to its circuit """
     if self.ping_queue.empty():
       # This round has finished
-      plog("INFO", "Queue is empty --> round has finished, closing stream " + str(stream.strm_id))
+      plog("INFO", "Queue is empty --> round has finished, closing stream " 
+         + str(stream.strm_id))
       self.close_stream(stream.strm_id, 5)
-      # Empty start_times
-      self.start_times = {}
+      # Clear start_times
+      self.start_times.clear()
       # Call the rest from here?
       self.print_circuits(self.sorted_circs)
       if self.partial_circs:
@@ -792,11 +849,25 @@ class PingHandler(StreamHandler):
 	    self.attach_ping(stream)
         else:
           # Go to next test if circuit is gone or we get an ErrorReply
-          plog("WARN", "Circuit " + str(circ_id) + " does not exist anymore --> passing")
+          plog("WARN", "Circuit " + str(circ_id) + 
+             " does not exist anymore --> passing")
           self.attach_ping(stream)
       except TorCtl.ErrorReply, e:
-        plog("WARN", "Error attaching stream " + str(stream.strm_id) + " :" + str(e.args))
+        plog("WARN", "Error attaching stream " + str(stream.strm_id) + 
+           " :" + str(e.args))
 	self.attach_ping(stream)
+
+  def log_circuit(self, circ):
+    """ To be called when num_tests is reached for writing 
+        any interesting values to a file before closing circ """
+    self.latency_logger.append(str(circ.stats.median) + "\t" + 
+       str(circ.stats.mean) + "\t" + str(circ.setup_duration))
+    line_count = self.latency_logger.get_line_count()
+    if line_count >= num_records:
+      plog("INFO", "Enough records, exiting. (line_count = " + 
+         str(line_count) + ")")
+      # XXX: How to kill the parent thread from here?
+      sys.exit(1)
 
   def record_ping(self, s):
     """ Record a ping from a stream event (DETACHED or CLOSED) """
@@ -811,28 +882,33 @@ class PingHandler(StreamHandler):
     if hop == None:
       # This is a total circuit measuring
       self.circuits[s.circ_id].add_rtt(rtt)
-      plog("DEBUG", "Added RTT to history: " + str(self.circuits[s.circ_id].stats.values))	  
+      plog("DEBUG", "Added RTT to history: " + 
+         str(self.circuits[s.circ_id].stats.values))	  
       
-      # Close if num_tests is reached in testing_mode         
+      # TESTING_MODE: close if num_tests is reached  
       if testing_mode:
         if self.circuits[s.circ_id].age == num_tests:
-          plog("DEBUG", "Closing circ " + str(s.circ_id) + ": num_tests is reached")
+          plog("DEBUG", "Closing circ " + str(s.circ_id) + 
+             ": num_tests is reached")
           # Save stats to a file for generating plots etc.
           if self.partial_circs:
 	    if self.circuits[s.circ_id].rtt_created:
-	      # TODO: Do we want to check if this circuit is _really_ new?
-              self.latency_logger.append(str(self.circuits[s.circ_id].stats.mean))
+	      # TODO: Do we want to check if this circuit is *really* new?
+              self.log_circuit(self.circuits[s.circ_id])
           else:
-	    self.latency_logger.append(str(self.circuits[s.circ_id].stats.mean))
-	  # Close the circuit
+            self.log_circuit(self.circuits[s.circ_id])
+          # Close the circuit
           self.close_circuit(s.circ_id)
       
       # Close if slow-max is reached on current RTTs
       if self.circuits[s.circ_id].current_rtt >= slow:
         self.circuits[s.circ_id].slowness_counter += 1
-        if self.circuits[s.circ_id].slowness_counter >= slowness_limit and not self.circuits[s.circ_id].closed:
-          plog("DEBUG", "Slow-max (" + str(slowness_limit) + ") is reached --> closing circuit " + str(s.circ_id))
-          self.close_circuit(s.circ_id)
+        if slowness_limit > 0:
+          if self.circuits[s.circ_id].slowness_counter >= slowness_limit: 
+            if not self.circuits[s.circ_id].closed:
+              plog("DEBUG", "Slow-max (" + str(slowness_limit) + 
+                 ") is reached --> closing circuit " + str(s.circ_id))
+              self.close_circuit(s.circ_id)
       # Resort only if this is for the complete circ
       self.refresh_sorted_list()
       if self.partial_circs == True:
@@ -869,10 +945,11 @@ class PingHandler(StreamHandler):
         self.circuits[s.circ_id].timeout_counter += 1
         self.circuits[s.circ_id].slowness_counter += 1
         plog("DEBUG", str(self.circuits[s.circ_id].timeout_counter) + " timeout(s) on circuit " + str(s.circ_id))
-        if self.circuits[s.circ_id].timeout_counter >= timeout_limit and not self.circuits[s.circ_id].closed:
-          # Close the circuit
-          plog("DEBUG", "Reached limit on timeouts --> closing circuit " + str(s.circ_id))
-          self.close_circuit(s.circ_id)
+        if timeout_limit > 0:
+          if self.circuits[s.circ_id].timeout_counter >= timeout_limit and not self.circuits[s.circ_id].closed:
+            # Close the circuit
+            plog("DEBUG", "Reached limit on timeouts --> closing circuit " + str(s.circ_id))
+            self.close_circuit(s.circ_id)
         # Set RTT for this circ to None
         self.circuits[s.circ_id].current_rtt = None
       else:
@@ -903,7 +980,7 @@ class PingHandler(StreamHandler):
       if c.path == path: return False
     # XXX: Check if this path can exit?
     if not path[len(path)-1].will_exit_to("255.255.255.255", 80): 
-      plog("ERROR", "This circuit would not exit")
+      plog("ERROR", "Proposed circuit would not exit")
       return False
     return True
 
@@ -928,12 +1005,14 @@ class PingHandler(StreamHandler):
 	      
 	    choice = random.choice(proposals)
             #choice = proposals[0]
+            # TODO: Probabilistic selection
             	    
             # Check if we already have a circ with this path
             if self.path_is_ok(choice.path):
               plog("INFO", "Chosen proposal: " + choice.to_string())
               try:
                 circ = self.c.build_circuit_from_path(choice.path)
+                circ.rtt_created = True
                 self.circuits[circ.circ_id] = circ
 	        return
               except TorCtl.ErrorReply, e:
@@ -947,7 +1026,7 @@ class PingHandler(StreamHandler):
     plog("DEBUG", "Falling back to normal path selection")
     CircuitHandler.build_idle_circuit(self)
         
-######################################### BEGIN: Pinger            #####################
+## Pinger #####################################################################
 
 class Pinger(threading.Thread):
   """ Separate thread that triggers the Socks4-connections for pings """
@@ -980,18 +1059,17 @@ class Pinger(threading.Thread):
       # Close the socket if open
       if s: s.close()
 
-######################################### End: Classes             #####################
+## End of Classes #############################################################
 
-def connect(control_host, control_port):
+def connect(host, port):
   """ Return a connection to Tor's control port """
   sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-  sock.connect((control_host, control_port))
+  sock.connect((host, port))
   return Connection(sock)
  
 def setup_location(conn):
   """ Setup a router object representing this proxy """
   global path_config
-  plog("INFO", "Setting up our location")
   ip = None
   try:
     # Try to get our IP
@@ -1021,7 +1099,8 @@ def configure(conn):
 def startup(argv):
   try:
     # Connect to Tor process
-    conn = connect(control_host, control_port)
+    conn = connect(config.get(HOST_PORT, "control_host"),
+       config.getint(HOST_PORT, "control_port"))
     conn.authenticate()
     #conn.debug(file("control.log", "w"))
   except socket.error, e:
@@ -1031,23 +1110,27 @@ def startup(argv):
   router = setup_location(conn)
   # Configure myself  
   configure(conn)
-  # Set Handler to the connection  
+  # Get the size of the circuit-pool from config
+  num_circs = config.getint(CIRC_MANAGEMENT, "idle_circuits")
+  # Set an EventHandler to the connection
   if measure_circs:
     # We measure latencies
     if measure_partial_circs:
-      handler = PingHandler(conn, __selmgr, idle_circuits, router, True)
+      handler = PingHandler(conn, __selmgr, num_circs, router, True)
     else:
-      handler = PingHandler(conn, __selmgr, idle_circuits, router)
+      handler = PingHandler(conn, __selmgr, num_circs, router)
   else:
     # No pings, only a StreamHandler
-    handler = StreamHandler(conn, __selmgr, idle_circuits)
+    handler = StreamHandler(conn, __selmgr, num_circs)
   conn.set_event_handler(handler)
   # Go to sleep to be able to get killed from the commandline
+  # TODO: Do this only if not in testing_mode?
   try:
     while True:
       time.sleep(60)
   except KeyboardInterrupt:
     cleanup(conn)
+    sys.exit(1)
 
 def cleanup(conn):
   """ To be called on exit """
@@ -1057,5 +1140,5 @@ def cleanup(conn):
   conn.close()
 
 if __name__ == '__main__':
-  # Call main
+  plog("INFO", "This is OP-Addon v" + VERSION)
   startup(sys.argv)

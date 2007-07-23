@@ -61,7 +61,7 @@ def get_continent(country_code):
   for c in continents:
     if c.contains(country_code):
       return c.code
-  plog("WARN", country_code + " is not on any continent")
+  plog("INFO", country_code + " is not on any continent")
   return None
 
 # Get the country code out of a GeoLiteCity record (not used)
@@ -78,7 +78,7 @@ class GeoIPRouter(TorCtl.Router):
     self.country_code = geoip.country_code_by_addr(self.get_ip_dotted())
     #self.country_code = get_country_from_record(self.get_ip_dotted())    
     if self.country_code == None: 
-      plog("WARN", self.nickname + ": Country code not found")
+      plog("INFO", self.nickname + ": Country code not found")
       self.continent = None
     else: self.continent = get_continent(self.country_code)
 
@@ -88,22 +88,22 @@ class GeoIPRouter(TorCtl.Router):
 
 class GeoIPConfig:
   """ Class to configure GeoIP-based path building """		    
-  def __init__(self, unique_countries, entry_country, exit_country, max_crossings, excludes):    
+  def __init__(self, unique_countries, max_crossings, entry_country, exit_country, excludes):    
     # TODO: Somehow ensure validity of the configuration
     
     # Do not use a country twice in a route 
     # [True --> unique, False --> same or None --> pass] 
     self.unique_countries = unique_countries
     
+    # Configure max continent crossings in one path 
+    # [integer number 0-n or None --> ContinentJumper/UniqueContinent]
+    self.max_crossings = max_crossings
+
     # entry in entry_country [single country code or None]
     self.entry_country = entry_country
     # exit in exit_country [single country code or None]
     self.exit_country = exit_country
-    
-    # Configure max continent crossings in one path 
-    # [integer number 0-n or None --> ContinentJumper/UniqueContinent]
-    self.max_crossings = max_crossings
-    
-    # List of countries to not use in routes 
+        
+    # List of countries not to use in routes 
     # [(empty) list of country codes or None]
     self.excludes = excludes
