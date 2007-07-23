@@ -25,7 +25,7 @@ mt_version = "0.1.0-dev"
 
 # TODO: Move these to config file
 control_host = "127.0.0.1"
-control_port = 9051
+control_port = 9061
 meta_host = "127.0.0.1"
 meta_port = 9052
 max_detach = 3
@@ -462,17 +462,16 @@ class StatsHandler(PathSupport.PathBuilder):
       if c.remote_reason: rreason = c.remote_reason
       else: rreason = "NONE"
       reason = c.event_name+":"+c.status+":"+lreason+":"+rreason
-      if c.status == "EXTENDED":
+      if c.status == "LAUNCHED":
         # Update circ_chosen count
         self.circ_count += 1
+      elif c.status == "EXTENDED":
         delta = c.arrived_at - self.circuits[c.circ_id].last_extended_at
         r_ext = c.path[-1]
         if r_ext[0] != '$': r_ext = self.name_to_key[r_ext]
         self.routers[r_ext[1:]].total_extend_time += delta
         self.routers[r_ext[1:]].total_extended += 1
       elif c.status == "FAILED":
-        # update selection count
-        self.circ_count += 1
         for r in self.circuits[c.circ_id].path: r.circ_chosen += 1
         
         if len(c.path)-1 < 0: start_f = 0
