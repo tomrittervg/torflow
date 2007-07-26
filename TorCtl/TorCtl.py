@@ -199,7 +199,7 @@ class RouterVersion:
   def __str__(self): return self.ver_string
 
 class Router:
-  def __init__(self, idhex, name, bw, down, exitpolicy, flags, ip, version, os):
+  def __init__(self, idhex, name, bw, down, exitpolicy, flags, ip, version, os, uptime):
     self.idhex = idhex
     self.nickname = name
     self.bw = bw
@@ -210,6 +210,7 @@ class Router:
     self.version = RouterVersion(version)
     self.os = os
     self.list_rank = 0 # position in a sorted list of routers.
+    self.uptime = uptime
 
   def update_to(self, new):
     if self.idhex != new.idhex:
@@ -222,6 +223,7 @@ class Router:
     self.ip = new.ip
     self.version = new.version
     self.os = new.os
+    self.uptime = new.uptime
 
   def will_exit_to(self, ip, port):
     for line in self.exitpolicy:
@@ -528,6 +530,7 @@ class Connection:
     bw_observed = 0
     version = None
     os = None
+    uptime = 0
     if router != ns.nickname:
       plog("NOTICE", "Got different names " + ns.nickname + " vs " +
              router + " for " + ns.idhex)
@@ -539,6 +542,7 @@ class Connection:
       ac = re.search(r"^accept (\S+):([^-]+)(?:-(\d+))?", line)
       rj = re.search(r"^reject (\S+):([^-]+)(?:-(\d+))?", line)
       bw = re.search(r"^bandwidth \d+ \d+ (\d+)", line)
+      up = re.search(r"^uptime (\d+)", line)
       if re.search(r"^opt hibernating 1", line):
         #dead = 1 # XXX: Technically this may be stale..
         if ("Running" in ns.flags):
@@ -551,12 +555,14 @@ class Connection:
         bw_observed = int(bw.group(1))
       elif pl:
         version, os = pl.groups()
+      elif up:
+        uptime = int(up.group(1))
     if not bw_observed and not dead and ("Valid" in ns.flags):
       plog("INFO", "No bandwidth for live router " + ns.nickname)
     if not version or not os:
       plog("INFO", "No version and/or OS for router " + ns.nickname)
     return Router(ns.idhex, ns.nickname, bw_observed, dead, exitpolicy,
-        ns.flags, ip, version, os)
+        ns.flags, ip, version, os, uptime)
 
   def read_routers(self, nslist):
     bad_key = 0
