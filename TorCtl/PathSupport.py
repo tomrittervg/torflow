@@ -17,10 +17,11 @@ __all__ = ["NodeRestrictionList", "PathRestrictionList",
 "AtLeastNNodeRestriction", "NotNodeRestriction", "Subnet16Restriction",
 "UniqueRestriction", "UniformGenerator", "OrderedExitGenerator",
 "BwWeightedGenerator", "PathSelector", "Connection", "NickRestriction", 
-"IdHexRestriction", "PathBuilder", "SelectionManager", 
-"CountryCodeRestriction", "CountryRestriction", "UniqueCountryRestriction",
-"SingleCountryRestriction", "ContinentRestriction", 
-"ContinentJumperRestriction", "UniqueContinentRestriction"]
+"IdHexRestriction", "PathBuilder", "CircuitHandler", "StreamHandler", 
+"SelectionManager", "CountryCodeRestriction", "CountryRestriction", 
+"UniqueCountryRestriction", "SingleCountryRestriction", 
+"ContinentRestriction", "ContinentJumperRestriction", 
+"UniqueContinentRestriction"]
 
 #################### Path Support Interfaces #####################
 
@@ -661,9 +662,12 @@ class Circuit:
     self.exit = None
     self.built = False
     self.dirty = False
+    self.closed = False
     self.detached_cnt = 0
     self.last_extended_at = time.time()
-    self.pending_streams = [] # Which stream IDs are pending us
+    self.extend_times = []      # List of all extend-durations
+    self.setup_duration = None  # Sum of extend-times
+    self.pending_streams = []   # Which stream IDs are pending us
   
   def id_path(self): return map(lambda r: r.idhex, self.path)
 
@@ -979,8 +983,277 @@ class PathBuilder(TorCtl.EventHandler):
 
   def bandwidth_event(self, b): pass # For heartbeat only..
 
-########################## Unit tests ##########################
+################### CircuitHandler #############################
 
+class CircuitHandler(PathBuilder):
+  """ CircuitHandler that extends from PathBuilder """
+  def __init__(self, c, selmgr, num_circuits, RouterClass):
+    PathBuilder.__init__(self, c, selmgr, RouterClass)
+    self.num_circuits = num_circuits    # Size of the circuit pool
+    self.check_circuit_pool()	        # Bring up the pool of circs
+    
+  def check_circuit_pool(self):
+    """ Init or check the status of the circuit-pool """
+    # Get current number of circuits
+    n = len(self.circuits.values())
+    i = self.num_circuits-n
+    if i > 0:
+      plog("INFO", "Checked pool of circuits: we need to build " + 
+         str(i) + " circuits")
+    # Schedule (num_circs-n) circuit-buildups
+    while (n < self.num_circuits):      
+      self.build_circuit("255.255.255.255", 80)
+      plog("DEBUG", "Scheduled circuit No. " + str(n+1))
+      n += 1
+
+  def build_circuit(self, host, port):
+    """ Build a circuit """
+    circ = None
+    while circ == None:
+      try:
+        self.selmgr.set_target(host, port)
+        circ = self.c.build_circuit(self.selmgr.pathlen, 
+           self.selmgr.path_selector)
+        self.circuits[circ.circ_id] = circ
+      except TorCtl.ErrorReply, e:
+        # FIXME: How come some routers are non-existant? Shouldn't
+        # we have gotten an NS event to notify us they disappeared?
+        plog("NOTICE", "Error building circuit: " + str(e.args))
+    return circ
+
+  def close_circuit(self, id):
+    """ Close a circuit with given id """
+    # TODO: Pass streams to another circ before closing?
+    self.circuits[id].closed = True
+    try: self.c.close_circuit(id)
+    except TorCtl.ErrorReply, e: 
+      plog("ERROR", "Failed closing circuit " + str(id) + ": " + str(e))
+
+  def circ_status_event(self, c):
+    """ Handle circuit status events """
+    output = [c.event_name, str(c.circ_id), c.status]
+    if c.path: output.append(",".join(c.path))
+    if c.reason: output.append("REASON=" + c.reason)
+    if c.remote_reason: output.append("REMOTE_REASON=" + c.remote_reason)
+    plog("DEBUG", " ".join(output))
+    
+    # Circuits we don't control get built by Tor
+    if c.circ_id not in self.circuits:
+      plog("DEBUG", "Ignoring circuit " + str(c.circ_id) + 
+         " (controlled by Tor)")
+      return
+    
+    # EXTENDED
+    if c.status == "EXTENDED":
+      # Compute elapsed time
+      extend_time = c.arrived_at-self.circuits[c.circ_id].last_extended_at
+      self.circuits[c.circ_id].extend_times.append(extend_time)
+      plog("INFO", "Circuit " + str(c.circ_id) + " extended in " + 
+         str(extend_time) + " sec")
+      self.circuits[c.circ_id].last_extended_at = c.arrived_at
+    
+    # FAILED & CLOSED
+    elif c.status == "FAILED" or c.status == "CLOSED":
+      # XXX: Can still get a STREAM FAILED for this circ after this
+      circ = self.circuits[c.circ_id]
+      # Actual removal of the circ
+      del self.circuits[c.circ_id]
+      # Give away pending streams
+      for stream in circ.pending_streams:
+	plog("DEBUG", "Finding new circ for " + str(stream.strm_id))
+        self.attach_stream_any(stream, stream.detached_from)
+      # Check if there are enough circs
+      self.check_circuit_pool()
+      return
+    
+    # BUILT
+    elif c.status == "BUILT":
+      circ = self.circuits[c.circ_id]
+      circ.built = True
+      for stream in circ.pending_streams:
+        try:
+          self.c.attach_stream(stream.strm_id, c.circ_id)
+        except TorCtl.ErrorReply, e:
+          # No need to retry here. We should get the failed
+          # event for either the circ or stream next
+          plog("WARN", "Error attaching stream: " + str(e.args))
+      # Compute duration by summing up extend_times
+      duration = reduce(lambda x, y: x+y, circ.extend_times, 0.0)
+      plog("INFO", "Circuit " + str(c.circ_id) + " needed " + 
+         str(duration) + " seconds to be built")
+      # Save the duration to the circuit for later use
+      circ.setup_duration = duration
+      
+    # OTHER?
+    else:
+      # If this was e.g. a LAUNCHED
+      pass
+
+################### StreamHandler ##############################
+
+class StreamHandler(CircuitHandler):
+  """ StreamHandler that extends from the CircuitHandler """
+  def __init__(self, c, selmgr, num_circs, RouterClass):
+    CircuitHandler.__init__(self, c, selmgr, num_circs, RouterClass)
+    self.sorted_circs = None    # optional sorted list
+
+  def clear_dns_cache(self):
+    """ Send signal CLEARDNSCACHE """
+    lines = self.c.sendAndRecv("SIGNAL CLEARDNSCACHE\r\n")
+    for _, msg, more in lines:
+      plog("DEBUG", "CLEARDNSCACHE: " + msg)
+
+  def close_stream(self, id, reason):
+    """ Close a stream with given id and reason """
+    self.c.close_stream(id, reason)
+
+  def create_and_attach(self, stream, unattached_streams):
+    """ Create a new circuit and attach (stream + unattached_streams) """
+    circ = self.build_circuit(stream.host, stream.port)
+    for u in unattached_streams:
+      plog("DEBUG", "Attaching " + str(u.strm_id) + 
+         " pending build of circuit " + str(circ.circ_id))
+      u.pending_circ = circ      
+    circ.pending_streams.extend(unattached_streams)
+    self.circuits[circ.circ_id] = circ
+    self.last_exit = circ.exit
+ 
+  def attach_stream_any(self, stream, badcircs):
+    """ Attach a regular user stream """
+    unattached_streams = [stream]
+    if self.new_nym:
+      self.new_nym = False
+      plog("DEBUG", "Obeying new nym")
+      for key in self.circuits.keys():
+        if (not self.circuits[key].dirty
+            and len(self.circuits[key].pending_streams)):
+          plog("WARN", "New nym called, destroying circuit "+str(key)
+             +" with "+str(len(self.circuits[key].pending_streams))
+             +" pending streams")
+          unattached_streams.extend(self.circuits[key].pending_streams)
+          del self.circuits[key].pending_streams[:]
+        # FIXME: Consider actually closing circs if no streams
+        self.circuits[key].dirty = True
+
+    # Check if there is a sorted list of circs
+    if self.sorted_circs: list = self.sorted_circs
+    else: list = self.circuits.values()
+    for circ in list:
+      # Check each circuit
+      if circ.built and not circ.closed and circ.circ_id not in badcircs and not circ.dirty:
+        if circ.exit.will_exit_to(stream.host, stream.port):
+          try:
+            self.c.attach_stream(stream.strm_id, circ.circ_id)
+            stream.pending_circ = circ # Only one possible here
+            circ.pending_streams.append(stream)
+            self.last_exit = circ.exit
+          except TorCtl.ErrorReply, e:
+            # No need to retry here. We should get the failed
+            # event for either the circ or stream next
+            plog("WARN", "Error attaching stream: " + str(e.args))
+            return
+          break
+	else:
+	  plog("DEBUG", "Circuit " + str(circ.circ_id) + " won't exit")
+    else:
+      self.create_and_attach(stream, unattached_streams)
+
+  def stream_status_event(self, s):
+    """ Catch user stream events """
+    # Construct debugging output
+    output = [s.event_name, str(s.strm_id), s.status, str(s.circ_id), s.target_host, str(s.target_port)]
+    if s.reason: output.append("REASON=" + s.reason)
+    if s.remote_reason: output.append("REMOTE_REASON=" + s.remote_reason)
+    plog("DEBUG", " ".join(output))
+     
+    # If target_host is not an IP-address
+    if not re.match(r"\d+.\d+.\d+.\d+", s.target_host):
+      s.target_host = "255.255.255.255" # ignore DNS for exit policy check
+    
+    # NEW or NEWRESOLVE
+    if s.status == "NEW" or s.status == "NEWRESOLVE":
+      if s.status == "NEWRESOLVE" and not s.target_port:
+        s.target_port = self.resolve_port      
+      # Set up the new stream
+      stream = Stream(s.strm_id, s.target_host, s.target_port, s.status)
+      self.streams[s.strm_id] = stream        
+      self.attach_stream_any(self.streams[s.strm_id], self.streams[s.strm_id].detached_from)
+    
+    # DETACHED
+    elif s.status == "DETACHED":
+      # Stream not found
+      if s.strm_id not in self.streams:
+        plog("WARN", "Detached stream " + str(s.strm_id) + " not found")
+        self.streams[s.strm_id] = Stream(s.strm_id, s.target_host, s.target_port, "NEW")
+      # Circuit not found
+      if not s.circ_id:
+        plog("WARN", "Stream " + str(s.strm_id) + " detached from no circuit!")
+      else:
+        self.streams[s.strm_id].detached_from.append(s.circ_id)      
+      # Detect timeouts on user streams
+      if s.reason == "TIMEOUT":
+	# TODO: Count timeouts on streams?
+	#self.streams[s.strm_id].timeout_counter += 1
+	plog("DEBUG", "User stream timed out on circuit " + str(s.circ_id))
+      # Stream was pending
+      if self.streams[s.strm_id] in self.streams[s.strm_id].pending_circ.pending_streams:
+        self.streams[s.strm_id].pending_circ.pending_streams.remove(self.streams[s.strm_id])
+      # Attach to another circ
+      self.streams[s.strm_id].pending_circ = None
+      self.attach_stream_any(self.streams[s.strm_id], self.streams[s.strm_id].detached_from)
+
+    # SUCCEEDED
+    if s.status == "SUCCEEDED":
+      if s.strm_id not in self.streams:
+        plog("NOTICE", "Succeeded stream " + str(s.strm_id) + " not found")
+        return
+      if s.circ_id and self.streams[s.strm_id].pending_circ.circ_id != s.circ_id:
+        # Hrmm.. this can happen on a new-nym.. Very rare, putting warn
+        # in because I'm still not sure this is correct
+        plog("WARN", "Mismatch of pending: "
+          + str(self.streams[s.strm_id].pending_circ.circ_id) + " vs "
+          + str(s.circ_id))
+	self.streams[s.strm_id].circ = self.circuits[s.circ_id]
+      else:
+        self.streams[s.strm_id].circ = self.streams[s.strm_id].pending_circ
+      self.streams[s.strm_id].pending_circ.pending_streams.remove(self.streams[s.strm_id])
+      self.streams[s.strm_id].pending_circ = None
+      self.streams[s.strm_id].attached_at = s.arrived_at
+
+    # FAILED or CLOSED
+    elif s.status == "FAILED" or s.status == "CLOSED":
+      if s.strm_id not in self.streams:
+        plog("NOTICE", "Failed stream " + str(s.strm_id) + " not found")
+        return
+      # if not s.circ_id: 
+      # plog("WARN", "Stream " + str(s.strm_id) + " closed/failed from no circuit")
+      # We get failed and closed for each stream, let CLOSED do the cleanup
+      if s.status == "FAILED":
+        # Avoid busted circuits that will not resolve or carry traffic
+        self.streams[s.strm_id].failed = True
+	if s.circ_id in self.circuits: self.circuits[s.circ_id].dirty = True
+        elif self.streams[s.strm_id].attached_at != 0: 
+	  plog("WARN", "Failed stream on unknown circuit " + str(s.circ_id))
+	return
+      # CLOSED
+      if self.streams[s.strm_id].pending_circ:
+        self.streams[s.strm_id].pending_circ.pending_streams.remove(self.streams[s.strm_id])
+      # Actual removal of the stream
+      del self.streams[s.strm_id]
+
+    # REMAP
+    elif s.status == "REMAP":
+      if s.strm_id not in self.streams:
+        plog("WARN", "Remap id "+str(s.strm_id)+" not found")
+      else:
+        if not re.match(r"\d+.\d+.\d+.\d+", s.target_host):
+          s.target_host = "255.255.255.255"
+          plog("NOTICE", "Non-IP remap for "+str(s.strm_id) + 
+             " to " + s.target_host)		   
+        self.streams[s.strm_id].host = s.target_host
+        self.streams[s.strm_id].port = s.target_port
+
+########################## Unit tests ##########################
 
 def do_unit(rst, r_list, plamb):
   print "\n"

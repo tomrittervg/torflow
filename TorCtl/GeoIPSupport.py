@@ -56,39 +56,42 @@ south_america.countries = ["AG","AI","AN","AR","AW","BB","BM","BO","BR","BS","BZ
 # List of continents
 continents = [africa, asia, europe, north_america, oceania, south_america]
 
-# Perform country -- continent mapping
 def get_continent(country_code):
+  """ Perform country -- continent mapping """
   for c in continents:
     if c.contains(country_code):
       return c.code
   plog("INFO", country_code + " is not on any continent")
   return None
 
-# Get the country code out of a GeoLiteCity record (not used)
+def get_country(ip):
+  """ Get the country via the library """
+  return geoip.country_code_by_addr(ip)
+
 def get_country_from_record(ip):
+  """ Get the country code out of a GeoLiteCity record (not used) """
   record = geoip.record_by_addr(ip)
   if record != None:
     return record['country_code']
 
-# Router class extended to GeoIP
 class GeoIPRouter(TorCtl.Router):  
+  """ Router class extended to GeoIP """
   def __init__(self, router):
     self.__dict__ = router.__dict__
-    # Select method to get the country_code here
-    self.country_code = geoip.country_code_by_addr(self.get_ip_dotted())
-    #self.country_code = get_country_from_record(self.get_ip_dotted())    
+    self.country_code = get_country(self.get_ip_dotted())
     if self.country_code == None: 
       plog("INFO", self.nickname + ": Country code not found")
       self.continent = None
     else: self.continent = get_continent(self.country_code)
 
-  # Convert long int back to dotted quad string
   def get_ip_dotted(self):
+    """ Convert long int back to dotted quad string """
     return socket.inet_ntoa(struct.pack('>I', self.ip))
 
 class GeoIPConfig:
   """ Class to configure GeoIP-based path building """		    
-  def __init__(self, unique_countries, max_crossings, entry_country, exit_country, excludes):    
+  def __init__(self, unique_countries, max_crossings, entry_country, 
+     exit_country, excludes): 
     # TODO: Somehow ensure validity of the configuration
     
     # Do not use a country twice in a route 
