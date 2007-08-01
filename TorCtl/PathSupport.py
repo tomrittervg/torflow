@@ -1015,11 +1015,11 @@ class CircuitHandler(PathBuilder):
         circ = self.c.build_circuit(self.selmgr.pathlen, 
            self.selmgr.path_selector)
         self.circuits[circ.circ_id] = circ
+        return circ
       except TorCtl.ErrorReply, e:
         # FIXME: How come some routers are non-existant? Shouldn't
         # we have gotten an NS event to notify us they disappeared?
         plog("NOTICE", "Error building circuit: " + str(e.args))
-    return circ
 
   def close_circuit(self, id):
     """ Close a circuit with given id """
@@ -1110,13 +1110,14 @@ class StreamHandler(CircuitHandler):
   def create_and_attach(self, stream, unattached_streams):
     """ Create a new circuit and attach (stream + unattached_streams) """
     circ = self.build_circuit(stream.host, stream.port)
-    for u in unattached_streams:
-      plog("DEBUG", "Attaching " + str(u.strm_id) + 
-         " pending build of circuit " + str(circ.circ_id))
-      u.pending_circ = circ      
-    circ.pending_streams.extend(unattached_streams)
-    self.circuits[circ.circ_id] = circ
-    self.last_exit = circ.exit
+    if circ:
+      for u in unattached_streams:
+        plog("DEBUG", "Attaching " + str(u.strm_id) + 
+           " pending build of circuit " + str(circ.circ_id))
+        u.pending_circ = circ      
+      circ.pending_streams.extend(unattached_streams)
+      self.circuits[circ.circ_id] = circ
+      self.last_exit = circ.exit
  
   def attach_stream_any(self, stream, badcircs):
     """ Attach a regular user stream """
