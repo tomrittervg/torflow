@@ -13,58 +13,47 @@ General things I already did:
 
 My controller (op-addon.py) is currently able to:
 
-- Create and maintain a pool of n circuits and configure the path selection
-  freely + attach user streams
+- Create and maintain a circuit-pool of configurable size using any path 
+  selection method
+- Either measure performance of circs created with any method, or handle user
+  streams
 - Optionally Ping the circuits in the pool with a configurable frequency
-- Close those circuits that are too slow regarding measured latencies:
-  circ was in x measurings slower than y seconds --> close it
-- Attach user streams to the circuit having the currently smallest rt-latency
-- Optionally ping every circuit n ( = hop-count) times using each single hop 
+- Close circuits that are 'too slow' regarding a latency threshhold
+- Attach user streams to a circuit currently having a low latency
+- Optionally ping every circuit n (=hop-count) times using each single hop 
   as the exit node once
 - Compute round-trip latencies for the single links between routers from the 
-  results and store everything in a graph model
-- Create circuits from the network model, so we will create known to be fast 
-  ones possibly again or if we have collected enough data we will find new 
-  fast combinations of links to put together to circuits we have not had yet
-- Choose randomly from a set of at least x circuit proposals found in the 
-  model, each having RTT < y ms
-- If we could not find x proposals: create a circuit with the default method 
-  for collecting more link-latencies
+  results and store them in a graph model
+- Choose the fastest suitable path or uniformly from the subset of at least x
+  circuit-proposals found in the model having RTT <= y ms
+- Choose paths from the model in a probabilistic way regarding a score
+  that is calculated from measured latencies and advertised bandwidths
 - Be configured to always have m/n of the circuits created with the default 
   method to steadily extend the graph model
 - Collect data and record mean round trip latencies (of n measurings on each 
   circuit) for a specific path selection configuration to a file
 - Record statistics about circuit creation to a file: average setup duration +
-  min/max/median, number of failures + single extend-times
+  min/max/median, number of failures + single extend-times, etc.
 - Be configured via a config-file
+- Save a network-model to, and load it from a binary file. Check routers for
+  existence when loading
 
 Things I currently plan to do are:
 
-- Implement more PathRestrictions: OceanPhobic/OceanPhilic, EchelonPhobic for 
-  changing destinations, which means querying the country of a destination on 
-  set_target() and adding the respective CountryRestriction to exit_rstr 
-  before building the circ.
-- Somehow validate a given configuration (e.g. entry_country:DE, 
-  exit_country:US, max_crossings:0 would be invalid)
-- Refactorings: Move CircuitHandler and StreamHandler to PathSupport.py or 
-  create a new separate file containing only the EventHandlers (so that they 
-  can also be used by metatroller or other controllers)?
-- Refactorings: Transfer other things to PathSupport.py to be permanent, like 
-  'hop' as an attribute to the Stream-class
-- Add port history learning to StreamHandler or CircuitHandler and 
-  port-preconfiguring: the ability to configure that we will need circuits 
-  that exit e.g. to port x, y and z
-- Add an option to op-addon to tell it to use every path only once and create 
-  only *really* new circuits (combinations of links) from the model
-- Needs a path-history and more data collecting, but leads to more security?
-- Keep on using a directed graph for the model (undirected would make it more 
-  difficult to find new circuits means needs more collecting)
-- What is a beneficial network model and how long does it take to learn one?
-- Store network-model to a file that can be loaded on startup
-- Modify op-addon.py to make it connect to hidden services
+- Implement PathRestrictions: OceanPhobic/OceanPhilic, EchelonPhobic for 
+  changing destinations (query the country of a destination on set_target()
+  and add the respective CountryRestriction to exit_rstr before building circ)
+- Validate given configurations (e.g. entry_country:DE, exit_country:US, 
+  max_crossings:0)
+- Add port-history learning to StreamHandler or CircuitHandler and/or 
+  port-preconfiguring: configure what ports will be needed
+- Add a bandwidth-test, to let OP-Addon test every circuits bandwidth for
+  evaluating the performance of paths created with different methods
+- Write a README containing prerequisites and instructions
+- Modify OP-Addon to not measure latencies to the first hop, to make 
+  one-hop.diff obsolete, still useful?
+- What is a beneficial network-model and how long does it take to learn one?
+- Modify op-addon.py to make it connect to hidden services?
 - Degree of anonymity
-- Introduce recordings of more statistics
-- Find a better name than 'op-addon.py'
-- Write a README containing prerequisites and instructions to run op-addon.py
-- Remove bw-informer.py from the svn or improve it or do something else using 
-  bandwidth (my supervisor Andriy keeps on telling me to)
+- Find a better name than 'OP-Addon'
+- Remove or improve bw-informer.py
