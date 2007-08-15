@@ -989,6 +989,9 @@ class CircuitHandler(PathBuilder):
   """ CircuitHandler that extends from PathBuilder """
   def __init__(self, c, selmgr, num_circuits, RouterClass):
     PathBuilder.__init__(self, c, selmgr, RouterClass)
+    # Set handler to the connection here to 
+    # not miss any circuit events on startup
+    c.set_event_handler(self)
     self.num_circuits = num_circuits    # Size of the circuit pool
     self.check_circuit_pool()	        # Bring up the pool of circs
     
