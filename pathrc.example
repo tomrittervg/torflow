@@ -48,7 +48,7 @@ unique_countries = yes
 
 # Set country codes for single positions
 #entry_country = DE
-# TODO: middle_country
+#middle_country = RU
 #exit_country = US
 
 # Maximum number of continent-crossings 

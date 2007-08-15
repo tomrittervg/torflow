@@ -591,10 +591,11 @@ class SelectionManager:
       mid_rstr.add_restriction(CountryCodeRestriction())
       self.exit_rstr.add_restriction(CountryCodeRestriction())
       
-      # First hop in a specified country?
+      # Specified countries for different positions
       if self.geoip_config.entry_country:  
         entry_rstr.add_restriction(CountryRestriction(self.geoip_config.entry_country))
-      # Last hop in a specified country?
+      if self.geoip_config.middle_country:
+        mid_rstr.add_restriction(CountryRestriction(self.geoip_config.middle_country))
       if self.geoip_config.exit_country:
         self.exit_rstr.add_restriction(CountryRestriction(self.geoip_config.exit_country))
 
@@ -993,7 +994,7 @@ class CircuitHandler(PathBuilder):
     # not miss any circuit events on startup
     c.set_event_handler(self)
     self.num_circuits = num_circuits    # Size of the circuit pool
-    self.check_circuit_pool()	        # Bring up the pool of circs
+    self.check_circuit_pool()           # Bring up the pool of circs
     
   def check_circuit_pool(self):
     """ Init or check the status of the circuit-pool """

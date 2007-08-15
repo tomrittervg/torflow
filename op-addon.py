@@ -40,7 +40,8 @@ else:
   sys.exit(0)
 
 # Set some defaults for string-variables that can be None
-string_defaults = {"use_exit":None, "entry_country":None, "exit_country":None}
+string_defaults = {"use_exit":None, "entry_country":None, 
+   "middle_country":None, "exit_country":None}
 config = ConfigParser.SafeConfigParser(string_defaults)
 if os.path.exists(CONFIG_FILE):
   plog("INFO", "Loading configuration from '" + CONFIG_FILE + "'")
@@ -111,6 +112,7 @@ def get_geoip_config():
        unique_countries,
        max_crossings,
        entry_country = config.get(GEOIP, "entry_country"),
+       middle_country = config.get(GEOIP, "middle_country"),
        exit_country = config.get(GEOIP, "exit_country"),
        excludes = None)
   else: path_config = None

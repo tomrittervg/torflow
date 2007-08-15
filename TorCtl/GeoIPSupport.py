@@ -22,36 +22,36 @@ class Continent:
 
 # Setup the continents
 africa = Continent("AF")
-africa.countries = ["AO","BF","BI","BJ","BV","BW","CD","CF","CG","CI","CM","CV","DJ","DZ",
-                    "EG","EH","ER","ET","GA","GH","GM","GN","GQ","GW","HM","KE","KM","LR",
-		    "LS","LY","MA","MG","ML","MR","MU","MW","MZ","NA","NE","NG","RE","RW",
-		    "SC","SD","SH","SL","SN","SO","ST","SZ","TD","TF","TG","TN","TZ","UG",
-		    "YT","ZA","ZM","ZR","ZW"]
+africa.countries = ["AO","BF","BI","BJ","BV","BW","CD","CF","CG","CI","CM",
+   "CV","DJ","DZ","EG","EH","ER","ET","GA","GH","GM","GN","GQ","GW","HM","KE",
+   "KM","LR","LS","LY","MA","MG","ML","MR","MU","MW","MZ","NA","NE","NG","RE",
+   "RW","SC","SD","SH","SL","SN","SO","ST","SZ","TD","TF","TG","TN","TZ","UG",
+   "YT","ZA","ZM","ZR","ZW"]
 
 asia = Continent("AS")
-asia.countries = ["AP","AE","AF","AM","AZ","BD","BH","BN","BT","CC","CN","CX","CY","GE",
-                  "HK","ID","IL","IN","IO","IQ","IR","JO","JP","KG","KH","KP","KR","KW",
-		  "KZ","LA","LB","LK","MM","MN","MO","MV","MY","NP","OM","PH","PK","PS",
-		  "QA","RU","SA","SG","SY","TH","TJ","TM","TP","TR","TW","UZ","VN","YE"]
+asia.countries = ["AP","AE","AF","AM","AZ","BD","BH","BN","BT","CC","CN","CX",
+   "CY","GE","HK","ID","IL","IN","IO","IQ","IR","JO","JP","KG","KH","KP","KR",
+   "KW","KZ","LA","LB","LK","MM","MN","MO","MV","MY","NP","OM","PH","PK","PS",
+   "QA","RU","SA","SG","SY","TH","TJ","TM","TP","TR","TW","UZ","VN","YE"]
 
 europe = Continent("EU")
-europe.countries = ["EU","AD","AL","AT","BA","BE","BG","BY","CH","CZ","DE","DK","EE","ES",
-                    "FI","FO","FR","FX","GB","GI","GR","HR","HU","IE","IS","IT","LI","LT",
-		    "LU","LV","MC","MD","MK","MT","NL","NO","PL","PT","RO","SE","SI","SJ",
-		    "SK","SM","UA","VA","YU"]
+europe.countries = ["EU","AD","AL","AT","BA","BE","BG","BY","CH","CZ","DE",
+   "DK","EE","ES","FI","FO","FR","FX","GB","GI","GR","HR","HU","IE","IS","IT",
+   "LI","LT","LU","LV","MC","MD","MK","MT","NL","NO","PL","PT","RO","SE","SI",
+   "SJ","SK","SM","UA","VA","YU"]
 
 oceania = Continent("OC")
-oceania.countries = ["AS","AU","CK","FJ","FM","GU","KI","MH","MP","NC","NF","NR","NU","NZ",
-                     "PF","PG","PN","PW","SB","TK","TO","TV","UM","VU","WF","WS"]
+oceania.countries = ["AS","AU","CK","FJ","FM","GU","KI","MH","MP","NC","NF",
+   "NR","NU","NZ","PF","PG","PN","PW","SB","TK","TO","TV","UM","VU","WF","WS"]
 
 north_america = Continent("NA")
 north_america.countries = ["CA","MX","US"]
 
 south_america = Continent("SA")
-south_america.countries = ["AG","AI","AN","AR","AW","BB","BM","BO","BR","BS","BZ","CL","CO",
-                            "CR","CU","DM","DO","EC","FK","GD","GF","GL","GP","GS","GT","GY",
-			    "HN","HT","JM","KN","KY","LC","MQ","MS","NI","PA","PE","PM","PR",
-			    "PY","SA","SR","SV","TC","TT","UY","VC","VE","VG","VI"]
+south_america.countries = ["AG","AI","AN","AR","AW","BB","BM","BO","BR","BS",
+   "BZ","CL","CO","CR","CU","DM","DO","EC","FK","GD","GF","GL","GP","GS","GT",
+   "GY","HN","HT","JM","KN","KY","LC","MQ","MS","NI","PA","PE","PM","PR","PY",
+   "SA","SR","SV","TC","TT","UY","VC","VE","VG","VI"]
 
 # List of continents
 continents = [africa, asia, europe, north_america, oceania, south_america]
@@ -91,8 +91,8 @@ class GeoIPRouter(TorCtl.Router):
 class GeoIPConfig:
   """ Class to configure GeoIP-based path building """		    
   def __init__(self, unique_countries, max_crossings, entry_country, 
-     exit_country, excludes): 
-    # TODO: Somehow ensure validity of the configuration
+     middle_country, exit_country, excludes): 
+    # TODO: Somehow ensure validity of a configuration
     
     # Do not use a country twice in a route 
     # [True --> unique, False --> same or None --> pass] 
@@ -102,9 +102,9 @@ class GeoIPConfig:
     # [integer number 0-n or None --> ContinentJumper/UniqueContinent]
     self.max_crossings = max_crossings
 
-    # entry in entry_country [single country code or None]
+    # Specify countries for positions [single country code or None]
     self.entry_country = entry_country
-    # exit in exit_country [single country code or None]
+    self.middle_country = middle_country
     self.exit_country = exit_country
         
     # List of countries not to use in routes 
