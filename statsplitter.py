@@ -1,6 +1,7 @@
 #!/usr/bin/python
 import sys
 import socket
+import math
 from TorCtl import *
 from TorCtl.PathSupport import *
 
@@ -17,6 +18,7 @@ sorted_rlist = c.read_routers(c.get_network_status())
 sorted_rlist.sort(lambda x, y: cmp(y.bw, x.bw))
 for i in xrange(len(sorted_rlist)): sorted_rlist[i].list_rank = i
 
+fast_rst = FlagsRestriction(["Fast"], [])
 exit_rst = FlagsRestriction(["Exit"], [])
 dir_rst = FlagsRestriction(["V2Dir"], [])
 heavy_exits = OrNodeRestriction(
@@ -54,25 +56,50 @@ def check(start, stop):
   
   print str(start)+"-"+str(stop)+": N: "+str(nodes)+", Bw: "+str(round(bw/(1024*1024.0), 2))+", X: "+str(exits)+", XBw: "+str(round(exit_bw/(1024*1024.0),2))+", BT: "+str(heavy)+", Dirs:"+str(dirs)+", Up: "+str(round(up/nodes_up/60/60/24, 2))
 
-
 for i in xrange(0,80,5):
   check(i,i+5)
 
-clipped = 0
-clipped_bw = 0
-exits = 0
-nodes = 0
-bw = 0
-exit_bw = 0
-for r in sorted_rlist:
-  if r.bw > 1500000:
-    clipped +=1
-    clipped_bw += r.bw - 1500000
-  nodes += 1
-  bw += r.bw
-  if exit_rst.r_is_ok(r):
-    exits += 1
-    exit_bw += r.bw
+def check_entropy(rlist, clipping_point):
+  clipped = 0
+  clipped_bw = 0.0
+  exits = 0
+  nodes = 0
+  bw = 0.0
+  exit_bw = 0.0
+  pure_entropy = 0.0
+  clipped_entropy = 0.0
+  for r in rlist:
+    if not fast_rst.r_is_ok(r):
+      continue
+    if r.bw > clipping_point:
+      clipped += 1
+      clipped_bw += clipping_point
+    else:
+      clipped_bw += r.bw
+    nodes += 1
+    bw += r.bw
+    if exit_rst.r_is_ok(r):
+      exits += 1
+      exit_bw += r.bw
+  
+  for r in rlist:
+    if not fast_rst.r_is_ok(r):
+      continue
+    if r.bw < 2:
+      continue
+    pure_entropy += (r.bw/bw)*math.log(r.bw/bw, 2)
+  
+    rbw = 0
+    if r.bw > clipping_point:
+      rbw = clipping_point
+    else:
+      rbw = r.bw
+    clipped_entropy += (rbw/clipped_bw)*math.log(rbw/clipped_bw, 2)
+  
+  print "Raw entropy: " + str(-pure_entropy)
+  print "Clipped entropy: " + str(-clipped_entropy)
+  print "Nodes: "+str(nodes)+", Exits: "+str(exits)+" Total bw: "+str(round(bw/(1024.0*1024),2))+", Exit Bw: "+str(round(exit_bw/(1024.0*1024),2))
+  print "Clipped: "+str(clipped)+", bw: "+str(round(clipped_bw/(1024.0*1024),2))
 
-print "Nodes: "+str(nodes)+", Exits: "+str(exits)+" Total bw: "+str(round(bw/(1024.0*1024),2))+", Exit Bw: "+str(round(exit_bw/(1024.0*1024),2))
-print "Clipped: "+str(clipped)+", bw: "+str(round(clipped_bw/(1024.0*1024),2))
+
+check_entropy(sorted_rlist, 1500000)
