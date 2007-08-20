@@ -93,7 +93,6 @@ if measure_circs:
   # a FileHandler to write data to a file
   TESTING_MODE = config.getboolean(TESTING, "testing_mode")
   if TESTING_MODE:
-    # TODO: num_bw_tests = config.getint(TESTING, "num_bw_tests")
     num_rtt_tests = config.getint(TESTING, "num_rtt_tests")
     num_records = config.getint(TESTING, "num_records")
 
@@ -203,7 +202,7 @@ class Stats:
       values.sort()
       return values[(len(values)-1)/2]
     else: return 0.0
-
+      
 ## CircuitBuildingStats #######################################################
 
 class CircuitBuildingStats(Stats):
@@ -260,13 +259,14 @@ class Circuit(PathSupport.Circuit):
     self.age = 0		# Age in rounds
     self.timeout_counter = 0	# Timeout limit
     self.rtt_created = False	# Created from the model    
-  
+      
   def add_rtt(self, rtt):
     """ Add a new value and refresh stats and current """
     # Set current
     if self.current_rtt == None:
       self.current_rtt = rtt
     else:
+      # Weight the current value with the last
       self.current_rtt = (self.current_rtt * 0.5) + (rtt * 0.5)
       plog("DEBUG", "Computing new current RTT from " + str(rtt) + " to " + 
          str(self.current_rtt))
@@ -325,8 +325,8 @@ class PathProposal:
     self.path = path[1:len(path)]
     # Compute the expected RTT
     self.rtt = reduce(lambda x,y: x + y.current_rtt, self.links, 0.0)
-    self.min_bw = 0             # Minimum bw of routers in the path
-    self.ranking_index = None   # Score computed from bw and RTT
+    self.min_bw = 0             # Minimum bw of routers in path
+    self.ranking_index = None   # Index computed from bw and RTT
 
   def to_string(self):
     """ Create a string for printing out information """
@@ -339,7 +339,7 @@ class NetworkModel:
   """ This class is used to record measured RTTs of single links in a model 
       of the 'currently explored subnet' (undirected graph) """  
   def __init__(self, routers):
-    """ Constructor: pass the root of all circuits """
+    """ Constructor: pass the list of routers """
     self.pickle_path = DATADIR + "network-model.pickle"
     self.logfile = None         # FileHandler(DATADIR + "proposals")
     # For generating proposals
@@ -432,14 +432,14 @@ class NetworkModel:
     plog("INFO", "Updated model with current router-list")
 
   def set_target(self, host, port, max_rtt=0):
-    """ Change the target for generating paths """
+    """ Change the properties for generating paths """
     if self.target_host != host or self.target_port != port\
        or self.max_rtt != max_rtt:
       self.target_host = host
       self.target_port = port
       self.max_rtt = max_rtt
       self.up_to_date = False
-
+    
   def generate_proposals(self):
     """ Call visit() on the root-node """
     self.update()
@@ -469,6 +469,7 @@ class NetworkModel:
       if len(path) == 4:
         # This could be an option
         if "Exit" in self.routers[node].flags:
+          # XXX: Performance problem?
           if self.routers[node].will_exit_to(self.target_host, self.target_port):
             p = PathProposal(self.get_link_info(path), path) 
             if self.max_rtt > 0:
@@ -490,7 +491,8 @@ class NetworkModel:
     # Only print them out if there are not too much
     if len(self.proposals) > 50: 
       plog("INFO", "Currently " + str(len(self.proposals)) + 
-         " proposals! Not printing them out ..")
+         " proposals [max_rtt=" + str(self.max_rtt) + 
+         "]! Not printing them out ..")
     else:
       print(out)
     # Log all of them to the file if it exists
@@ -501,12 +503,12 @@ class NetworkModel:
 class PingHandler(PathSupport.StreamHandler):
   """ This class extends the general StreamHandler to handle ping-requests """
   def __init__(self, c, selmgr, num_circs, RouterClass, use_model=False):
-    # Loggers for recording statistics
+    # Different loggers for recording statistics
     self.circ_stats = CircuitBuildingStats()    # record setup-durations
     self.stats_logger = FileHandler(DATADIR + "circ-setup-stats")
     self.setup_logger = None # FileHandler(DATADIR + "circ-setup-durations")
     if TESTING_MODE:
-      self.latency_logger = FileHandler(DATADIR + "mean-latencies")
+      self.testing_logger = FileHandler(DATADIR + "circ-data")
 
     # Queue containing circs to be tested
     self.ping_queue = Queue.Queue()	# (circ_id, hop)-pairs
@@ -545,11 +547,11 @@ class PingHandler(PathSupport.StreamHandler):
       print("+ " + c.to_string())
   
   def log_circuit(self, circ):
-    """ Only called in TESTING_MODE when tests are finished for writing 
-        any interesting values to a file before closing a circ """
-    self.latency_logger.append(str(circ.setup_duration) + "\t" + 
-       "\t" + str(circ.stats.mean))
-    line_count = self.latency_logger.get_line_count()
+    """ To be called when tests are finished for writing 
+        any interesting values to a file before closing circ """
+    self.testing_logger.append(str(circ.setup_duration) + "\t" + 
+       str(circ.stats.mean))
+    line_count = self.testing_logger.get_line_count()
     if line_count >= num_records:
       plog("INFO", "Enough records, exiting. (line_count = " + 
          str(line_count) + ")")
@@ -560,7 +562,7 @@ class PingHandler(PathSupport.StreamHandler):
     """ schedule_immediate from pinger before triggering the initial ping """
     print("")
     self.refresh_sorted_list()
-    # TODO: Check if there are any circs, else let the Pinger wait?
+    # TODO: Check if there are any circs, else set 'frequency' to 10?
     circs = self.circuits.values()
     for c in circs:
       if c.built:
@@ -685,7 +687,8 @@ class PingHandler(PathSupport.StreamHandler):
         plog("DEBUG", str(self.circuits[s.circ_id].timeout_counter) + 
            " timeout(s) on circuit " + str(s.circ_id))
         if timeout_limit > 0:
-          if self.circuits[s.circ_id].timeout_counter >= timeout_limit and not self.circuits[s.circ_id].closed:
+          if self.circuits[s.circ_id].timeout_counter >= timeout_limit and\
+             not self.circuits[s.circ_id].closed:
             # Close the circuit
             plog("DEBUG", "Reached limit on timeouts --> closing circuit " 
                + str(s.circ_id))
@@ -744,6 +747,7 @@ class PingHandler(PathSupport.StreamHandler):
     
     if c.status == "FAILED" or c.status == "CLOSED":
       self.refresh_sorted_list()
+
     # Log something on BUILT
     if c.status == "BUILT":
       circ = self.circuits[c.circ_id]
@@ -758,7 +762,7 @@ class PingHandler(PathSupport.StreamHandler):
         self.circ_stats.add_value(circ.setup_duration)
         self.stats_logger.write(self.circ_stats.to_string())
       self.refresh_sorted_list()
-   
+  
   def build_circuit(self, host, port):
     """ Override from CircuitHandler to support circuit-creation from model """
     if self.model:
@@ -774,7 +778,7 @@ class PingHandler(PathSupport.StreamHandler):
 	  return
         plog("INFO", "Not enough proposals [min_proposals=" + str(min_proposals) + "]")
  
-    # Create a circuit with the backup-method
+    # Create a circuit using the backup-method
     plog("DEBUG", "Creating circuit with the backup-method")
     PathSupport.CircuitHandler.build_circuit(self, host, port)
 
@@ -784,21 +788,22 @@ class PingHandler(PathSupport.StreamHandler):
     self.model.set_target(host, port, max_rtt)
     if not self.model.up_to_date:
       self.model.generate_proposals()
+      self.set_min_bw(self.model.proposals)
     # Get the proposals and compute ranking
     proposals = self.model.proposals
     if len(proposals) >= min_proposals:
-      self.update_ranking(proposals)
+      # Give weights for single scores
+      self.update_ranking(proposals, 1, 1)
     # As long as there are enough
     while len(proposals) >= min_proposals:
 
       # Uniform:
       # choice = random.choice(proposals)            
-      
       # Fastest First:
       # proposals = sort_list(proposals, lambda x: x.rtt)
       # choice = proposals[0]            
           
-      # Probabilistic:
+      # Probabilistic selection:
       choice = self.weighted_selection(proposals, lambda x: x.ranking_index)
 
       # Convert ids to routers
@@ -815,6 +820,21 @@ class PingHandler(PathSupport.StreamHandler):
           plog("NOTICE", "Error building circuit: " + str(e.args))
       else:
         proposals.remove(choice)
+
+  def set_min_bw(self, proposals):
+    """ Find the smallest advertised bw of the routers in each proposal """
+    for p in proposals:
+      # Get the routers
+      r_path = self.keys_to_routers(p.path)
+      if r_path:
+        # Find min(bw_i)
+        bw = []
+        for r in r_path:
+          bw.append(r.bw)
+        p.min_bw = min(bw)
+      else:
+        proposals.remove(p)
+        plog("DEBUG", "Could not find the routers, removed ..")
   
   def weighted_selection(self, proposals, weight):
     """ Select a proposal in a probabilistic way """
@@ -836,23 +856,10 @@ class PingHandler(PathSupport.StreamHandler):
            str(weight(choice)))
         return choice
   
-  def update_ranking(self, proposals):
+  def update_ranking(self, proposals, rtt_weight, bw_weight):
     """ Compute a ranking for each path-proposal using 
         measured RTTs and bandwidth from the descriptors """
     start = time.time()
-    # Set min_bw to proposals
-    for p in proposals:
-      # Get the routers
-      r_path = self.keys_to_routers(p.path)
-      if r_path:
-        # Find min(bw_i)
-        bw = []
-        for r in r_path:
-          bw.append(r.bw)
-        p.min_bw = min(bw)
-      else:
-        proposals.remove(p)
-        plog("DEBUG", "Could not find the routers, removed ..")
     # High bandwidths get high scores
     sort_list(proposals, lambda x: x.min_bw)
     plog("DEBUG", "MIN_BWs of proposals between: " + str(proposals[0].min_bw) + 
@@ -871,21 +878,17 @@ class PingHandler(PathSupport.StreamHandler):
       i -= 1
     # Compute weights from both of the values
     for p in proposals:
-      # Calculate total score
-      # TODO: Weight these scores
-      total_score = p.rtt_score + p.bw_score
-      p.ranking_index = total_score
+      # Calculate ranking index based on both scores 
+      p.ranking_index = (rtt_weight*p.rtt_score)+(bw_weight*p.bw_score)
     sort_list(proposals, lambda x: x.ranking_index)
-    plog("DEBUG", "Ranking indices of proposals between: " + 
-       str(proposals[0].ranking_index) + " and " + 
-       str(proposals[len(proposals)-1].ranking_index))
-    plog("INFO", "Updating ranking indices of proposals took " + 
-       str(time.time()-start) + " sec")
+    plog("DEBUG", "Ranking indices of proposals between: " + str(proposals[0].ranking_index)
+       + " and " + str(proposals[len(proposals)-1].ranking_index))
+    plog("INFO", "Updating ranking indices of proposals took "
+       + str(time.time()-start) + " sec")
 
   # Helper functions ==========================================================
   def established(self, circ_list):
-    """ Check if there is at least one circuit established """
-    # XXX: Currently NOT used
+    """ Check if there is at least one circuit established (NOT USED) """
     for c in circ_list:
       if c.built:
         return True
@@ -922,8 +925,9 @@ class PingHandler(PathSupport.StreamHandler):
       return routers
 
   def unknown_event(self, event):
-    # XXX: There are new events not yet recognized by our classes
-    plog("DEBUG", "UNKNOWN EVENT: " + str(event))
+    # XXX: Sometimes a strange event is occuring
+    plog("DEBUG", "UNKNOWN EVENT '" + event.event_name + "':" + 
+       event.event_string)
 
 ## Pinger #####################################################################
 
@@ -978,7 +982,7 @@ def setup_location(conn):
     country_code = GeoIPSupport.get_country(IP)
     plog("INFO", "Our IP address is " + str(IP) + " [" + str(country_code) + "]")   
   except: 
-    plog("WARN", "Could not get our IP and country")
+    plog("ERROR", "Could not get our IP and country")
     return False
   # Here we could set the current entry-country
   # path_config.entry_country = country_code
@@ -999,7 +1003,6 @@ def startup(argv):
     # Connect to Tor process
     conn = connect(config.get(HOST_PORT, "control_host"),
        config.getint(HOST_PORT, "control_port"))
-    # TODO: Give password here
     conn.authenticate()
     #conn.debug(file("control.log", "w"))
   except socket.error, e:
@@ -1017,23 +1020,23 @@ def startup(argv):
       handler = PingHandler(conn, __selmgr, num_circs, 
          GeoIPSupport.GeoIPRouter, True)
     else:
-      handler = PingHandler(conn, __selmgr, num_circs, GeoIPSupport.GeoIPRouter)  
+      handler = PingHandler(conn, __selmgr, num_circs, 
+         GeoIPSupport.GeoIPRouter)
   else:
     # No pings, only a StreamHandler
     handler = PathSupport.StreamHandler(conn, __selmgr, num_circs, 
        GeoIPSupport.GeoIPRouter)
-  conn.set_event_handler(handler)
   # Go to sleep to be able to get killed from the commandline
   # TODO: Do this only if *not* in testing_mode?
   try:
     while True:
       time.sleep(60)
   except KeyboardInterrupt:
-    # XXX: Schedule this
+    # XXX: Schedule this?
     if measure_circs:
       if network_model:
         handler.model.save_graph()
-    # Stop other threads?
+    # TODO: Stop other threads, close circuits
     cleanup(conn)
     sys.exit(1)
 

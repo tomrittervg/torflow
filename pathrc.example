@@ -68,8 +68,6 @@ testing_mode = no
 # Number of latency-tests per circuit (int: 0-n)
 num_rtt_tests = 5
 
-# TODO: num_bw_tests
-
 # Amount of circuits to test (int)
 num_records = 300
 
