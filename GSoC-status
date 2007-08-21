@@ -38,23 +38,28 @@ My controller (op-addon.py) is currently able to:
 - Save a network-model to, and load it from a binary file. Check routers for
   existence when loading
 
-TODO:
+###############################################################################
 
-- Implement PathRestrictions: OceanPhobic/OceanPhilic, EchelonPhobic for 
-  changing destinations (query the country of a destination on set_target()
-  and add the respective CountryRestriction to exit_rstr before building circ
-- Therefore learn how controllers can do DNS requests over Tor
-- Validate given configurations (e.g. entry_country:DE, exit_country:US, 
-  max_crossings:0)
-- Add port-history learning to StreamHandler or CircuitHandler and/or 
-  port-preconfiguring: configure what ports will be needed
-- Add control port authentication
-- Add a bandwidth-test, to let OP-Addon test every circuits bandwidth for
-  evaluating the performance of paths created with different methods
-- Modify OP-Addon to not measure latencies to the first hop, to make 
-  one-hop.diff obsolete, still useful?
-- What is a beneficial network-model and how long does it take to learn one?
-- Modify op-addon.py to make it connect to hidden services?
-- Degree of anonymity
-- Remove or improve bw-informer.py
-- Find a better name than 'OP-Addon'
+TODO lists:
+
+GSoC:
+  - Implement PathRestrictions: OceanPhobic/OceanPhilic, EchelonPhobic for 
+    changing destinations (query the country of a destination on set_target()
+    and add the respective CountryRestriction to exit_rstr before building circ
+  - Therefore implement the RESOLVE-command in TorCtl.py
+
+Research/Experimentation (thesis):
+  - Empirical performance analysis of different path selection methods
+  - What is a beneficial network-model and how long does it take to learn one?
+  - Degree of anonymity, classification of algorithms
+
+Post-GSoC and -thesis (future):
+  - Validate given configurations
+  - Add port-history learning to StreamHandler or CircuitHandler and/or 
+    port-preconfiguring to be able to configure what ports will be needed
+  - Add a convenient method of control port authentication
+  - Modify OP-Addon to not measure latencies to the first hop, to make 
+    one-hop.diff obsolete (would it still be useful?)
+  - Modify op-addon.py to make it connect to hidden services?
+  - Implement new events in TorCtl.py (GUARD, DESCCHANGED, STATUS_*, ...)
+  - Remove or improve bw-informer.py and find a better name for 'OP-Addon'
