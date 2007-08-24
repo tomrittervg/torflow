@@ -32,6 +32,7 @@ EVENT_TYPE = Enum2(
           BW="BW",
           NS="NS",
           NEWDESC="NEWDESC",
+          ADDRMAP="ADDRMAP",
           DEBUG="DEBUG",
           INFO="INFO",
           NOTICE="NOTICE",
@@ -631,6 +632,13 @@ class Connection:
         0x0F : "TERM" }.get(sig,sig)
     self.sendAndRecv("SIGNAL %s\r\n"%sig)
 
+  def resolve(self, host):
+    """ Launch a remote hostname lookup request:
+        'host' may be a hostname or IPv4 address
+    """
+    # TODO: handle "mode=reverse"
+    self.sendAndRecv("RESOLVE %s\r\n"%host)
+
   def map_address(self, kvList):
     if not kvList:
       return
@@ -804,15 +812,15 @@ class EventHandler:
     elif evtype == "NEWDESC":
       event = NewDescEvent(evtype, body.split(" "))
     elif evtype == "ADDRMAP":
+      # TODO: Also parse errors and GMTExpiry
       m = re.match(r'(\S+)\s+(\S+)\s+(\"[^"]+\"|\w+)', body)
       if not m:
-        raise ProtocolError("BANDWIDTH event misformatted.")
+        raise ProtocolError("ADDRMAP event misformatted.")
       fromaddr, toaddr, when = m.groups()
-      if when.upper() == "NEVER":
+      if when.upper() == "NEVER":  
         when = None
       else:
-        when = time.localtime(
-          time.strptime(when[1:-1], "%Y-%m-%d %H:%M:%S"))
+        when = time.strptime(when[1:-1], "%Y-%m-%d %H:%M:%S")
       event = AddrMapEvent(evtype, fromaddr, toaddr, when)
     elif evtype == "NS":
       event = NetworkStatusEvent(evtype, parse_ns_body(data))

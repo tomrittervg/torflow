@@ -322,7 +322,8 @@ class SingleCountryRestriction(PathRestriction):
 
 class ContinentRestriction(PathRestriction):
   """ Do not more than n continent crossings """
-  def __init__(self, n):
+  # TODO: Add src and dest
+  def __init__(self, n, src=None, dest=None):
     self.n = n
 
   def path_is_ok(self, path):
@@ -342,7 +343,6 @@ class ContinentJumperRestriction(PathRestriction):
   """ Ensure continent crossings between all hops """
   def path_is_ok(self, path):
     prev = None
-    # Compute crossings until now
     for r in path:
       # Jump over the first router
       if prev:
@@ -359,6 +359,25 @@ class UniqueContinentRestriction(PathRestriction):
         if path[i].continent == path[j].continent:
           return False;
     return True;
+
+class OceanPhobicRestriction(PathRestriction):
+  """ Not more than n ocean crossings """
+  # TODO: Add src and dest
+  def __init__(self, n, src=None, dest=None):
+    self.n = n
+
+  def path_is_ok(self, path):
+    crossings = 0
+    prev = None
+    # Compute ocean crossings until now
+    for r in path:
+      # Jump over the first router
+      if prev:
+        if r.cont_group != prev.cont_group:
+          crossings += 1
+      prev = r
+    if crossings > self.n: return False
+    else: return True
 
 #################### Node Generators ######################
 
@@ -616,11 +635,14 @@ class SelectionManager:
           # False: use the same country for all nodes in a path
           self.path_rstr.add_restriction(SingleCountryRestriction())
       
-      # Specify max number of crossings here, None means UniqueContinents
-      if self.geoip_config.max_crossings == None:
+      # Specify max number of continent crossings, None means UniqueContinents
+      if self.geoip_config.continent_crossings == None:
         self.path_rstr.add_restriction(UniqueContinentRestriction())
-      else: self.path_rstr.add_restriction(ContinentRestriction(self.geoip_config.max_crossings))
-    
+      else: self.path_rstr.add_restriction(ContinentRestriction(self.geoip_config.continent_crossings))
+      # Should even work in combination with continent crossings
+      if self.geoip_config.ocean_crossings != None:
+        self.path_rstr.add_restriction(OceanPhobicRestriction(self.geoip_config.ocean_crossings))
+
     # This is kind of hokey..
     if self.order_exits:
       if self.__ordered_exit_gen:
@@ -655,6 +677,21 @@ class SelectionManager:
     self.exit_rstr.del_restriction(ExitPolicyRestriction)
     self.exit_rstr.add_restriction(ExitPolicyRestriction(ip, port))
     if self.__ordered_exit_gen: self.__ordered_exit_gen.set_port(port)
+    # Try to choose an exit node in the destination country
+    # needs an IP != 255.255.255.255
+    if self.geoip_config and self.geoip_config.echelon:
+      import GeoIPSupport
+      c = GeoIPSupport.get_country(ip)
+      if c:
+        plog("INFO", "[Echelon] IP "+ip+" is in ["+c+"]")
+        self.exit_rstr.del_restriction(CountryRestriction)
+        self.exit_rstr.add_restriction(CountryRestriction(c))
+      else: 
+        plog("INFO", "[Echelon] Could not determine destination country of IP "+ip)
+        # Try to use a backup country
+        if self.geoip_config.exit_country:
+          self.exit_rstr.del_restriction(CountryRestriction) 
+          self.exit_rstr.add_restriction(CountryRestriction(self.geoip_config.exit_country))
 
 class Circuit:
   def __init__(self):
@@ -1257,6 +1294,19 @@ class StreamHandler(CircuitHandler):
              " to " + s.target_host)		   
         self.streams[s.strm_id].host = s.target_host
         self.streams[s.strm_id].port = s.target_port
+  
+  def address_mapped_event(self, event):
+    """ It is necessary to listen to ADDRMAP events to be able to 
+        perform DNS lookups using Tor """
+    output = [event.event_name, event.from_addr, event.to_addr, 
+       time.asctime(event.when)]
+    plog("DEBUG", " ".join(output))
+
+  def unknown_event(self, event):
+    # XXX: Sometimes a strange event (or parsing error) is occuring 
+    # (event_name ='OK'?)
+    plog("DEBUG", "UNKNOWN EVENT '" + event.event_name + "':" + 
+       event.event_string)
 
 ########################## Unit tests ##########################
 

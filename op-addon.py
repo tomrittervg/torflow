@@ -102,14 +102,18 @@ def get_geoip_config():
   if config.getboolean(GEOIP, "use_geoip"):
     # Optional options
     unique_countries = None
-    max_crossings = None
+    continent_crossings = None
+    ocean_crossings = None
     if config.has_option(GEOIP, "unique_countries"):
       unique_countries = config.getboolean(GEOIP, "unique_countries")
-    if config.has_option(GEOIP, "max_crossings"):
-      max_crossings = config.getint(GEOIP, "max_crossings")
+    if config.has_option(GEOIP, "continent_crossings"):
+      continent_crossings = config.getint(GEOIP, "continent_crossings")
+    if config.has_option(GEOIP,"ocean_crossings"):
+      ocean_crossings = config.getint(GEOIP, "ocean_crossings")
     path_config = GeoIPSupport.GeoIPConfig(
        unique_countries,
-       max_crossings,
+       continent_crossings,
+       ocean_crossings,
        entry_country = config.get(GEOIP, "entry_country"),
        middle_country = config.get(GEOIP, "middle_country"),
        exit_country = config.get(GEOIP, "exit_country"),
@@ -219,7 +223,7 @@ class CircuitBuildingStats(Stats):
     s += " s, avg=" + str(self.mean) + " s" 
     s += ", dev=" + str(self.dev) + " s (min=" + str(self.min)
     s += " s, max=" + str(self.max) + " s)\n"
-    s += "Failures during circuit-buildups: " + str(self.failures_buildup) + "\n"
+    s += "Failures during circuit buildups: " + str(self.failures_buildup) + "\n"
     s += "Failures on established circuits: " + str(self.failures_established)
     return s
 
@@ -658,6 +662,13 @@ class PingHandler(PathSupport.StreamHandler):
     """ Separate pings from regular streams directly """
     if not (s.target_host == ping_dummy_host and 
        s.target_port == ping_dummy_port):
+
+      # TODO: Handle echelon here?
+      # - perform DNS request (or use REMAP?)
+      # - determine destination country
+      # - check if there is already a circuit with exit node
+      #   in destination country
+      
       # This is no ping, call the other method
       return PathSupport.StreamHandler.stream_status_event(self, s)
     
@@ -924,11 +935,6 @@ class PingHandler(PathSupport.StreamHandler):
     if len(routers) == len(keys):
       return routers
 
-  def unknown_event(self, event):
-    # XXX: Sometimes a strange event is occuring
-    plog("DEBUG", "UNKNOWN EVENT '" + event.event_name + "':" + 
-       event.event_string)
-
 ## Pinger #####################################################################
 
 class Pinger(threading.Thread):
@@ -992,6 +998,7 @@ def configure(conn):
   """ Set events and options """
   conn.set_events([TorCtl.EVENT_TYPE.STREAM,
       TorCtl.EVENT_TYPE.CIRC,
+      TorCtl.EVENT_TYPE.ADDRMAP,
       TorCtl.EVENT_TYPE.NS,	  
       TorCtl.EVENT_TYPE.NEWDESC], True)
   # Set options: We attach streams now & build circuits

@@ -43,21 +43,29 @@ use_guards = yes
 use_geoip = yes
 
 # yes|no for unique|distinct countries,
-# comment out means don't care
-unique_countries = yes
+# ! comment to don't care
+#unique_countries = yes
+
+# If echelon is set, OP-Addon will try to find an 
+# exit in the destination country of the current 
+# request (exit_country may be used as backup)
+# yes|no
+# TODO: echelon = yes
 
 # Set country codes for single positions
 #entry_country = DE
 #middle_country = RU
 #exit_country = US
 
-# Maximum number of continent-crossings 
-# in generated paths: 0-n or comment out
-# to enforce distinct continents
-max_crossings = 1
+# Maximum number of continent-crossings: 0-n
+# ! comment out to enforce distinct continents
+# ! set >= pathlen to not care about
+continent_crossings = 2
+# Maximum number of ocean crossings: 0-n
+# ! comment out to don't care
+ocean_crossings = 0
 
-# TODO: excludes = ["FR"]
-# TODO: echelon = yes|no
+# TODO: excludes = [".."]
 
 [TESTING]
 
