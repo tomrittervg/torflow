@@ -107,9 +107,17 @@
       - 'no' will put all hops in the same country, 
       - comment out means do not care    
     * entry_, middle_, exit_country: specify countries for positions
-    * max_crossings: 
-      - 1-n specifies the max number of continent hops in a single path
-      - 0 will choose all hops on different continents
+    * continent_crossings: 
+      - 0-n specifies the max number of continent hops in a single path
+      - comment this out to choose all hops on different continents
+    * ocean_crossings:
+      - 0-n specifies the max number of ocean crossings in a single path.
+        This is done by grouping the continents in three groups and 
+        considerating crossings between these groups:
+          1. North and South America
+          2. Europe, Africa and Asia
+          3. Oceania
+      - comment out to not care about ocean crossings
 
   To extend the path selection features or to add new restrictions to be 
   applied to single nodes or complete paths, one can easily design and 

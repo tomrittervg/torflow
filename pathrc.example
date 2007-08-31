@@ -5,8 +5,6 @@
 control_host = 127.0.0.1
 control_port = 9051
 
-# TODO: Set control_password here?
-
 [CIRC_MANAGEMENT]
 
 # Size of the maintained pool of circuits
@@ -34,7 +32,7 @@ order_exits = no
 # Make use of guard-nodes (yes|no) or a specific 
 # exit node (nickname or IDHex)
 use_guards = yes
-#use_exit = xy
+#use_exit = xyz
 
 [GEOIP]
 
@@ -97,7 +95,7 @@ ping_dummy_port = 100
 # Time interval to wait before triggering
 # pings and frequency in seconds (float)
 initial_interval = 10
-frequency = 2
+frequency = 5
 
 # Close circ after n timeouts on measurings
 # Set to 0 to not close circs (int)
@@ -110,8 +108,8 @@ timeout_limit = 1
 # yes|no
 network_model = no
 
-# RTT-threshhold when creating circuits (float):
-#   0:  no threshhold
+# RTT-threshhold in seconds when creating circs (float):
+#   0:  no threshhold, choose from all proposals
 max_rtt = 1
 
 # Minimum number of proposals to choose from (int)

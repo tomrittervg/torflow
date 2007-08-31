@@ -42,18 +42,14 @@ My controller (op-addon.py) is currently able to:
 
 TODO lists:
 
-GSoC:
-  - Implement PathRestrictions: OceanPhobic/OceanPhilic, EchelonPhobic for 
-    changing destinations (query the country of a destination on set_target()
-    and add the respective CountryRestriction to exit_rstr before building circ
-  - Therefore implement the RESOLVE-command in TorCtl.py
-
 Research/Experimentation (thesis):
   - Empirical performance analysis of different path selection methods
   - What is a beneficial network-model and how long does it take to learn one?
   - Degree of anonymity, classification of algorithms
 
 Post-GSoC and -thesis (future):
+  - Perform DNS requests within OP-Addon, since 'echelon' works only for 
+    destinations given as IPs
   - Validate given configurations
   - Add port-history learning to StreamHandler or CircuitHandler and/or 
     port-preconfiguring to be able to configure what ports will be needed
