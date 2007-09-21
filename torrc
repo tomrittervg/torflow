@@ -1,0 +1,5 @@
+## Configuration file for metatroller on alternate prot
+SocksPort 9060 # what port to advertise for application connections
+ControlPort 9061
+SafeLogging 0
+Log notice stderr

@@ -336,11 +336,16 @@ class Connection:
     """DOCDOC"""
     while 1:
       (timestamp, reply) = self._eventQueue.get()
+      if reply[0][0] == "650" and reply[0][1] == "OK":
+        plog("DEBUG", "Ignoring incompatible syntactic sugar: 650 OK")
+        continue
       if reply == "CLOSE":
         return
       try:
         self._handleFn(timestamp, reply)
       except:
+        for code, msg, data in reply:
+            plog("WARN", "No event for: "+str(code)+" "+str(msg))
         self._err(sys.exc_info(), 1)
         return
 

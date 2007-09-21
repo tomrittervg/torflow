@@ -19,8 +19,8 @@ my $CURL_PROXY = "--socks5 $SOCKS_PROXY";
 my $URL = "http://bitter.stalin.se/torfile1"; 
 my $COUNT = 200;
 my $START_PCT = 0;
-my $STOP_PCT = 8;
-my $PCT_STEP = 4;
+my $STOP_PCT = 80;
+my $PCT_STEP = 5;
 my $DOUBLE_FETCH = 0;
 
 my $LOG_LEVEL = "DEBUG";
@@ -217,6 +217,7 @@ sub main
     delete $ENV{"HTTP_PROXY"};
     delete $ENV{"proxy"};
     delete $ENV{"PROXY"};
+    $ENV{"TSOCKS_CONF_FILE"} = "./tsocks.conf";
 
     print $mcp "GUARDNODES 0\r\n";
     $line = <$mcp>;

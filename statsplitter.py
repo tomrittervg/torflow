@@ -2,13 +2,15 @@
 import sys
 import socket
 import math
-from TorCtl import *
+#from TorCtl import *
+from TorCtl import TorUtil, PathSupport, TorCtl
+from TorCtl.TorUtil import *
 from TorCtl.PathSupport import *
 
 TorUtil.loglevel = "NOTICE"
 
 s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-s.connect(("127.0.0.1",9051))
+s.connect(("127.0.0.1",9061))
 c = Connection(s)
 c.debug(file("control.log", "w"))
 c.authenticate()
