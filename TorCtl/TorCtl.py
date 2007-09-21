@@ -431,7 +431,7 @@ class Connection:
           line = self._s.readline()
           if self._debugFile:
             self._debugFile.write("+++ %s" % line)
-          if line in (".\r\n", ".\n"):
+          if line in (".\r\n", ".\n", "650 OK\n", "650 OK\r\n"): 
             break
           more.append(line)
         lines.append((code, s, unescape_dots("".join(more))))
