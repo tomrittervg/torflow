@@ -1,6 +1,6 @@
 [HOST_PORT]
 
-# Set Host and Port where Tor is
+# Set the host and port where Tor is
 # listening for control-connections
 control_host = 127.0.0.1
 control_port = 9051
@@ -73,7 +73,6 @@ testing_mode = no
 
 # Number of latency-tests per circuit (int: 0-n)
 num_rtt_tests = 5
-
 # Amount of circuits to test (int)
 num_records = 300
 
@@ -81,7 +80,7 @@ num_records = 300
 
 # Measure latencies of complete circuits
 # yes|no
-measure_circs = yes
+ping_circs = yes
 
 # Tor socks-properties
 socks_host = 127.0.0.1
@@ -111,10 +110,8 @@ network_model = no
 # RTT-threshhold in seconds when creating circs (float):
 #   0:  no threshhold, choose from all proposals
 max_rtt = 1
-
 # Minimum number of proposals to choose from (int)
 min_proposals = 100
-
 # Min ratio of circs created with the backup-method,
 # controls growing of the model (float in [0,1])
 #   0:  no growing

@@ -29,13 +29,23 @@ VERSION = "0.0.01-alpha"
 DATADIR = "data/op-addon/"
 # Our IP-address
 IP = None
+# Simulation modus
+SIMULATE = False
 
 # Try to get the config-file from the commandline
 if len(sys.argv) == 1:
   CONFIG_FILE = "pathrc.example"
 elif len(sys.argv) == 2:
   CONFIG_FILE = sys.argv[1]
-else: 
+# Check if '--simulate' is given
+elif len(sys.argv) == 3 or len(sys.argv) == 4:
+  if sys.argv[2] == "--simulate":
+    CONFIG_FILE = sys.argv[1]
+    SIMULATE = True
+  else: 
+    plog("ERROR", "Unknown argument: '" + sys.argv[2] + "' exiting.")
+    sys.exit(0)
+else:
   plog("ERROR", "Too many arguments, exiting.")
   sys.exit(0)
 
@@ -50,7 +60,7 @@ else:
   plog("ERROR", "Config file '" + CONFIG_FILE + "' does not exist, exiting.")
   sys.exit(0)
   
-# Sections
+# Configuration sections
 HOST_PORT = "HOST_PORT"
 CIRC_MANAGEMENT = "CIRC_MANAGEMENT"
 NODE_SELECTION = "NODE_SELECTION"
@@ -60,9 +70,10 @@ RTT = "RTT"
 MODEL = "MODEL"
 
 # Measure the circuits
-measure_circs = config.getboolean(RTT, "measure_circs")
-if measure_circs:
-  import socks  
+ping_circs = config.getboolean(RTT, "ping_circs")
+network_model = False
+if ping_circs:
+  import socks
   # Hosts and ports to use for ping streams
   socks_host = config.get(RTT, "socks_host")
   socks_port = config.getint(RTT, "socks_port")
@@ -138,9 +149,9 @@ __selmgr = PathSupport.SelectionManager(
 
 ## Connection #################################################################
 
-class Connection(TorCtl.Connection):
+class Connection(PathSupport.Connection):
   """ Connection-class that uses the RTTCircuit-class 
-      TODO: add the CircuitClass to be used somewhere """
+      TODO: add the circuit class to be used """
   def build_circuit(self, pathlen, path_sel):
     circ = Circuit()
     circ.path = path_sel.build_path(pathlen)
@@ -170,18 +181,18 @@ class Stats:
     self.median = 0.0
 
   def add_value(self, value):
-    # Append value
+    """ Add a value to the stats """
     self.values.append(value)
     # Set min & max
     if self.min == 0: self.min = value
     elif self.min > value: self.min = value
     if self.max < value: self.max = value
     # Refresh everything
-    self.mean = self.get_mean()
-    self.dev = self.get_dev()
-    self.median = self.get_median()
+    self.mean = self._mean()
+    self.dev = self._dev()
+    self.median = self._median()
 
-  def get_mean(self):
+  def _mean(self):
     """ Compute mean from the values """
     if len(self.values) > 0:
       sum = reduce(lambda x, y: x+y, self.values, 0.0)
@@ -189,24 +200,24 @@ class Stats:
     else:
       return 0.0
 
-  def get_dev(self):
+  def _dev(self):
     """ Return the stddev of the values """
     if len(self.values) > 1:
-      mean = self.get_mean()
+      mean = self._mean()
       sum = reduce(lambda x, y: x + ((y-mean)**2.0), self.values, 0.0)
       s = math.sqrt(sum/(len(self.values)-1))
       return s
     else:
       return 0.0
 
-  def get_median(self):
+  def _median(self):
     """ Return the median of the values """
     if len(self.values) > 0:
       values = copy.copy(self.values)
       values.sort()
       return values[(len(values)-1)/2]
     else: return 0.0
-      
+
 ## CircuitBuildingStats #######################################################
 
 class CircuitBuildingStats(Stats):
@@ -263,6 +274,9 @@ class Circuit(PathSupport.Circuit):
     self.age = 0		# Age in rounds
     self.timeout_counter = 0	# Timeout limit
     self.rtt_created = False	# Created from the model    
+    # XXX: BW stuff
+    self.bw = 0
+    self.bw_tested = False
       
   def add_rtt(self, rtt):
     """ Add a new value and refresh stats and current """
@@ -290,6 +304,7 @@ class Circuit(PathSupport.Circuit):
       s += str(self.current_rtt) + " (" + str(self.stats.median) + "/"
       s += str(self.stats.mean) + "/" + str(self.stats.dev) + ")"
     if self.rtt_created: s += "*"
+    if self.bw > 0: s+= "\n\t --> bw = " + str(self.bw) + " byte/s"
     return s
 
 class Stream(PathSupport.Stream):
@@ -297,6 +312,7 @@ class Stream(PathSupport.Stream):
   def __init__(self, sid, host, port, kind):
     PathSupport.Stream.__init__(self, sid, host, port, kind)
     self.hop = None	# Save hop if this is a ping, hop=None is complete circ
+    self.bw_timestamp = None # Timestamp of the last stream_bw event
 
 ## NetworkModel ###############################################################
 
@@ -329,15 +345,17 @@ class PathProposal:
     self.path = path[1:len(path)]
     # Compute the expected RTT
     self.rtt = reduce(lambda x,y: x + y.current_rtt, self.links, 0.0)
-    self.min_bw = 0             # Minimum bw of routers in path
-    self.ranking_index = None   # Index computed from bw and RTT
+    self.rtt_score = 0          # RTT score
+    self.bw_score = 0           # BW score
+    self.min_bw = 0             # Minimum BW of routers in self.path
+    self.ranking_index = None   # Index computed from BW and RTT
 
   def to_string(self):
     """ Create a string for printing out information """
     s = ""
     for l in self.links:
       s += str(l.src) + "--" + l.dest + " (" + str(l.current_rtt) + ") " + ", "
-    return s + "--> " + str(self.rtt) + " sec" 
+    return s + "--> " + str(self.rtt) + " sec"
 
 class NetworkModel:  
   """ This class is used to record measured RTTs of single links in a model 
@@ -346,8 +364,7 @@ class NetworkModel:
     """ Constructor: pass the list of routers """
     self.pickle_path = DATADIR + "network-model.pickle"
     self.logfile = None         # FileHandler(DATADIR + "proposals")
-    # For generating proposals
-    self.proposals = []         # Current list of circ-proposals
+    self.proposals = []         # Current list of path proposals
     self.prefixes = {}          # Prefixes for DFS
     self.routers = routers      # Link to the router-list
     self.target_host = None
@@ -425,12 +442,12 @@ class NetworkModel:
       self.up_to_date = False
 
   def update(self):
-    """ Update model with a given list of routers """
+    """ Update model with the current list of routers """
     nodes = self.graph.nodes()
     for id in nodes:
       if not id in self.routers:
         if id:
-          plog("INFO", "Router with id " + id + 
+          plog("INFO", "Router with ID " + id + 
              " is not known, deleting node ..")
           self.delete_node(id)
     plog("INFO", "Updated model with current router-list")
@@ -443,6 +460,8 @@ class NetworkModel:
       self.target_port = port
       self.max_rtt = max_rtt
       self.up_to_date = False
+      plog("INFO", "Set the target to "+self.target_host+":"+
+         str(self.target_port))
     
   def generate_proposals(self):
     """ Call visit() on the root-node """
@@ -455,7 +474,7 @@ class NetworkModel:
     self.visit(None, [])
     self.up_to_date = True
     plog("INFO", "Generating " + str(len(self.proposals)) + 
-      " proposals took us " + str(time.time()-start) + 
+      " proposals took " + str(time.time()-start) + 
       " seconds [max_rtt=" + str(self.max_rtt) + "]")
 
   def get_link_info(self, path):
@@ -486,6 +505,91 @@ class NetworkModel:
         for n in self.graph[node]:
 	  if n not in self.prefixes[i]:
 	    self.visit(n, copy.copy(self.prefixes[i]), i+1)
+  
+  def keys_to_routers(self, keys):
+    """ See if we know the routers specified by keys and return them """
+    routers = []
+    for id in keys:
+      if id in self.routers:
+        routers.append(self.routers[id])
+      else: 
+        plog("INFO", "We do not know about a router having ID " + id)
+        try:
+          self.model.delete_node(id)
+        except:
+          plog("ERROR", "Could not delete router with ID " + id)
+    if len(routers) == len(keys):
+      return routers
+  
+  def _set_min_bw(self):
+    """ Find the smallest advertised bw of the routers in each proposal """
+    for p in self.proposals:
+      # Get the routers
+      r_path = self.keys_to_routers(p.path)
+      if r_path:
+        # Find min(bw_i)
+        bw = []
+        for r in r_path:
+          bw.append(r.bw)
+        p.min_bw = min(bw)
+      else:
+        self.proposals.remove(p)
+        plog("DEBUG", "Could not find the routers, removed ..")
+
+  def update_ranking(self, rtt_weight, bw_weight):
+    """ Compute a ranking for each path proposal using 
+        measured RTTs and bandwidth from the descriptors """
+    start = time.time()
+    # High bandwidths get high scores
+    if bw_weight > 0:
+      self._set_min_bw()
+      sort_list(self.proposals, lambda x: x.min_bw)
+      plog("DEBUG", "MIN_BWs of proposals between: " + 
+         str(self.proposals[0].min_bw) + " and " + 
+         str(self.proposals[len(self.proposals)-1].min_bw))
+      i = 1
+      for p in self.proposals:
+        p.bw_score = i
+        i += 1
+    # Low Latencies get high scores
+    if rtt_weight > 0:
+      sort_list(self.proposals, lambda x: x.rtt)
+      plog("DEBUG", "RTTs of proposals between: " + str(self.proposals[0].rtt) + 
+         " and " + str(self.proposals[len(self.proposals)-1].rtt))
+      i = len(self.proposals)
+      for p in self.proposals:
+        p.rtt_score = i
+        i -= 1
+    # Compute weights from both of the values
+    for p in self.proposals:
+      # Calculate ranking index based on both scores 
+      p.ranking_index = (rtt_weight*p.rtt_score)+(bw_weight*p.bw_score)
+    sort_list(self.proposals, lambda x: x.ranking_index)
+    plog("DEBUG", "Ranking indices of proposals between: " + 
+       str(self.proposals[0].ranking_index) + " and " + 
+       str(self.proposals[len(self.proposals)-1].ranking_index))
+    plog("INFO", "Updating ranking indices of proposals took "
+       + str(time.time()-start) + " sec")
+  
+  def weighted_selection(self, weight):
+    """ Select a proposal in a probabilistic way """
+    choice = None
+    # Compute the sum of weights
+    sum = 0
+    for p in self.proposals:
+      sum += weight(p)
+    plog("DEBUG", "Sum of all weights is " + str(sum))
+    # Choose a random number from [0,sum-1]
+    i = random.randint(0, sum-1)
+    plog("DEBUG", "Chosen random number is " + str(i))
+    # Go through the proposals and subtract
+    for p in self.proposals:
+      i -= weight(p)
+      if i < 0:
+        choice = p
+        plog("DEBUG", "Chosen object with ranking " + 
+           str(weight(choice)))
+        return choice
 
   def print_info(self):
     """ Create a string holding info and the proposals for printing """
@@ -513,10 +617,9 @@ class PingHandler(PathSupport.StreamHandler):
     self.setup_logger = None # FileHandler(DATADIR + "circ-setup-durations")
     if TESTING_MODE:
       self.testing_logger = FileHandler(DATADIR + "circ-data")
-
+      self.bw_queue = Queue.Queue()     # circ_ids to bw-test
     # Queue containing circs to be tested
     self.ping_queue = Queue.Queue()	# (circ_id, hop)-pairs
-
     if use_model:
       PathSupport.StreamHandler.__init__(self, c, selmgr, 0, RouterClass)
       self.model = NetworkModel(self.routers)
@@ -525,7 +628,6 @@ class PingHandler(PathSupport.StreamHandler):
     else:
       self.model = None
       PathSupport.StreamHandler.__init__(self, c, selmgr, num_circs, RouterClass)
-
     # Sorted circuit list
     self.sorted_circs = []
     # Start the Pinger
@@ -554,7 +656,7 @@ class PingHandler(PathSupport.StreamHandler):
     """ To be called when tests are finished for writing 
         any interesting values to a file before closing circ """
     self.testing_logger.append(str(circ.setup_duration) + "\t" + 
-       str(circ.stats.mean))
+       str(circ.bw/1024) + "\t" + str(circ.stats.mean))
     line_count = self.testing_logger.get_line_count()
     if line_count >= num_records:
       plog("INFO", "Enough records, exiting. (line_count = " + 
@@ -562,25 +664,29 @@ class PingHandler(PathSupport.StreamHandler):
       # TODO: How to kill the main thread from here?
       sys.exit(1)
 
-  def enqueue_pings(self):
+  def start_round(self):
     """ schedule_immediate from pinger before triggering the initial ping """
     print("")
     self.refresh_sorted_list()
     # TODO: Check if there are any circs, else set 'frequency' to 10?
     circs = self.circuits.values()
     for c in circs:
-      if c.built:
-        # Get id of c
-      	id = c.circ_id
-        if self.model:
-	  # Enqueue every hop
-	  path_len = len(c.path)
-	  for i in xrange(1, path_len):
-            self.ping_queue.put((id, i))
-            plog("DEBUG", "Enqueued circuit " + str(id) + " hop " + str(i))
-	# And for the whole circuit ...
-        self.ping_queue.put((id, None))
-        plog("DEBUG", "Enqueued circuit " + str(id) + " hop None")
+      self.enqueue_circ(c)
+
+  def enqueue_circ(self, c):
+    """ Enqueue a circuit for measuring RTT """
+    if c.built:
+      # Get id of c
+      id = c.circ_id
+      if self.model:
+        # Enqueue every hop
+        path_len = len(c.path)
+        for i in xrange(1, path_len):
+          self.ping_queue.put((id, i))
+          plog("DEBUG", "Enqueued circuit " + str(id) + " hop " + str(i))
+      # And for the whole circuit ...
+      self.ping_queue.put((id, None))
+      plog("DEBUG", "Enqueued circuit " + str(id) + " hop None")
 
   def attach_ping(self, stream):
     """ Attach a ping stream to its circuit """
@@ -594,8 +700,7 @@ class PingHandler(PathSupport.StreamHandler):
       if self.model:
         self.model.print_info()
       # Enqueue again all circs
-      self.enqueue_pings()
-
+      self.start_round()
     else:
       # Get the info and extract
       ping_info = self.ping_queue.get()
@@ -782,128 +887,54 @@ class PingHandler(PathSupport.StreamHandler):
       # Check ratio if we would add circ from model
       trad = self.get_trad_circs()
       ratio = trad/(len(self.circuits.values())+1.)
-      plog("DEBUG","Expected Ratio = " + str(ratio) + 
+      plog("DEBUG","Expected Ratio: " + str(ratio) + 
          " >= " + str(min_ratio) + " ?")
       if ratio >= min_ratio:
         if self.create_circ_from_model(host, port):
 	  return
         plog("INFO", "Not enough proposals [min_proposals=" + str(min_proposals) + "]")
- 
     # Create a circuit using the backup-method
-    plog("DEBUG", "Creating circuit with the backup-method")
+    plog("INFO", "Creating circuit with the backup-method")
     PathSupport.CircuitHandler.build_circuit(self, host, port)
 
-  # Path selection from the model =============================================
   def create_circ_from_model(self, host, port):
     # Set the target
     self.model.set_target(host, port, max_rtt)
     if not self.model.up_to_date:
       self.model.generate_proposals()
-      self.set_min_bw(self.model.proposals)
-    # Get the proposals and compute ranking
-    proposals = self.model.proposals
-    if len(proposals) >= min_proposals:
+    plog("DEBUG", "Current number of proposals is "+
+       str(len(self.model.proposals)))
+    if len(self.model.proposals) >= min_proposals:
       # Give weights for single scores
-      self.update_ranking(proposals, 1, 1)
-    # As long as there are enough
-    while len(proposals) >= min_proposals:
+      self.model.update_ranking(1, 0)
+      # As long as there are enough
+      while len(self.model.proposals) >= min_proposals:
 
-      # Uniform:
-      # choice = random.choice(proposals)            
-      # Fastest First:
-      # proposals = sort_list(proposals, lambda x: x.rtt)
-      # choice = proposals[0]            
-          
-      # Probabilistic selection:
-      choice = self.weighted_selection(proposals, lambda x: x.ranking_index)
+        # Uniform:
+        # choice = random.choice(self.model.proposals)            
+        # Fastest First:
+        # proposals = sort_list(self.model.proposals, lambda x: x.rtt)
+        # choice = proposals[0]            
 
-      # Convert ids to routers
-      r_path = self.keys_to_routers(choice.path)
-      if r_path and self.path_is_ok(r_path, host, port):
-        plog("INFO", "Chosen proposal: " + choice.to_string())
-        try:
-          circ = self.c.build_circuit_from_path(r_path)
-          circ.rtt_created = True
-          self.circuits[circ.circ_id] = circ
-	  plog("INFO", "Created circ from model: " + str(circ.circ_id))
-          return True
-        except TorCtl.ErrorReply, e:
-          plog("NOTICE", "Error building circuit: " + str(e.args))
-      else:
-        proposals.remove(choice)
+        # Probabilistic selection:
+        choice = self.model.weighted_selection(lambda x: x.ranking_index)
 
-  def set_min_bw(self, proposals):
-    """ Find the smallest advertised bw of the routers in each proposal """
-    for p in proposals:
-      # Get the routers
-      r_path = self.keys_to_routers(p.path)
-      if r_path:
-        # Find min(bw_i)
-        bw = []
-        for r in r_path:
-          bw.append(r.bw)
-        p.min_bw = min(bw)
-      else:
-        proposals.remove(p)
-        plog("DEBUG", "Could not find the routers, removed ..")
-  
-  def weighted_selection(self, proposals, weight):
-    """ Select a proposal in a probabilistic way """
-    choice = None
-    # Compute the sum of weights
-    sum = 0
-    for p in proposals:
-      sum += weight(p)
-    plog("DEBUG", "Sum of all weights is " + str(sum))
-    # Choose a random number from [0,sum-1]
-    i = random.randint(0, sum-1)
-    plog("DEBUG", "Chosen random number is " + str(i))
-     # Go through the proposals and subtract
-    for p in proposals:
-      i -= weight(p)
-      if i < 0:
-        choice = p
-        plog("DEBUG", "Chosen path with ranking " + 
-           str(weight(choice)))
-        return choice
-  
-  def update_ranking(self, proposals, rtt_weight, bw_weight):
-    """ Compute a ranking for each path-proposal using 
-        measured RTTs and bandwidth from the descriptors """
-    start = time.time()
-    # High bandwidths get high scores
-    sort_list(proposals, lambda x: x.min_bw)
-    plog("DEBUG", "MIN_BWs of proposals between: " + str(proposals[0].min_bw) + 
-       " and " + str(proposals[len(proposals)-1].min_bw))
-    i = 1
-    for p in proposals:
-      p.bw_score = i
-      i += 1
-    # Low Latencies get high scores
-    sort_list(proposals, lambda x: x.rtt)
-    plog("DEBUG", "RTTs of proposals between: " + str(proposals[0].rtt) + 
-       " and " + str(proposals[len(proposals)-1].rtt))
-    i = len(proposals)
-    for p in proposals:
-      p.rtt_score = i
-      i -= 1
-    # Compute weights from both of the values
-    for p in proposals:
-      # Calculate ranking index based on both scores 
-      p.ranking_index = (rtt_weight*p.rtt_score)+(bw_weight*p.bw_score)
-    sort_list(proposals, lambda x: x.ranking_index)
-    plog("DEBUG", "Ranking indices of proposals between: " + str(proposals[0].ranking_index)
-       + " and " + str(proposals[len(proposals)-1].ranking_index))
-    plog("INFO", "Updating ranking indices of proposals took "
-       + str(time.time()-start) + " sec")
+        # Convert ids to routers
+        r_path = self.model.keys_to_routers(choice.path)
+        if r_path and self.path_is_ok(r_path):
+          plog("INFO", "Chosen proposal: " + choice.to_string())
+          try:
+            circ = self.c.build_circuit_from_path(r_path)
+            circ.rtt_created = True
+            self.circuits[circ.circ_id] = circ
+            plog("INFO", "Created circ from model: " + str(circ.circ_id))
+            return True
+          except TorCtl.ErrorReply, e:
+            plog("NOTICE", "Error building circuit: " + str(e.args))
+        else:
+          self.model.proposals.remove(choice)
 
   # Helper functions ==========================================================
-  def established(self, circ_list):
-    """ Check if there is at least one circuit established (NOT USED) """
-    for c in circ_list:
-      if c.built:
-        return True
-  
   def get_trad_circs(self):
     """ Count the circuits with rtt_created == False """
     trad_circs = 0
@@ -912,28 +943,14 @@ class PingHandler(PathSupport.StreamHandler):
         trad_circs += 1
     return trad_circs
 
-  def path_is_ok(self, path, host, port):
+  def path_is_ok(self, path):
     """ Check if there is currently a circuit with the given path (Routers) """
-    for c in self.circuits.values():
-      if c.path == path:
-        plog("ERROR", "Proposed circuit already exists")        
-        return False
-    return True
-
-  def keys_to_routers(self, keys):
-    """ See if we know the routers specified by keys and return them """
-    routers = []
-    for id in keys:
-      if id in self.routers:
-        routers.append(self.routers[id])
-      else: 
-        plog("INFO", "We do not know about a router having ID " + id)
-        try:
-          self.model.delete_node(id)
-        except:
-          plog("ERROR", "Could not delete router with ID " + id)
-    if len(routers) == len(keys):
-      return routers
+    if path:
+      for c in self.circuits.values():
+        if c.path == path:
+          plog("ERROR", "Proposed circuit already exists")        
+          return False
+      return True
 
 ## Pinger #####################################################################
 
@@ -941,12 +958,12 @@ class Pinger(threading.Thread):
   """ Separate thread that triggers the Socks4-connections for pings """
   def __init__(self, ping_handler):
     self.handler = ping_handler		# the PingHandler
-    threading.Thread.__init__(self)	# call the thread-constructor
+    threading.Thread.__init__(self)
   
   def run(self):
     """ The run()-method """
     time.sleep(initial_interval)
-    self.handler.schedule_immediate(lambda x: x.enqueue_pings())
+    self.handler.schedule_immediate(lambda x: x.start_round())
     while self.isAlive():
       self.ping()
       time.sleep(frequency)
@@ -970,12 +987,20 @@ class Pinger(threading.Thread):
 
 ## End of Classes #############################################################
 
-def connect(host, port):
+def connect():
   """ Return a connection to Tor's control port """
-  sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-  sock.connect((host, port))
-  return Connection(sock)
- 
+  try:
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    sock.connect((config.get(HOST_PORT, "control_host"), 
+       config.getint(HOST_PORT, "control_port")))
+    conn = Connection(sock)
+    conn.authenticate()
+    #conn.debug(file("control.log", "w"))  
+  except socket.error, e:
+    plog("ERROR", "Could not connect to Tor process .. running?")
+    sys.exit(-1)
+  return conn 
+
 def setup_location(conn):
   """ Setup a router object representing this proxy """
   #global path_config
@@ -997,24 +1022,18 @@ def setup_location(conn):
 def configure(conn):
   """ Set events and options """
   conn.set_events([TorCtl.EVENT_TYPE.STREAM,
-      TorCtl.EVENT_TYPE.CIRC,
-      TorCtl.EVENT_TYPE.ADDRMAP,
-      TorCtl.EVENT_TYPE.NS,	  
-      TorCtl.EVENT_TYPE.NEWDESC], True)
+     TorCtl.EVENT_TYPE.CIRC,
+     TorCtl.EVENT_TYPE.STREAM_BW,
+     TorCtl.EVENT_TYPE.ADDRMAP,
+     TorCtl.EVENT_TYPE.NS,	  
+     TorCtl.EVENT_TYPE.NEWDESC], True)
   # Set options: We attach streams now & build circuits
   conn.set_option("__LeaveStreamsUnattached", "1")
   conn.set_option("__DisablePredictedCircuits", "1")
 
 def startup(argv):
-  try:
-    # Connect to Tor process
-    conn = connect(config.get(HOST_PORT, "control_host"),
-       config.getint(HOST_PORT, "control_port"))
-    conn.authenticate()
-    #conn.debug(file("control.log", "w"))
-  except socket.error, e:
-    plog("ERROR", "Could not connect to Tor process .. running?")
-    return
+  # Connect to Tor process
+  conn = connect()
   # Setup our location
   setup_location(conn)
   # Configure myself  
@@ -1022,13 +1041,13 @@ def startup(argv):
   # Get the size of the circuit-pool from config
   num_circs = config.getint(CIRC_MANAGEMENT, "idle_circuits")
   # Set an EventHandler to the connection
-  if measure_circs:
+  if ping_circs:
     if network_model:
       handler = PingHandler(conn, __selmgr, num_circs, 
          GeoIPSupport.GeoIPRouter, True)
     else:
       handler = PingHandler(conn, __selmgr, num_circs, 
-         GeoIPSupport.GeoIPRouter)
+         GeoIPSupport.GeoIPRouter)  
   else:
     # No pings, only a StreamHandler
     handler = PathSupport.StreamHandler(conn, __selmgr, num_circs, 
@@ -1040,20 +1059,157 @@ def startup(argv):
       time.sleep(60)
   except KeyboardInterrupt:
     # XXX: Schedule this?
-    if measure_circs:
+    if ping_circs:
       if network_model:
         handler.model.save_graph()
-    # TODO: Stop other threads, close circuits
     cleanup(conn)
     sys.exit(1)
 
 def cleanup(conn):
   """ To be called on exit """
+  # TODO: Stop other threads and close circuits
   plog("INFO", "Cleaning up...")
   conn.set_option("__LeaveStreamsUnattached", "0")
   conn.set_option("__DisablePredictedCircuits", "0")
   conn.close()
 
+def simulate(n):
+  """ Simulate circuit creations """
+  plog("INFO", "Starting simulation ..")
+  # Connect to Tor process
+  conn = connect()
+  setup_location(conn)
+  # The generated paths
+  path_list = []
+  # Instantiate a PathBuilder
+  path_builder = PathSupport.PathBuilder(conn, __selmgr, GeoIPSupport.GeoIPRouter)
+  plog("INFO", "Creating "+str(n)+" paths")
+  if network_model:
+    model = NetworkModel(path_builder.routers)
+    model.set_target("255.255.255.255", 80, max_rtt)
+    model.generate_proposals()
+    # Give weights for single scores (RTT, advertised BW)
+    model.update_ranking(1, 1)
+    while n > 0:
+      # Probabilistic selection
+      choice = model.weighted_selection(lambda x: x.ranking_index)
+      # Convert ids to routers
+      path = model.keys_to_routers(choice.path)
+      path_list.append(path)
+      n -= 1
+  else:
+    while n > 0:
+      path = path_builder.build_path()
+      path_list.append(path)
+      n -= 1
+  # Evaluate the generated paths and exit
+  evaluate(path_list)
+  cleanup(conn)
+  sys.exit(1)
+
+def evaluate(path_list):
+  """ Currently evaluates only lists of 3-hop paths """
+  import sets
+  entries = sets.Set()
+  middles = sets.Set()
+  exits = sets.Set()
+  ee_combinations = {}
+  # Count occurrences of routers on single positions and
+  # different combinations of [entry,exit]
+  for p in path_list:
+    entries.add(p[0])
+    middles.add(p[1])
+    exits.add(p[2])
+    if not ee_combinations.has_key((p[0], p[2])):
+      ee_combinations[(p[0], p[2])] = 1
+    else: 
+      ee_combinations[(p[0], p[2])] += 1
+  # General logging
+  logfile = FileHandler(DATADIR+"simulation")
+  output = [str(len(entries)), str(len(middles)), str(len(exits))]
+  logfile.append(str(len(path_list))+" paths: "+" - ".join(output))
+  # Verbose about numbers of chosen nodes
+  plog("INFO", "Different nodes [entry/middle/exit]: "+"/".join(output))
+  # And combinations of entries and exits
+  plog("INFO", "Different [entry,exit]-combinations: " +
+     str(len(ee_combinations)))
+  # Get list of the counters and sort it
+  counters = ee_combinations.values()
+  sort_list(counters, lambda x: x)
+  # Log probabilities
+  probs = []
+  output = ""
+  for i in counters:
+    if i > 0:
+      # Calculate probability from counter i
+      prob = float(i)/len(path_list)
+      # Add it to the list
+      probs.append(prob)
+      # And add a new line to the output
+      line = str(i)+"\t"+str(prob)+"\n"
+      output += line
+  prob_logger = FileHandler(DATADIR+"ee_probs")
+  prob_logger.write(output)
+  # Determine entropies
+  m_entropy = get_max_entropy(len(path_list))
+  entropy = get_entropy(probs)
+  d = entropy/m_entropy
+  plog("INFO", "Maximum entropy: "+str(m_entropy))
+  plog("INFO", "Entropy of this sample: "+str(entropy))
+  plog("INFO", "Degree of anonymity: "+str(d))
+  # Calculate percentiles from the sorted list
+  percentile_logger = FileHandler(DATADIR+"percentiles")
+  percentile_logger.write("") 
+  percents = []
+  i = counters.pop(0)
+  n = 1
+  while len(counters)>0:
+    new = counters.pop(0)
+    if new == i:
+      n += 1
+    else:
+      percentile = (float(n*i)/len(path_list))*100
+      percents.append(percentile)
+      prob = float(i)/len(path_list)
+      plog("DEBUG", str(percentile)+
+         " percent of the paths having ee_prob = "+str(prob))
+      percentile_logger.append(str(percentile)+"\t"+str(prob))
+      i = new
+      n = 1
+  percentile = (float(n*i)/len(path_list))*100
+  percents.append(percentile)
+  prob = float(i)/len(path_list)
+  plog("DEBUG", str(percentile)+
+     " percent of the paths having ee_prob = "+str(prob))
+  percentile_logger.append(str(percentile)+"\t"+str(prob))
+  # Checking percentiles
+  sum = reduce(lambda x, y: x+y, percents, 0.0) 
+  plog("DEBUG", "(Sum of percentiles is "+str(sum)+")")
+
+def get_entropy(probs):
+  """ Return the entropy of a given list of probabilities """
+  # Check if the sum is 1
+  sum = reduce(lambda x, y: x+y, probs, 0.0)
+  plog("DEBUG", "(Sum of probs is "+str(sum)+")")
+  # Compute the entropy
+  entropy = -reduce(lambda x, y: x+(y*math.log(y,2)), probs, 0.0)
+  return entropy
+
+def get_max_entropy(n):
+  """ Calculate the maximum entropy in a sample of size n """
+  sum = 0.0
+  p = 1/float(n)
+  for i in range(1,n+1):
+    sum += p*math.log(p,2)
+  max_entropy = -sum
+  return max_entropy
+
 if __name__ == '__main__':
   plog("INFO", "OP-Addon v" + VERSION)
-  startup(sys.argv)
+  if SIMULATE:
+    if len(sys.argv) == 3:
+      simulate(10)
+    else:
+      simulate(int(sys.argv[3]))
+  else:
+    startup(sys.argv)

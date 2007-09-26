@@ -837,6 +837,11 @@ class PathBuilder(TorCtl.EventHandler):
     self.sorted_r.sort(lambda x, y: cmp(y.bw, x.bw))
     for i in xrange(len(self.sorted_r)): self.sorted_r[i].list_rank = i
 
+  def build_path(self):
+    """ Get a path from the SelectionManager's PathSelector, can be used 
+        e.g. for generating paths without actually creating any circuits """
+    return self.selmgr.path_selector.build_path(self.selmgr.pathlen)
+
   def attach_stream_any(self, stream, badcircs):
     # Newnym, and warn if not built plus pending
     unattached_streams = [stream]
