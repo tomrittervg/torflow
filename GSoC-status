@@ -1,61 +1,25 @@
-General things I already did:
+TODO-lists regarding OP-Addon:
 
-- Extended TorCtl.py to be able to specify the 'hop' when attaching streams
-- Extended the Router class for country_code and continent and sat up a
-  country-to-continent mapping for that
-- Created a class GeoIPConfig for the configuration and extended the
-  SelectionManager to add the necessary restrictions
-- Implemented Node/PathRestrictions: CountryCode, UniqueCountry, SingleCountry,
-  ExcludeCountries, ContinentCrossings, ContinentJumper, UniqueContinent
-- Created a separate CircuitHandler that can maintain a pool of n circuits
-  and the StreamHandler for attaching streams
-- Implemented the BwWeightedGenerator
-
-My controller (op-addon.py) is currently able to:
-
-- Create and maintain a circuit-pool of configurable size using any path 
-  selection method
-- Either measure performance of circs created with any method, or handle user
-  streams
-- Optionally Ping the circuits in the pool with a configurable frequency
-- Close circuits that are 'too slow' regarding a latency threshhold
-- Attach user streams to a circuit currently having a low latency
-- Optionally ping every circuit n (=hop-count) times using each single hop 
-  as the exit node once
-- Compute round-trip latencies for the single links between routers from the 
-  results and store them in a graph model
-- Choose the fastest suitable path or uniformly from the subset of at least x
-  circuit-proposals found in the model having RTT <= y ms
-- Choose paths from the model in a probabilistic way regarding a score
-  that is calculated from measured latencies and advertised bandwidths
-- Be configured to always have m/n of the circuits created with the default 
-  method to steadily extend the graph model
-- Collect data and record mean round trip latencies (of n measurings on each 
-  circuit) for a specific path selection configuration to a file
-- Record statistics about circuit creation to a file: average setup duration +
-  min/max/median, number of failures + single extend-times, etc.
-- Be configured via a config-file
-- Save a network-model to, and load it from a binary file. Check routers for
-  existence when loading
-
-###############################################################################
-
-TODO lists:
-
-Research/Experimentation (thesis):
-  - Empirical performance analysis of different path selection methods
-  - What is a beneficial network-model and how long does it take to learn one?
-  - Degree of anonymity, classification of algorithms
-
-Post-GSoC and -thesis (future):
-  - Perform DNS requests within OP-Addon, since 'echelon' works only for 
-    destinations given as IPs
-  - Validate given configurations
+Implementation tasks:
+  - Perform DNS requests within OP-Addon to make 'echelon' possible for given
+    URLs. Currently 'echelon' is working for given IPs only. 
+  - This needs also integration into circuit management: If there is currently
+    a circuit available fulfilling the echelon-property regarding the current 
+    request, then use this circuit and do not create a new one. Else create a
+    new circuit in the echelon-style.
   - Add port-history learning to StreamHandler or CircuitHandler and/or 
-    port-preconfiguring to be able to configure what ports will be needed
-  - Add a convenient method of control port authentication
-  - Modify OP-Addon to not measure latencies to the first hop, to make 
-    one-hop.diff obsolete (would it still be useful?)
-  - Modify op-addon.py to make it connect to hidden services?
-  - Implement new events in TorCtl.py (GUARD, DESCCHANGED, STATUS_*, ...)
-  - Remove or improve bw-informer.py and find a better name for 'OP-Addon'
+    port-preconfiguring to be able to configure which ports will be needed.
+  - Validate any given configurations.
+  - Add a convenient method of control port authentication.
+  - Modify OP-Addon to _not_ measure latencies to the first hop, to make 
+    one-hop.diff obsolete (would it still be useful?).
+  - Modify OP-Addon to make it possible to connect to hidden services?
+  - Implement new events in TorCtl.py (GUARD, DESCCHANGED, STATUS_*, ...)?
+
+Research tasks:
+  - What is a beneficial network-model and how long does it take to learn it?
+  - What is a reasonable method of analyzing big amounts of generated paths to 
+    empirically determine a degree of anonymity 'd' of the used method of path
+    selection? 
+  - Ideally this method would consider _all_ aspects that somehow influence
+    anonymity of users. Collect these!

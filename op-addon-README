@@ -1,111 +1,139 @@
-* For instructions on how to get OP-Addon, go to section 8
-* Installation instructions and prerequisites can be found in section 9
+* For instructions on how to get OP-Addon, see section 9
+* Installation instructions and prerequisites can be found in section 10
 
 ###############################################################################
 
-1. Introduction:
+1. Introduction to OP-Addon:
   
-  OP-Addon is intended for any people who are researching or experimenting with
-  circuit creation mechanisms and path selection in Tor, as well as for 
-  ambitious Tor users, who want to optimize their performance in user-tasks or
-  otherwise customize the method of path selection at their own risk. 
+  This software is intended for anybody who is researching or experimenting 
+  with the circuit creation mechanisms and path selection in Tor, as well as 
+  for ambitious Tor users, who want to optimize their performance in user-tasks
+  or otherwise customize Tor's method of path selection at their own risk. 
   
-  It is a controller for Tor (clients), written in Python, that can be applied
-  to any locally running onion proxy that has a control port configured. By
-  making use of the Tor control protocol, it replaces Tor's default path 
-  selection and circuit management by highly configurable and customizable 
-  mechanisms. The user can freely configure the desired method of path 
-  selection, while the created paths can either be analyzed regarding their 
-  performance, or used to handle user streams, e.g. for browsing the web.
+  The OP-Addon is a controller for Tor (clients) that is written in Python and 
+  can be applied to any locally running onion proxy that has a control port 
+  configured. By making use of the Tor control protocol, it replaces Tor's 
+  default path selection and circuit management by highly configurable and 
+  customizable mechanisms. Users can freely configure the method of path 
+  selection that is to be used, while the created circuits can either be 
+  evaluated regarding their performance, or specifically be used to handle user
+  streams, e.g. for browsing the web. Additionally, the add-on can be used to
+  run simulations that can be useful to determine a degree of anonymity a 
+  certain method of path selection can provide, when using the current 
+  network status (see section 7.).
 
-  The only performance test that is currently included, is a method of 
-  measuring Tor latencies, that is based on violating the exit policy of the 
-  last hop in a path. Using this method, it is possible to measure latencies 
-  of complete n-hop circuits, as well as of single links between Tor routers
-  (see sections 5. & 6.).
+  Currently implemented performance tests include a method of measuring Tor 
+  latencies that is based on violating the exit policy of the last hop in a 
+  path. Using this method, it is possible to measure latencies of complete 
+  n-hop circuits, as well as of single links between Tor routers (see sections
+  5. & 6.). Further, OP-Addon can actively measure the throughput of created
+  circuits by explicitly requesting a number of bytes from a stream-server that
+  needs to be listening on the same host as OP-Addon. Such latency- and 
+  throughput-tests can be used to compare the performance of circuits that were
+  created using different methods of path selection.
   
-  If you do not know what this is all about, and plan to implement your own 
-  application that creates circuits in a customized way or new measurings or
-  performance tests, please refer to section 7. The following sections will
-  explain the available features of OP-Addon that can be enabled and configured
-  using configuration options that are grouped in several sections 
-  ('pathrc.example' contains a commented example configuration).
+  If you do not know what this is all about and plan to implement your own 
+  application that creates circuits in a customized way or new measurings and 
+  tests, please refer to section 8. The following sections will explain the 
+  available features of OP-Addon that can be enabled and configured using 
+  configuration options that are grouped into several sections (The file
+  'pathrc.example' contains a commented example configuration).
 
 2. General configurations (sections HOST_PORT and CIRC_MANAGEMENT):
 
-  In any case you will need to provide the host and port, where Tor is 
-  listening for control connections (defaults are 127.0.0.1 and 9051). Control
-  port authentication will be added, as soon as I found a convenient way for
-  doing it. The option 'idle_circuits' lets the user specify a number of 
-  circuits that shall be created preemptively and available at every time. This
-  can be set to any integer value between 0 and n. If you set it to 0, OP-Addon
-  will create a circuit, as soon as there is an incoming stream from any 
-  application.
+  Since OP-Addon is a Tor controller, you will in any case need to provide the
+  host and port, where Tor is listening for control connections (defaults are 
+  127.0.0.1 and 9051). OP-Addon will make use of control port authentication, 
+  as soon as a convenient way for doing this is found. The configuration option
+  'idle_circuits' lets the user specify a number of circuits that shall be 
+  created preemptively. OP-Addon will try to keep this amount of general 
+  purpose circuits (allowing exit to port 80) available in the background at 
+  every time. 'idle_circuits' can be set to any integer number between 0 and n.
+  If it is set to 0, OP-Addon will create the first circuit with regard to the
+  destination of the first incoming application stream.
 
-3. Testing and user mode (section TESTING):
+3. Evaluations and user mode (section EVALUATE):
 
-  In a very basic configuration, OP-Addon will simply create the configured
-  number of circuits, and wait for incoming streams from applications to attach
-  them. However, if a user only wants to measure latencies of circuits, without
-  using them for anonymizing any traffic, she can make use of 'testing_mode'.
-  When 'testing_mode' is set to 'yes', one can specify 'num_rtt_test' (int), as
-  the number of latency tests that should be performed on each successfully 
-  created circuit before actively closing it again. The mean value of the 
-  results of these measurings is written to a file, together with the setup
-  duration of the specific circuit. Further 'num_records' specifies the total
-  number of circuits that is to be tested, before stopping the actual 
-  application. 'Testing_mode' is not useful for transporting user traffic, 
-  since circuits often dissapear unexpectedly, after 'num_rtt_tests' rounds
-  of measurings are finished.
+  In the most basic configuration, OP-Addon will create the configured amount 
+  of circuits, and wait for incoming streams from applications to attach them. 
+  If any user wants to specifically evaluate the performance of circuits, where
+  the paths were created using an arbitrary configuration, she can make use of
+  the option 'evaluate'.
+  
+  If 'evaluate' is set to 'yes', one additionally needs to specify the options
+  'num_rtt_tests' (int) and 'num_bw_tests' (int). These specify the number of 
+  tests to perform on each successfully created circuit, before actively 
+  closing it down again. The mean value of the results from the RTT-tests is 
+  written to a file, together with the setup duration of the specific circuit
+  and the (optionally) actively measured throughput. Every single line of the
+  results-file contains values received from a circuit in the following order:
 
-  If 'testing_mode' is set to 'no', we are in user mode. In user mode, OP-Addon
-  simply maintains the specified amount of circuits, created with the 
-  configured method at every time, waiting to handle incoming user streams. One
-  can optionally specify, that the circuits shall be 'pinged' with any 
-  configurable frequency (see 5.), so a ranked list of the circuits will be 
-  maintained. Incoming user streams are then attached to the first suitable 
-  circuit on this list. In both of the modes, OP-Addon will record statistics
-  on the created circuits to a file, including the median and mean setup 
-  duration, min/max values and the number of failures that occurred during 
-  circuit setups, as well as on already established circuits.
+    setup_duration  throughput  average_RTT
+  
+  Note that there will be at most one bandwidth-test, even if 'num_bw_tests' is
+  set to a number greater than 1 and the script 'stream-server.pl' needs to be 
+  run on the _same_ host as OP-Addon for measuring a circuit's throughput. The
+  add-on will then connect to this server, using the circuit that is to be 
+  tested, and request a number of bytes that is then actively transferred. This
+  is implemented using a simple protocol, where the server parses its input and
+  uses the first occuring integer on a line as the amount of bytes to send to 
+  the client (see 'stream-server.pl').
 
-4. Path selection configuration (sections NODE_SELECTION and GEOIP):
+  Further, the option 'num_records' is used to specify the total amount of 
+  circuits that is to be tested, before terminating the actual evaluation.
+
+  Note that 'evaluate' is NOT useful for transporting user traffic at all, 
+  since every circuit will be closed, as soon as all the tests have completed.
+  If 'evaluate' is set to 'no', OP-Addon is running in user mode. In user mode,
+  the script simply maintains the specified amount of circuits created with the
+  configured method of path selection at every time, waiting to handle incoming
+  user streams. One can optionally specify that circuits shall be 'pinged' with
+  any configurable frequency (see 5.), and hence a ranked list of the circuits 
+  will be maintained. Incoming user streams are then attached to the first 
+  suitable circuit on the sorted list. In both of the modes, OP-Addon will 
+  record general circuit creation statistics about _all_ created circuits to a
+  file ('circ-setup-stats'), including the median and mean setup duration, 
+  min/max values and the number of failures that occurred during circuit 
+  setups, as well as on already established circuits.
+
+4. Basic path selection configuration (sections NODE_SELECTION and GEOIP):
   
   ** NOTE THAT MAKING USE OF CUSTOMIZED METHODS OF PATH SELECTION FOR 
      ANONYMIZING TCP-TRAFFIC MAY WEAKEN YOUR ANONYMITY AND SECURITY 
      COMPARED TO THE METHODS USED IN THE DEFAULT IMPLEMENTATION! **
 
-  The employed method of path selection can be freely configured using the 
-  options from the sections NODE_SELECTION and GEOIP. Internally this is done
-  by combining arbitrary restrictions on the selection of single nodes, as well
-  as on complete paths. It is possible to choose from different node generators
-  and node/path restrictions by changing options in the configuration. Some of
-  the implemented restrictions make use of geolocation-data (using the geoip 
-  library for Python from http://www.maxmind.com) to consider the location of 
-  routers while choosing. This can be used to ensure a specific geographic 
-  (non-)diversity of the routers in a path. But it is also possible to apply 
-  any non-geographic restrictions, like explicitly specifying an exit node to 
-  be used, or the length of the generated paths, as an example of a path 
-  restriction. The following is a list of already implemented generators and 
-  restrictions that can be configured using the following options from the 
-  config-file:
+  The method of path selection that shall be used can be freely configured 
+  using configuration options from the sections NODE_SELECTION and GEOIP. 
+  Internally this is done by combining arbitrary restrictions on the selection
+  of single nodes, as well as on complete paths. It is possible to choose from
+  different node generators and node/path restrictions by changing options in 
+  the configuration. Some of the implemented restrictions make use of 
+  geographical data (using the geoip library for Python from 
+  http://www.maxmind.com) to consider the location of routers while choosing. 
+  This can be used to ensure a specific geographic (non-)diversity of the 
+  routers in a path, especially lower and upper bounds regarding the diversity 
+  of routers in paths. But it is also possible to apply any non-geographic
+  restrictions, like explicitly specifying an exit node to be used, or the 
+  length of the generated paths, as a basic example of a path restriction. The
+  following is a list of already implemented generators and restrictions that
+  can be configured using the following options from the config-file:
 
   General:
     * pathlen: specify the number of hops to be used in paths 
-    * min_bw: specify a minimum bandwidth
-    * exit_node: specify an exit node explicitly by nickname or IDhex
+    * min_bw: specify a min-value for advertised bandwidth of routers
+    * exit_node: explicitly specify an exit node by its nickname or IDhex
     * use_guards: choose guards on the entry positions (yes|no)
  
   NodeGenerators:
-    * uniform: choose uniformly (yes|no), can be combined with
+    * uniform: choose nodes uniformly (yes|no), can be combined with
     * ordered_exits: choose exits from an ordered list
-    * uniform=no: choose by weighting advertised bandwidths
+    * uniform=no --> weighted selection regarding advertised bandwidths
 
   GeoIP:    
     * unique_country:       
       - 'yes' will enforce distinct countries for all hops in a path 
       - 'no' will put all hops in the same country, 
-      - comment out means do not care    
+      - comment out means do not care about countries
     * entry_, middle_, exit_country: specify countries for positions
     * continent_crossings: 
       - 0-n specifies the max number of continent hops in a single path
@@ -118,16 +146,18 @@
           2. Europe, Africa and Asia
           3. Oceania
       - comment out to not care about ocean crossings
+    * TODO: echelon (entry in the sender`s, exit in the destination`s country)
+    * TODO: excludes (list of countries to exclude from path selection)
 
-  To extend the path selection features or to add new restrictions to be 
+  To extend these path selection features or to add new restrictions to be 
   applied to single nodes or complete paths, one can easily design and 
-  implement new Node or PathRestrictions using the existing interfaces from 
+  implement new Node or PathRestrictions using the existing interfaces from
   TorFlow.
 
 5. Latency measurements (section RTT):
 
   It is possible to use OP-Addon to measure latencies of complete circuits, as
-  well as of single links between routers. By setting 'measure_circs' to 'yes',
+  well as of single links between routers. By setting 'ping_circs' to 'yes',
   OP-Addon will ping the complete circuits that are currently available with a 
   frequency that is specified by 'frequency' (in seconds given as float).
   Additionally an initial interval needs to be specified, that shall be waited,
@@ -150,16 +180,16 @@
   implements a technique to measure and store RTTs of single links between 
   routers, by using every hop in a path as the exit once. The subtracted 
   results of this measurements are stored in a graph model that represents the
-  currently known subnet of a client. Setting 'network_model' to 'yes' will 
-  enable this measurings and optionally circuit creation from the network model.
-  The 'max_rtt' option lets users specify a maximum rtt value to choose only 
-  paths below this threshhold (seconds given as float, e.g. 0.5). The actual
-  selection from all suitable paths, that can currently be found in the model,
-  is done in a probabilistic way, weighting path proposals by their 
-  (summed up) latencies, combined with the minimum advertised bandwidth of the
-  routers in the path. Using another option ('min_proposals'), OP-Addon will
-  begin to create circuits from the model only if there are 'min_proposals'
-  suitable path proposals found, satisfying the configured rtt-threshhold.
+  currently known Tor subnet of a client. Setting 'network_model' to 'yes' will
+  enable this measurings, as well as circuit creation from the network model.
+  The 'max_rtt' option lets users specify a maximum RTT value to choose only 
+  paths below this threshold (seconds given as float, e.g. 0.5). The actual
+  selection from all suitable paths, that are currently found in the model, is
+  done in a probabilistic way, weighting path proposals by their (summed up) 
+  latencies, combined with the minimum advertised bandwidth of the routers in 
+  the path. Using another option ('min_proposals'), OP-Addon will begin to 
+  create circuits from the model only if there are 'min_proposals'
+  suitable path proposals found, satisfying the configured threshold on RTTs.
 
   If the intension is to grow a network model only, without creating circuits
   based on it, set 'min_ratio' to 1. 'min_ratio' defines the ratio of available
@@ -172,9 +202,34 @@
   anymore. The regular circuits are created using the parameters defined in 
   section 4.
 
+7. Using OP-Addon to run simulations:
+
+  Another feature of OP-Addon is to run simulations using any given method of
+  path selection, by specifying the argument '--simulate' plus a number 'n' to
+  specify the number of paths that shall be generated. When running a 
+  simulation, OP-Addon simply generates n paths employing the method of path 
+  selection that is given by the configuration file, without actually creating
+  any circuits. The control connection to the Tor process is therefore used 
+  only for querying the list of all currently known routers. An example 
+  simulation (generating 100000 paths) can be run by typing:
+
+    ./op-addon pathrc.example --simulate 100000
+
+  Any algorithm can be specified to be used in the simulation, even those that
+  choose paths from a given network model. Afterwards, the created paths are
+  evaluated with regard to the degree of anonymity they would provide, e.g.~the
+  anonymity would be poor, if the same path would be chosen 100000 times.
+  Since nodes are mostly not chosen uniformly, it is necessary to calculate
+  empirical probabilities, to determine the actual distribution of the nodes to 
+  the positions in paths. If many paths are created, this makes it possible to
+  empirically measure the quality of protection certain methods of path 
+  selection can provide. Much more work could be done here to introduce 
+  additional methods for analyzing the generated paths regarding several 
+  possible attacks.
+
 ###############################################################################
 
-7. Implementing custom tests and measurings:
+8. Implementing custom tests and measurings:
 
   Anybody who wants/needs to implement his/her own custom measurings or 
   performance tests, probably will need to write an event handler that extends
@@ -188,7 +243,7 @@
 
 ###############################################################################
 
-8. Instructions to get OP-Addon:
+9. Instructions to get OP-Addon:
 
   OP-Addon is part of the 'TorFlow' project that is hosted within the Tor
   subversion. To check out the latest revision, 'cd' to the directory where
@@ -198,7 +253,7 @@
 
 ###############################################################################
 
-9. Prerequisites and instructions to run OP-Addon:
+10. Prerequisites and instructions to run OP-Addon:
 
   Note that Linux is the only operating system, that OP-Addon was tested on 
   until now, but it might also run on other platforms. Let me know, if you 
