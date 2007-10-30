@@ -456,7 +456,9 @@ class BwWeightedGenerator(NodeGenerator):
             self.total_exit_bw += r.bw
 
       bw_per_hop = (1.0*self.total_bw)/self.pathlen
-      ratio = self.total_exit_bw/float(self.total_bw)
+      if self.total_bw > 0:
+        ratio = self.total_exit_bw/float(self.total_bw)
+      else: ratio = 0
       plog("DEBUG", "E = " + str(self.total_exit_bw) +
          ", T = " + str(self.total_bw) +
          ", ratio = " + str(ratio) +
@@ -467,7 +469,9 @@ class BwWeightedGenerator(NodeGenerator):
         # add a ConserveExitsRestriction?
         self.weight = 0
       else:
-        self.weight = ((self.total_exit_bw-bw_per_hop)/self.total_exit_bw)
+        if self.total_exit_bw > 0:
+          self.weight = ((self.total_exit_bw-bw_per_hop)/self.total_exit_bw)
+        else: self.weight = 0
     plog("DEBUG", "The exit-weight is: " + str(self.weight))
 
   def next_r(self):
