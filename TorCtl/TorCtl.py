@@ -213,6 +213,54 @@ class Router:
     self.list_rank = 0 # position in a sorted list of routers.
     self.uptime = uptime
 
+  def build_from_desc(desc, ns):
+    # XXX: Compile these regular expressions? This is an expensive process
+    # Use http://docs.python.org/lib/profile.html to verify this is 
+    # the part of startup that is slow
+    exitpolicy = []
+    dead = not ("Running" in ns.flags)
+    bw_observed = 0
+    version = None
+    os = None
+    uptime = 0
+    ip = 0
+    router = "[none]"
+
+    for line in desc:
+      rt = re.search(r"^router (\S+) (\S+)", line)
+      fp = re.search(r"^opt fingerprint (.+).*on (\S+)", line)
+      pl = re.search(r"^platform Tor (\S+).*on (\S+)", line)
+      ac = re.search(r"^accept (\S+):([^-]+)(?:-(\d+))?", line)
+      rj = re.search(r"^reject (\S+):([^-]+)(?:-(\d+))?", line)
+      bw = re.search(r"^bandwidth \d+ \d+ (\d+)", line)
+      up = re.search(r"^uptime (\d+)", line)
+      if re.search(r"^opt hibernating 1", line):
+        #dead = 1 # XXX: Technically this may be stale..
+        if ("Running" in ns.flags):
+          plog("INFO", "Hibernating router "+ns.nickname+" is running..")
+      if ac:
+        exitpolicy.append(ExitPolicyLine(True, *ac.groups()))
+      elif rj:
+        exitpolicy.append(ExitPolicyLine(False, *rj.groups()))
+      elif bw:
+        bw_observed = int(bw.group(1))
+      elif pl:
+        version, os = pl.groups()
+      elif up:
+        uptime = int(up.group(1))
+      elif rt:
+        router,ip = rt.groups()
+    if router != ns.nickname:
+      plog("NOTICE", "Got different names " + ns.nickname + " vs " +
+             router + " for " + ns.idhex)
+    if not bw_observed and not dead and ("Valid" in ns.flags):
+      plog("INFO", "No bandwidth for live router " + ns.nickname)
+    if not version or not os:
+      plog("INFO", "No version and/or OS for router " + ns.nickname)
+    return Router(ns.idhex, ns.nickname, bw_observed, dead, exitpolicy,
+        ns.flags, ip, version, os, uptime)
+  build_from_desc = Callable(build_from_desc)
+
   def update_to(self, new):
     if self.idhex != new.idhex:
       plog("ERROR", "Update of router "+self.nickname+"changes idhex!")
@@ -528,47 +576,8 @@ class Connection:
   def get_router(self, ns):
     """Fill in a Router class corresponding to a given NS class"""
     desc = self.sendAndRecv("GETINFO desc/id/" + ns.idhex + "\r\n")[0][2].split("\n")
-    line = desc.pop(0)
-    m = re.search(r"^router\s+(\S+)\s+(\S+)", line)
-    router,ip = m.groups()
-    exitpolicy = []
-    dead = not ("Running" in ns.flags)
-    bw_observed = 0
-    version = None
-    os = None
-    uptime = 0
-    if router != ns.nickname:
-      plog("NOTICE", "Got different names " + ns.nickname + " vs " +
-             router + " for " + ns.idhex)
-    # XXX: Compile these regular expressions? This is an expensive process
-    # Use http://docs.python.org/lib/profile.html to verify this is 
-    # the part of startup that is slow
-    for line in desc:
-      pl = re.search(r"^platform Tor (\S+).*on (\S+)", line)
-      ac = re.search(r"^accept (\S+):([^-]+)(?:-(\d+))?", line)
-      rj = re.search(r"^reject (\S+):([^-]+)(?:-(\d+))?", line)
-      bw = re.search(r"^bandwidth \d+ \d+ (\d+)", line)
-      up = re.search(r"^uptime (\d+)", line)
-      if re.search(r"^opt hibernating 1", line):
-        #dead = 1 # XXX: Technically this may be stale..
-        if ("Running" in ns.flags):
-          plog("INFO", "Hibernating router "+ns.nickname+" is running..")
-      if ac:
-        exitpolicy.append(ExitPolicyLine(True, *ac.groups()))
-      elif rj:
-        exitpolicy.append(ExitPolicyLine(False, *rj.groups()))
-      elif bw:
-        bw_observed = int(bw.group(1))
-      elif pl:
-        version, os = pl.groups()
-      elif up:
-        uptime = int(up.group(1))
-    if not bw_observed and not dead and ("Valid" in ns.flags):
-      plog("INFO", "No bandwidth for live router " + ns.nickname)
-    if not version or not os:
-      plog("INFO", "No version and/or OS for router " + ns.nickname)
-    return Router(ns.idhex, ns.nickname, bw_observed, dead, exitpolicy,
-        ns.flags, ip, version, os, uptime)
+    return Router.build_from_desc(desc, ns)
+
 
   def read_routers(self, nslist):
     bad_key = 0

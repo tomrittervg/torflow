@@ -15,7 +15,7 @@ import binascii
 import sha
 import math
 
-__all__ = ["Enum", "Enum2", "sort_list", "quote", "escape_dots", "unescape_dots",
+__all__ = ["Enum", "Enum2", "Callable", "sort_list", "quote", "escape_dots", "unescape_dots",
       "BufSock", "secret_to_key", "urandom_rng", "s2k_gen", "s2k_check", "plog", 
       "ListenSocket", "zprob"]
 
@@ -36,6 +36,10 @@ class Enum2:
     self.nameOf = {}
     for k,v in args.items():
       self.nameOf[v] = k
+
+class Callable:
+    def __init__(self, anycallable):
+        self.__call__ = anycallable
 
 def sort_list(list, key):
   """ Sort a list by a specified key """
