@@ -108,8 +108,6 @@ if __name__ == '__main__':
       for key in dynamic_info:
           print key + " is " + dynamic_info[key]
 
-      torctl_oracle_thread.join()
-
       time.sleep(1)
       # So ghetto, so ghetto!
       os.system('clear')
