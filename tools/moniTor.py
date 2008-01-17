@@ -35,7 +35,14 @@ __copyright__ = "http://www.torproject.org/Jacob Appelbaum 2008"
 
 import curses
 import time
-from TorCtl import *
+import sys
+import socket
+
+# Hack.. Can also set PYTHONPATH..
+# http://docs.python.org/tut/node8.html#searchPath
+sys.path.append('../')
+from TorCtl import TorCtl, TorUtil
+from TorCtl.TorCtl import *
 
 # Parse authenticate string from file here
 
@@ -47,7 +54,7 @@ def parse_config():
 
     #moniTorConf = "/etc/moniTor.conf"
     #authSecret = open(moniTorConf).read().strip()
-    authSecret = ""
+    #authSecret = ""
 
     return
 
@@ -86,7 +93,7 @@ if __name__ == '__main__':
   sh,sp = parseHostAndPort(sys.argv[1])
 
   torctl_oracle, torctl_oracle_thread = create_oracle(sh,sp)
-  static_info, static_keys, = collect_status(torctl_oracle) 
+  static_info, static_keys, = collect_status(torctl_oracle)
 
   # Number of connections, current bw
   dynamic_keys = ['version', 'config-file', 'address', 'fingerprint']
