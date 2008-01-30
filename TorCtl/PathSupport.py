@@ -656,8 +656,11 @@ class SelectionManager:
         exitgen = self.__ordered_exit_gen = \
           OrderedExitGenerator(80, sorted_r, self.exit_rstr)
     elif self.uniform:
+      # 'real' exits should also be chosen when not using 'order_exits'
+      self.exit_rstr.add_restriction(ExitPolicyRestriction("255.255.255.255", 80)) 
       exitgen = UniformGenerator(sorted_r, self.exit_rstr)
     else:
+      self.exit_rstr.add_restriction(ExitPolicyRestriction("255.255.255.255", 80))
       exitgen = BwWeightedGenerator(sorted_r, self.exit_rstr, self.pathlen, exit=True)
 
     if self.uniform:
@@ -669,8 +672,6 @@ class SelectionManager:
       # Remove ConserveExitsRestrictions for entry and middle positions
       entry_rstr.del_restriction(ConserveExitsRestriction)
       mid_rstr.del_restriction(ConserveExitsRestriction)
-      # Initially setup the PathSelector to port 80 and return      
-      self.exit_rstr.add_restriction(ExitPolicyRestriction("255.255.255.255", 80))
       self.path_selector = PathSelector(
          BwWeightedGenerator(sorted_r, entry_rstr, self.pathlen),
          BwWeightedGenerator(sorted_r, mid_rstr, self.pathlen),
