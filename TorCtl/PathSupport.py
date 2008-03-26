@@ -1213,7 +1213,7 @@ class StreamHandler(CircuitHandler):
   def stream_status_event(self, s):
     """ Catch user stream events """
     # Construct debugging output
-    output = [s.event_name, str(s.strm_id), s.status, str(s.circ_id), s.target_host, str(s.target_port)]
+    output = [s.event_name, str(s.strm_id), s.status, str(s.circ_id), s.target_host+':'+str(s.target_port)]
     if s.reason: output.append("REASON=" + s.reason)
     if s.remote_reason: output.append("REMOTE_REASON=" + s.remote_reason)
     plog("DEBUG", " ".join(output))
@@ -1313,8 +1313,6 @@ class StreamHandler(CircuitHandler):
     plog("DEBUG", " ".join(output))
 
   def unknown_event(self, event):
-    # XXX: Sometimes a strange event (or parsing error) is occuring 
-    # (event_name ='OK'?)
     plog("DEBUG", "UNKNOWN EVENT '" + event.event_name + "':" + 
        event.event_string)
 

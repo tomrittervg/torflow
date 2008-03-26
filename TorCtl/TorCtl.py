@@ -94,7 +94,7 @@ class CircuitEvent:
 
 class StreamEvent:
   def __init__(self, event_name, strm_id, status, circ_id, target_host,
-         target_port, reason, remote_reason):
+         target_port, reason, remote_reason, source, source_addr):
     self.event_name = event_name
     self.arrived_at = 0
     self.strm_id = strm_id
@@ -104,6 +104,8 @@ class StreamEvent:
     self.target_port = int(target_port)
     self.reason = reason
     self.remote_reason = remote_reason
+    self.source = source
+    self.source_addr = source_addr
 
 class ORConnEvent:
   def __init__(self, event_name, status, endpoint, age, read_bytes,
@@ -780,18 +782,20 @@ class EventHandler:
         path = []
       if reason: reason = reason[8:]
       if remote: remote = remote[15:]
-      event = CircuitEvent(evtype, ident, status, path, reason,
-                     remote)
+      event = CircuitEvent(evtype, ident, status, path, reason, remote)
     elif evtype == "STREAM":
-      m = re.match(r"(\S+)\s+(\S+)\s+(\S+)\s+(\S+):(\d+)(\s\S+)?(\s\S+)?", body)
+      #plog("DEBUG", "STREAM: "+body)
+      m = re.match(r"(\S+)\s+(\S+)\s+(\S+)\s+(\S+):(\d+)(\sREASON=\S+)?(\sREMOTE_REASON=\S+)?(\sSOURCE=\S+)?(\sSOURCE_ADDR=\S+)?", body) 
       if not m:
         raise ProtocolError("STREAM event misformatted.")
-      ident,status,circ,target_host,target_port,reason,remote = m.groups()
+      ident,status,circ,target_host,target_port,reason,remote,source,source_addr = m.groups()
       ident,circ = map(int, (ident,circ))
       if reason: reason = reason[8:]
       if remote: remote = remote[15:]
+      if source: source = source[8:]
+      if source_addr: source_addr = source_addr[13:]
       event = StreamEvent(evtype, ident, status, circ, target_host,
-                    int(target_port), reason, remote)
+                    int(target_port), reason, remote, source, source_addr)
     elif evtype == "ORCONN":
       m = re.match(r"(\S+)\s+(\S+)(\sAGE=\S+)?(\sREAD=\S+)?(\sWRITTEN=\S+)?(\sREASON=\S+)?(\sNCIRCS=\S+)?", body)
       if not m:
