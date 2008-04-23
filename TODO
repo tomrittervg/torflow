@@ -51,21 +51,31 @@
   pool of circuits available for use
   - Build circuits in parallel to speed up scanning
 
-- Rewrite soat.pl in python/C++ and leverage an html parser to extract
-  object/script tags to make a fingerprint of a dynamic page. 
-   - Scan for changes to this fingerprint and also to any original embedded
-     objects
+- Rewrite soat.pl in python
+   - dynamic content scanning
+     - tag structure fingerprinting
+     - Optionally use same origin policy for dynamic content checks
+     - filter out dynamic tags with multiple fetches outside of Tor?
+       - Or just target specific tags and verify their content
+         doesn't change
+     - Perhaps "double check" to see if a document has changed
+       outside of tor after a failure through tor
+     - GeoIP-based exit node grouping?
    - Make a multilingual keyword list of commonly censored terms to google for
      using this scanner
    - Improve checking of changes to documents outside of Tor
-   - Improve SSL handling/verification. openssl client is broken.
+   - Improve SSL cert handling/verification. openssl client is broken.
      - Also the way we store certs is lame. No need to store so many copies
        for diff IPs if they are all the same.
    - Parallelize scanning
      - Improve interaction between soat+metatroller so soat knows
        which exit was responsible for a given ip/url
-
-- Design Reputation System (not for GSoC)
+   - SYN+Reverse DNS resolve scan
+   - DNS rebind attack scan
+   - make sure all http headers match a real browser
+   - Report failing nodes via SETCONF AuthDirBadExit
+    
+- Design Reputation System
   - Emit some kind of penalty multiplier based on circuit/stream failure rate
     and the ratio of directory "observed" bandwidth vs avg stream bandwidth
 	- Add keyword to directory for clients to use instead of observed
