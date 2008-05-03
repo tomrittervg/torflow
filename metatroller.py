@@ -2,7 +2,14 @@
 # Metatroller. 
 
 """
-Metatroller - Tor Meta controller
+Tor Meta controller
+
+The Metatroller uses TorCtl.PathSupport to build a meta-controller that
+listens for commands on a local TCP port. In addition, it gathers a
+large amount of statistics on circuit failure rates, streams failure
+rates, stream bandwidths, probabilities of bandwidth ratios, and much
+much more.
+
 """
 
 import atexit
@@ -44,7 +51,10 @@ __selmgr = PathSupport.SelectionManager(
       use_exit=None,
       use_guards=False)
 
+# FIXME: Much of this should be moved into TorCtl/StatsSupport.py
+
 class BandwidthStats:
+  "Class that manages observed bandwidth through a Router"
   def __init__(self):
     self.byte_list = []
     self.duration_list = []
@@ -54,6 +64,7 @@ class BandwidthStats:
     self.dev = 0
 
   def _exp(self): # Weighted avg
+    "Expectation - weighted average of the bandwidth through this node"
     tot_bw = reduce(lambda x, y: x+y, self.byte_list, 0.0)
     EX = 0.0
     for i in xrange(len(self.byte_list)):
@@ -63,6 +74,7 @@ class BandwidthStats:
     return EX
 
   def _exp2(self): # E[X^2]
+    "Second moment of the bandwidth"
     tot_bw = reduce(lambda x, y: x+y, self.byte_list, 0.0)
     EX = 0.0
     for i in xrange(len(self.byte_list)):
@@ -72,6 +84,7 @@ class BandwidthStats:
     return EX
     
   def _dev(self): # Weighted dev
+    "Standard deviation of bandwidth"
     EX = self.mean
     EX2 = self._exp2()
     arg = EX2 - (EX*EX)
@@ -80,6 +93,7 @@ class BandwidthStats:
     return math.sqrt(abs(arg))
 
   def add_bw(self, bytes, duration):
+    "Add an observed transfer of 'bytes' for 'duration' seconds"
     if not bytes: plog("WARN", "No bytes for bandwidth")
     bytes /= 1024.
     self.byte_list.append(bytes)
@@ -94,11 +108,15 @@ class BandwidthStats:
 # Technically we could just add member vars as we need them, but this
 # is a bit more clear
 class StatsRouter(TorCtl.Router):
+  "Extended Router to handle statistics markup"
   def __init__(self, router): # Promotion constructor :)
+    """'Promotion Constructor' that converts a Router directly into a 
+    StatsRouter without a copy."""
     self.__dict__ = router.__dict__
     self.reset()
   
   def reset(self):
+    "Reset all stats on this Router"
     self.circ_uncounted = 0
     self.circ_failed = 0
     self.circ_succeeded = 0 # disjoint from failed
@@ -129,11 +147,15 @@ class StatsRouter(TorCtl.Router):
     self.prob_zb = 0
 
   def avg_extend_time(self):
+    """Return the average amount of time it took for this router
+     to extend a circuit one hop"""
     if self.total_extended:
       return self.total_extend_time/self.total_extended
     else: return 0
 
   def bw_ratio(self):
+    """Return the ratio of the Router's advertised bandwidth to its 
+     observed average stream bandwidth"""
     bw = self.bwstats.mean
     if bw == 0.0: return 0
     else: return self.bw/(1024.*bw)
@@ -147,10 +169,14 @@ class StatsRouter(TorCtl.Router):
     else: return ret
         
   def failed_per_hour(self):
+    """Return the number of circuit extend failures per hour for this 
+     Router"""
     return (3600.*(self.circ_failed+self.strm_failed))/self.current_uptime()
 
   # XXX: Seperate suspected from failed in totals 
   def suspected_per_hour(self):
+    """Return the number of circuits that failed with this router as an
+     earlier hop"""
     return (3600.*(self.circ_suspected+self.strm_suspected
           +self.circ_failed+self.strm_failed))/self.current_uptime()
 
@@ -196,6 +222,7 @@ class StatsRouter(TorCtl.Router):
       +" U="+str(round(self.current_uptime()/3600, 1))+"\n")
 
   def sanity_check(self):
+    "Makes sure all stats are self-consistent"
     if (self.circ_failed + self.circ_succeeded + self.circ_suspected
       + self.circ_uncounted != self.circ_chosen):
       plog("ERROR", self.nickname+" does not add up for circs")
@@ -228,7 +255,7 @@ class StatsRouter(TorCtl.Router):
                     +str(per_hour_tot) +" vs "+str(chosen_tot))
 
 class ReasonRouterList:
-  "Helper class to track which reasons are in which routers."
+  "Helper class to track which Routers have failed for a given reason"
   def __init__(self, reason):
     self.reason = reason
     self.rlist = {}
@@ -236,6 +263,7 @@ class ReasonRouterList:
   def sort_list(self): raise NotImplemented()
 
   def write_list(self, f):
+    "Write the list of failure counts for this reason 'f'"
     rlist = self.sort_list()
     for r in rlist:
       susp = 0
@@ -251,9 +279,11 @@ class ReasonRouterList:
       f.write(str(susp)+"/"+str(tot_susp)+"\n")
     
   def add_r(self, r):
+    "Add a router to the list for this reason"
     self.rlist[r] = 1
 
   def total_suspected(self):
+    "Get a list of total suspected failures for this reason"
     # suspected is disjoint from failed. The failed table
     # may not have an entry
     def notlambda(x, y):
@@ -270,6 +300,7 @@ class ReasonRouterList:
     return reduce(notlambda, self.rlist.iterkeys(), 0)
 
   def total_failed(self):
+    "Get a list of total failures for this reason"
     def notlambda(x, y):
       if self.reason in y.reason_failed:
         return (x + y.reason_failed[self.reason])
@@ -277,6 +308,9 @@ class ReasonRouterList:
     return reduce(notlambda, self.rlist.iterkeys(), 0)
  
 class SuspectRouterList(ReasonRouterList):
+  """Helper class to track all routers suspected of failing for a given
+     reason. The main difference between this and the normal
+     ReasonRouterList is the sort order and the verification."""
   def __init__(self, reason): ReasonRouterList.__init__(self,reason)
   
   def sort_list(self):
@@ -290,6 +324,9 @@ class SuspectRouterList(ReasonRouterList):
             self.rlist.iterkeys(), 0)
 
 class FailedRouterList(ReasonRouterList):
+  """Helper class to track all routers that failed for a given
+     reason. The main difference between this and the normal
+     ReasonRouterList is the sort order and the verification."""
   def __init__(self, reason): ReasonRouterList.__init__(self,reason)
 
   def sort_list(self):
@@ -304,6 +341,8 @@ class FailedRouterList(ReasonRouterList):
 
 
 class StatsHandler(PathSupport.PathBuilder):
+  """An extension of PathSupport.PathBuilder that keeps track of 
+     router statistics for every circuit and stream"""
   def __init__(self, c, slmgr):
     PathBuilder.__init__(self, c, slmgr, StatsRouter)
     self.circ_count = 0
@@ -314,6 +353,8 @@ class StatsHandler(PathSupport.PathBuilder):
     self.suspect_reasons = {}
 
   def run_zbtest(self): # Unweighted z-test
+    """Run unweighted z-test to calculate the probabilities of a node
+       having a given stream bandwidth based on the Normal distribution"""
     n = reduce(lambda x, y: x+(y.bwstats.mean > 0), self.sorted_r, 0)
     if n == 0: return (0, 0)
     avg = reduce(lambda x, y: x+y.bwstats.mean, self.sorted_r, 0)/float(n)
@@ -329,6 +370,9 @@ class StatsHandler(PathSupport.PathBuilder):
     return (avg, stddev)
 
   def run_zrtest(self): # Unweighted z-test
+    """Run unweighted z-test to calculate the probabilities of a node
+       having a given ratio of stream bandwidth to advertised bandwidth
+       based on the Normal distribution"""
     n = reduce(lambda x, y: x+(y.bw_ratio() > 0), self.sorted_r, 0)
     if n == 0: return (0, 0)
     avg = reduce(lambda x, y: x+y.bw_ratio(), self.sorted_r, 0)/float(n)
@@ -344,6 +388,7 @@ class StatsHandler(PathSupport.PathBuilder):
     return (avg, stddev)
 
   def write_reasons(self, f, reasons, name):
+    "Write out all the failure reasons and statistics for all Routers"
     f.write("\n\n\t----------------- "+name+" -----------------\n")
     for rsn in reasons:
       f.write("\n"+rsn.reason+". Failed: "+str(rsn.total_failed())
@@ -351,12 +396,14 @@ class StatsHandler(PathSupport.PathBuilder):
       rsn.write_list(f)
 
   def write_routers(self, f, rlist, name):
+    "Write out all the usage statistics for all Routers"
     f.write("\n\n\t----------------- "+name+" -----------------\n\n")
     for r in rlist:
       # only print it if we've used it.
       if r.circ_chosen+r.strm_chosen > 0: f.write(str(r))
 
   def write_stats(self, filename):
+    "Write out all the statistics the StatsHandler has gathered"
     # TODO: all this shit should be configurable. Some of it only makes
     # sense when scanning in certain modes.
     plog("DEBUG", "Writing stats")
@@ -520,6 +567,7 @@ class StatsHandler(PathSupport.PathBuilder):
     PathBuilder.circ_status_event(self, c)
 
   def count_stream_reason_failed(self, s, reason):
+    "Count the routers involved in a failure"
     # Update failed count,reason_failed for exit
     r = self.circuits[s.circ_id].exit
     if not reason in r.reason_failed: r.reason_failed[reason] = 1
@@ -530,6 +578,7 @@ class StatsHandler(PathSupport.PathBuilder):
     self.failed_reasons[reason].add_r(r)
 
   def count_stream_suspects(self, s, lreason, reason):
+    "Count the routers 'suspected' of being involved in a failure"
     if lreason in ("TIMEOUT", "INTERNAL", "TORPROTOCOL" "DESTROY"):
       for r in self.circuits[s.circ_id].path[:-1]:
         r.strm_suspected += 1
@@ -635,6 +684,7 @@ def clear_dns_cache(c):
     plog("DEBUG", msg)
  
 def commandloop(s, c, h):
+  "The main metatroller listener loop"
   s.write("220 Welcome to the Tor Metatroller "+mt_version+"! Try HELP for Info\r\n\r\n")
   while 1:
     buf = s.readline()

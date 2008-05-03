@@ -26,6 +26,13 @@ provides a PathBuilder class that extends from EventHandler that handles
 circuit construction and stream attachment subject to policies defined
 by NodeRestrictor and PathRestrictor implementations.
 
+The TorCtl package is now fully pydoced. From this directory, you can 
+do:
+
+# pydoc TorCtl.TorCtl
+and 
+# pydoc TorCtl.PathSupport
+
 
 2. metatroller.py 
 
@@ -33,6 +40,10 @@ Metatroller observes the paths created by PathSupport and gathers
 statistics on stream bandwidth, circuit construction time, circuit
 failures and stream failures. It also provides a meta control port for
 use by Tor scanners.
+
+The metatroller is also pydoced. To view the documentation, you can do:
+
+# pydoc metatroller
 
 
 3. soat.pl

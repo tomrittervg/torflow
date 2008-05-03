@@ -1,5 +1,10 @@
-TODO: Write me.
+See the pydoc:
 
-In the mean time, try
-svn co https://tor-svn.freehaven.net/svn/torctl/trunk/doc/howto.txt
+# python
+
+>>> import TorCtl
+>>> help(TorCtl)
+
+>>> import PathSupport
+>>> help(PathSupport)
 

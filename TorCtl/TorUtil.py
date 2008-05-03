@@ -17,10 +17,10 @@ import math
 
 __all__ = ["Enum", "Enum2", "Callable", "sort_list", "quote", "escape_dots", "unescape_dots",
       "BufSock", "secret_to_key", "urandom_rng", "s2k_gen", "s2k_check", "plog", 
-      "ListenSocket", "zprob"]
+     "ListenSocket", "zprob"]
 
 class Enum:
-  # Helper: define an ordered dense name-to-number 1-1 mapping.
+  """ Defines an ordered dense name-to-number 1-1 mapping """
   def __init__(self, start, names):
     self.nameOf = {}
     idx = start
@@ -30,7 +30,7 @@ class Enum:
       idx += 1
 
 class Enum2:
-  # Helper: define an ordered sparse name-to-number 1-1 mapping.
+  """ Defines an ordered sparse name-to-number 1-1 mapping """
   def __init__(self, **args):
     self.__dict__.update(args)
     self.nameOf = {}

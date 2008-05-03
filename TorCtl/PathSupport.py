@@ -1,4 +1,43 @@
 #!/usr/bin/python
+"""
+
+Support classes for path construction
+
+The PathSupport package builds on top of TorCtl.TorCtl. It provides a
+number of interfaces that make path construction easier.
+
+The inheritance diagram for event handling is as follows:
+TorCtl.EventHandler <- PathBuilder <- CircuitHandler <- StreamHandler.
+
+Basically, EventHandler is what gets all the control port events
+packaged in nice clean classes (see help(TorCtl) for information on
+those). 
+
+PathBuilder inherits from EventHandler and is what builds all circuits
+based on the requirements specified in the SelectionManager instance
+passed to its constructor. It also handles attaching streams to
+circuits. It only handles one building one circuit at a time.
+
+CircuitHandler optionally inherits from PathBuilder, and overrides its
+circuit event handling to manage building a pool of circuits as opposed
+to just one. It still uses the SelectionManager for path selection.
+
+StreamHandler inherits from CircuitHandler, and is what governs the
+attachment of an incoming stream on to one of the multiple circuits of
+the circuit handler. 
+
+The SelectionManager is essentially a configuration wrapper around the
+most elegant portions of TorFlow: NodeGenerators, NodeRestrictions, and
+PathRestrictions. In the SelectionManager, a NodeGenerator is used to
+choose the nodes probabilistically according to some distribution while
+obeying the NodeRestrictions. These generators (one per hop) are handed
+off to the PathSelector, which uses the generators to build a complete
+path that satisfies the PathRestriction requirements.
+
+Have a look at the class hierarchy directly below to get a feel for how
+the restrictions fit together, and what options are available.
+
+"""
 
 import TorCtl
 import re
@@ -13,58 +52,77 @@ from TorUtil import *
 __all__ = ["NodeRestrictionList", "PathRestrictionList",
 "PercentileRestriction", "OSRestriction", "ConserveExitsRestriction",
 "FlagsRestriction", "MinBWRestriction", "VersionIncludeRestriction",
-"VersionExcludeRestriction", "ExitPolicyRestriction", "OrNodeRestriction",
+"VersionExcludeRestriction", "ExitPolicyRestriction", "NodeRestriction",
+"PathRestriction", "OrNodeRestriction", "MetaNodeRestriction",
 "AtLeastNNodeRestriction", "NotNodeRestriction", "Subnet16Restriction",
-"UniqueRestriction", "UniformGenerator", "OrderedExitGenerator",
-"BwWeightedGenerator", "PathSelector", "Connection", "NickRestriction", 
-"IdHexRestriction", "PathBuilder", "CircuitHandler", "StreamHandler", 
-"SelectionManager", "CountryCodeRestriction", "CountryRestriction", 
-"UniqueCountryRestriction", "SingleCountryRestriction", 
-"ContinentRestriction", "ContinentJumperRestriction", 
+"UniqueRestriction", "NodeGenerator", "UniformGenerator",
+"OrderedExitGenerator", "BwWeightedGenerator", "PathSelector",
+"Connection", "NickRestriction", "IdHexRestriction", "PathBuilder",
+"CircuitHandler", "StreamHandler", "SelectionManager",
+"CountryCodeRestriction", "CountryRestriction",
+"UniqueCountryRestriction", "SingleCountryRestriction",
+"ContinentRestriction", "ContinentJumperRestriction",
 "UniqueContinentRestriction"]
 
 #################### Path Support Interfaces #####################
 
 class NodeRestriction:
   "Interface for node restriction policies"
-  def r_is_ok(self, r): return True  
+  def r_is_ok(self, r):
+    "Returns true if Router 'r' is acceptable for this restriction"
+    return True  
 
 class NodeRestrictionList:
+  "Class to manage a list of NodeRestrictions"
   def __init__(self, restrictions):
+    "Constructor. 'restrictions' is a list of NodeRestriction instances"
     self.restrictions = restrictions
 
   def r_is_ok(self, r):
+    "Returns true of Router 'r' passes all of the contained restrictions"
     for rs in self.restrictions:
       if not rs.r_is_ok(r): return False
     return True
 
   def add_restriction(self, restr):
+    "Add a NodeRestriction 'restr' to the list of restrictions"
     self.restrictions.append(restr)
 
   # TODO: This does not collapse meta restrictions..
   def del_restriction(self, RestrictionClass):
+    """Remove all restrictions of type RestrictionClass from the list.
+       Does NOT inspect or collapse MetaNode Restrictions (though 
+       MetaRestrictions can be removed if RestrictionClass is 
+       MetaNodeRestriction)"""
     self.restrictions = filter(
         lambda r: not isinstance(r, RestrictionClass),
           self.restrictions)
 
 class PathRestriction:
   "Interface for path restriction policies"
-  def path_is_ok(self, path): return True  
+  def path_is_ok(self, path):
+    "Return true if the list of Routers in path satisfies this restriction"
+    return True  
 
 class PathRestrictionList:
+  """Class to manage a list of PathRestrictions"""
   def __init__(self, restrictions):
+    "Constructor. 'restrictions' is a list of PathRestriction instances"
     self.restrictions = restrictions
   
   def path_is_ok(self, path):
+    "Given list if Routers in 'path', check it against each restriction."
     for rs in self.restrictions:
       if not rs.path_is_ok(path):
         return False
     return True
 
   def add_restriction(self, rstr):
+    "Add a PathRestriction 'rstr' to the list"
     self.restrictions.append(rstr)
 
   def del_restriction(self, RestrictionClass):
+    "Remove all PathRestrictions of type RestrictionClass from the list."
     self.restrictions = filter(
         lambda r: not isinstance(r, RestrictionClass),
           self.restrictions)
@@ -72,26 +130,37 @@ class PathRestrictionList:
 class NodeGenerator:
   "Interface for node generation"
   def __init__(self, sorted_r, rstr_list):
+    """Constructor. Takes a bandwidth-sorted list of Routers 'sorted_r' 
+    and a NodeRestrictionList 'rstr_list'"""
     self.rstr_list = rstr_list # Check me before you yield!
     self.sorted_r = sorted_r
     self.rewind()
 
   def reset_restriction(self, rstr_list):
+    "Reset the restriction list to a new list"
     self.rstr_list = rstr_list
 
   def rewind(self):
+    "Rewind the generator to the 'beginning'"
     self.routers = copy.copy(self.sorted_r)
 
   def mark_chosen(self, r):
+    """Mark a router as chosen: remove it from the list of routers 
+     that can be returned in the future"""
     self.routers.remove(r)
 
   def all_chosen(self):
+    "Return true if all the routers have been marked as chosen"
     return not self.routers
 
-  def next_r(self): raise NotImplemented()
+  def next_r(self):
+    "Yield the next router according to the policy"
+    raise NotImplemented()
 
 class Connection(TorCtl.Connection):
+  """Extended Connection class that provides a method for building circuits"""
   def build_circuit(self, pathlen, path_sel):
+    "Tell Tor to build a circuit chosen by the PathSelector 'path_sel'"
     circ = Circuit()
     circ.path = path_sel.build_path(pathlen)
     circ.exit = circ.path[pathlen-1]
@@ -118,14 +187,21 @@ class Connection(TorCtl.Connection):
 #          Exit->destination hops
 
 class PercentileRestriction(NodeRestriction):
+  """Restriction to cut out a percentile slice of the network."""
   def __init__(self, pct_skip, pct_fast, r_list):
+    """Constructor. Sets up the restriction such that routers in the 
+     'pct_skip' to 'pct_fast' percentile of bandwidth rankings are 
+     returned from the sorted list 'r_list'"""
     self.pct_fast = pct_fast
     self.pct_skip = pct_skip
     self.sorted_r = r_list
 
   def r_is_ok(self, r):
+    "Returns true if r is in the percentile boundaries (by rank)"
     # Hrmm.. technically we shouldn't count non-running routers in this..
-    # but that is tricky to do efficiently
+    # but that is tricky to do efficiently.
+    # XXX: Is there any reason why sorted_r should have non-running
+    # routers in the first place?
     
     if r.list_rank < len(self.sorted_r)*self.pct_skip/100: return False
     elif r.list_rank > len(self.sorted_r)*self.pct_fast/100: return False
@@ -133,11 +209,15 @@ class PercentileRestriction(NodeRestriction):
     return True
     
 class OSRestriction(NodeRestriction):
+  "Restriction based on operating system"
   def __init__(self, ok, bad=[]):
+    """Constructor. Accept router OSes that match regexes in 'ok', 
+       rejects those that match regexes in 'bad'."""
     self.ok = ok
     self.bad = bad
 
   def r_is_ok(self, r):
+    "Returns true if r is in 'ok', false if 'r' is in 'bad'. If 'ok'"
     for y in self.ok:
       if re.search(y, r.os):
         return True
@@ -148,11 +228,15 @@ class OSRestriction(NodeRestriction):
     if self.bad: return True
 
 class ConserveExitsRestriction(NodeRestriction):
-  # FIXME: Make this adaptive
+  "Restriction to reject exits from selection"
+  # XXX: Make this adaptive by ip/port
   def r_is_ok(self, r): return not "Exit" in r.flags
 
 class FlagsRestriction(NodeRestriction):
+  "Restriction for mandatory and forbidden router flags"
   def __init__(self, mandatory, forbidden=[]):
+    """Constructor. 'mandatory' and 'forbidden' are both lists of router 
+     flags as strings."""
     self.mandatory = mandatory
     self.forbidden = forbidden
 
@@ -183,32 +267,42 @@ class IdHexRestriction(NodeRestriction):
     return router.idhex == self.idhex
   
 class MinBWRestriction(NodeRestriction):
+  """Require a minimum bandwidth"""
   def __init__(self, minbw):
     self.min_bw = minbw
 
   def r_is_ok(self, router): return router.bw >= self.min_bw
    
 class VersionIncludeRestriction(NodeRestriction):
+  """Require that the version match one in the list"""
   def __init__(self, eq):
+    "Constructor. 'eq' is a list of versions as strings"
     self.eq = map(TorCtl.RouterVersion, eq)
   
   def r_is_ok(self, router):
+    """Returns true if the version of 'router' matches one of the 
+     specified versions."""
     for e in self.eq:
       if e == router.version:
         return True
     return False
 
 class VersionExcludeRestriction(NodeRestriction):
+  """Require that the version not match one in the list"""
   def __init__(self, exclude):
+    "Constructor. 'exclude' is a list of versions as strings"
     self.exclude = map(TorCtl.RouterVersion, exclude)
   
   def r_is_ok(self, router):
+    """Returns false if the version of 'router' matches one of the 
+     specified versions."""
     for e in self.exclude:
       if e == router.version:
         return False
     return True
 
 class VersionRangeRestriction(NodeRestriction):
+  """Require that the versions be inside a specified range""" 
   def __init__(self, gr_eq, less_eq=None):
     self.gr_eq = TorCtl.RouterVersion(gr_eq)
     if less_eq: self.less_eq = TorCtl.RouterVersion(less_eq)
@@ -219,6 +313,7 @@ class VersionRangeRestriction(NodeRestriction):
         (not self.less_eq or router.version <= self.less_eq)
 
 class ExitPolicyRestriction(NodeRestriction):
+  """Require that a router exit to an ip+port"""
   def __init__(self, to_ip, to_port):
     self.to_ip = to_ip
     self.to_port = to_port
@@ -226,28 +321,37 @@ class ExitPolicyRestriction(NodeRestriction):
   def r_is_ok(self, r): return r.will_exit_to(self.to_ip, self.to_port)
 
 class MetaNodeRestriction(NodeRestriction):
+  """Interface for a NodeRestriction that is an expression consisting of 
+     multiple other NodeRestrictions"""
   # TODO: these should collapse the restriction and return a new
   # instance for re-insertion (or None)
   def next_rstr(self): raise NotImplemented()
   def del_restriction(self, RestrictionClass): raise NotImplemented()
 
 class OrNodeRestriction(MetaNodeRestriction):
+  """MetaNodeRestriction that is the boolean or of two or more
+     NodeRestrictions"""
   def __init__(self, rs):
+    "Constructor. 'rs' is a list of NodeRestrictions"
     self.rstrs = rs
 
   def r_is_ok(self, r):
+    "Returns true if one of 'rs' is true for this router"
     for rs in self.rstrs:
       if rs.r_is_ok(r):
         return True
     return False
 
 class NotNodeRestriction(MetaNodeRestriction):
+  """Negates a single restriction"""
   def __init__(self, a):
     self.a = a
 
   def r_is_ok(self, r): return not self.a.r_is_ok(r)
 
 class AtLeastNNodeRestriction(MetaNodeRestriction):
+  """MetaNodeRestriction that is true if at least n member 
+     restrictions are true."""
   def __init__(self, rstrs, n):
     self.rstrs = rstrs
     self.n = n
@@ -264,6 +368,8 @@ class AtLeastNNodeRestriction(MetaNodeRestriction):
 #################### Path Restrictions #####################
 
 class Subnet16Restriction(PathRestriction):
+  """PathRestriction that mandates that no two nodes from the same 
+     /16 subnet be in the path"""
   def path_is_ok(self, path):
     mask16 = struct.unpack(">I", socket.inet_aton("255.255.0.0"))[0]
     ip16 = path[0].ip & mask16
@@ -273,6 +379,8 @@ class Subnet16Restriction(PathRestriction):
     return True
 
 class UniqueRestriction(PathRestriction):
+  """Path restriction that mandates that the same router can't appear more
+     than once in a path"""
   def path_is_ok(self, path):
     for i in xrange(0,len(path)):
       if path[i] in path[:i]:
@@ -287,7 +395,7 @@ class CountryCodeRestriction(NodeRestriction):
     return r.country_code != None
 
 class CountryRestriction(NodeRestriction):
-  """ Ensure a specific country_code for nodes """
+  """ Only accept nodes that are in 'country_code' """
   def __init__(self, country_code):
     self.country_code = country_code
 
@@ -382,12 +490,15 @@ class OceanPhobicRestriction(PathRestriction):
 #################### Node Generators ######################
 
 class UniformGenerator(NodeGenerator):
+  """NodeGenerator that produces nodes in the uniform distribution"""
   def next_r(self):
     while not self.all_chosen():
       r = random.choice(self.routers)
       if self.rstr_list.r_is_ok(r): yield r
 
 class OrderedExitGenerator(NodeGenerator):
+  """NodeGenerator that produces exits in an ordered fashion for a 
+     specific port"""
   def __init__(self, to_port, sorted_r, rstr_list):
     self.to_port = to_port
     self.next_exit_by_port = {}
@@ -421,8 +532,8 @@ class OrderedExitGenerator(NodeGenerator):
         break
 
 class BwWeightedGenerator(NodeGenerator):
-  """ Pass exit=True to create a generator for exit-nodes """
   def __init__(self, sorted_r, rstr_list, pathlen, exit=False):
+    """ Pass exit=True to create a generator for exit-nodes """
     # Out for an exit-node?
     self.exit = exit
     # Different sums of bandwidths
@@ -505,14 +616,21 @@ class NoRouters(PathError):
   pass
 
 class PathSelector:
-  "Implementation of path selection policies"
+  """Implementation of path selection policies. Builds a path according
+     to entry, middle, and exit generators that satisfies the path 
+     restrictions."""
   def __init__(self, entry_gen, mid_gen, exit_gen, path_restrict):
+    """Constructor. The first three arguments are NodeGenerators with 
+     their appropriate restrictions. The 'path_restrict' is a
+     PathRestrictionList"""
     self.entry_gen = entry_gen
     self.mid_gen = mid_gen
     self.exit_gen = exit_gen
     self.path_restrict = path_restrict
 
   def build_path(self, pathlen):
+    """Creates a path of 'pathlen' hops, and returns it as a list of
+       Router instances"""
     self.entry_gen.rewind()
     self.mid_gen.rewind()
     self.exit_gen.rewind()
@@ -550,11 +668,10 @@ class SelectionManager:
   """Helper class to handle configuration updates
     
     The methods are NOT threadsafe. They may ONLY be called from
-    EventHandler's thread.
-
-    To update the selection manager, schedule a config update job
-    using PathBuilder.schedule_selmgr() with a worker function
-    to modify this object.
+    EventHandler's thread. This means that to update the selection 
+    manager, you must schedule a config update job using 
+    PathBuilder.schedule_selmgr() with a worker function to modify 
+    this object.
     """
   def __init__(self, pathlen, order_exits,
          percent_fast, percent_skip, min_bw, use_all_exits,
@@ -572,6 +689,8 @@ class SelectionManager:
     self.geoip_config = geoip_config
 
   def reconfigure(self, sorted_r):
+    """This function is called after a configuration change, 
+     to rebuild the RestrictionLists."""
     if self.use_all_exits:
       self.path_rstr = PathRestrictionList([UniqueRestriction()])
     else:
@@ -679,6 +798,7 @@ class SelectionManager:
       return
 
   def set_target(self, ip, port):
+    "Called to update the ExitPolicyRestrictions with a new ip and port"
     self.exit_rstr.del_restriction(ExitPolicyRestriction)
     self.exit_rstr.add_restriction(ExitPolicyRestriction(ip, port))
     if self.__ordered_exit_gen: self.__ordered_exit_gen.set_port(port)
@@ -699,6 +819,7 @@ class SelectionManager:
           self.exit_rstr.add_restriction(CountryRestriction(self.geoip_config.exit_country))
 
 class Circuit:
+  "Class to describe a circuit"
   def __init__(self):
     self.circ_id = 0
     self.path = [] # routers
@@ -712,9 +833,12 @@ class Circuit:
     self.setup_duration = None  # Sum of extend-times
     self.pending_streams = []   # Which stream IDs are pending us
   
-  def id_path(self): return map(lambda r: r.idhex, self.path)
+  def id_path(self):
+    "Returns a list of idhex keys for the path of Routers"
+    return map(lambda r: r.idhex, self.path)
 
 class Stream:
+  "Class to describe a stream"
   def __init__(self, sid, host, port, kind):
     self.strm_id = sid
     self.detached_from = [] # circ id #'s
@@ -729,7 +853,9 @@ class Stream:
     self.failed = False
     self.failed_reason = None # Cheating a little.. Only used by StatsHandler
 
-  def lifespan(self, now): return now-self.attached_at
+  def lifespan(self, now):
+    "Returns the age of the stream"
+    return now-self.attached_at
 
 # TODO: Make passive "PathWatcher" so people can get aggregate 
 # node reliability stats for normal usage without us attaching streams
@@ -744,6 +870,9 @@ class PathBuilder(TorCtl.EventHandler):
   of the EventHandler.
   """
   def __init__(self, c, selmgr, RouterClass):
+    """Constructor. 'c' is a Connection, 'selmgr' is a SelectionManager,
+    and 'RouterClass' is a class that inherits from Router and is used
+    to create annotated Routers."""
     TorCtl.EventHandler.__init__(self)
     self.c = c
     nslist = c.get_network_status()
@@ -792,6 +921,9 @@ class PathBuilder(TorCtl.EventHandler):
 
      
   def heartbeat_event(self, event):
+    """This function handles dispatching scheduled jobs. If you 
+       extend PathBuilder and want to implement this function for 
+       some reason, be sure to call the parent class"""
     while not self.imm_jobs.empty():
       imm_job = self.imm_jobs.get_nowait()
       imm_job(self)
@@ -848,6 +980,7 @@ class PathBuilder(TorCtl.EventHandler):
     return self.selmgr.path_selector.build_path(self.selmgr.pathlen)
 
   def attach_stream_any(self, stream, badcircs):
+    "Attach a stream to a valid circuit, avoiding any in 'badcircs'"
     # Newnym, and warn if not built plus pending
     unattached_streams = [stream]
     if self.new_nym:
@@ -1034,8 +1167,13 @@ class PathBuilder(TorCtl.EventHandler):
 ################### CircuitHandler #############################
 
 class CircuitHandler(PathBuilder):
-  """ CircuitHandler that extends from PathBuilder """
+  """ CircuitHandler that extends from PathBuilder to handle multiple
+      circuits as opposed to just one. """
   def __init__(self, c, selmgr, num_circuits, RouterClass):
+    """Constructor. 'c' is a Connection, 'selmgr' is a SelectionManager,
+    'num_circuits' is the number of circuits to keep in the pool,
+    and 'RouterClass' is a class that inherits from Router and is used
+    to create annotated Routers."""
     PathBuilder.__init__(self, c, selmgr, RouterClass)
     # Set handler to the connection here to 
     # not miss any circuit events on startup
@@ -1143,7 +1281,9 @@ class CircuitHandler(PathBuilder):
 ################### StreamHandler ##############################
 
 class StreamHandler(CircuitHandler):
-  """ StreamHandler that extends from the CircuitHandler """
+  """ StreamHandler that extends from the CircuitHandler 
+      to handle attaching streams to an appropriate circuit 
+      in the pool. """
   def __init__(self, c, selmgr, num_circs, RouterClass):
     CircuitHandler.__init__(self, c, selmgr, num_circs, RouterClass)
     self.sorted_circs = None    # optional sorted list

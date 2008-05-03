@@ -4,10 +4,32 @@
 # Copyright 2007 Mike Perry. See LICENSE file.
 
 """
-TorCtl -- Library to control Tor processes.
+Library to control Tor processes.
+
+This library handles sending commands, parsing responses, and delivering
+events to and from the control port. The basic usage is to create a
+socket, wrap that in a TorCtl.Connection, and then add an EventHandler
+to that connection. A simple example with a DebugEventHandler (that just
+echoes the events back to stdout) is present in run_example().
+
+Note that the TorCtl.Connection is fully compatible with the more
+advanced EventHandlers in TorCtl.PathSupport (and of course any other
+custom event handlers that you may extend off of those).
+
+This package also contains a helper class for representing Routers, and
+classes and constants for each event.
+
 """
 
-# XXX: Docstring all exported classes/interfaces. Also need __all__
+__all__ = ["EVENTTYPE", "CIRC", "STREAM", "ORCONN", "STREAM_BW", "BW",
+           "NS", "NEWDESC", "ADDRMAP", "DEBUG", "INFO", "NOTICE", "WARN",
+           "ERR", "TorCtlError", "TorCtlClosed", "ProtocolError",
+           "ErrorReply", "NetworkStatus", "ExitPolicyLine", "Router",
+           "RouterVersion", "Connection", "parse_ns_body",
+           "EventHandler", "DebugEventHandler", "NetworkStatusEvent",
+           "NewDescEvent", "CircuitEvent", "StreamEvent", "ORConnEvent",
+           "StreamBwEvent", "LogEvent", "AddrMapEvent", "BWEvent",
+           "UnknownEvent" ]
 
 import os
 import re
@@ -151,6 +173,8 @@ class UnknownEvent:
     self.event_string = event_string
 
 class ExitPolicyLine:
+  """ Class to represent a line in a Router's exit policy in a way 
+      that can be easily checked. """
   def __init__(self, match, ip_mask, port_low, port_high):
     self.match = match
     if ip_mask == "*":
@@ -177,6 +201,8 @@ class ExitPolicyLine:
       self.port_high = int(port_high)
   
   def check(self, ip, port):
+    """Check to see if an ip and port is matched by this line. 
+     Returns true if the line is an Accept, and False if it is a Reject. """
     ip = struct.unpack(">I", socket.inet_aton(ip))[0]
     if (ip & self.netmask) == self.ip:
       if self.port_low <= port and port <= self.port_high:
@@ -184,6 +210,8 @@ class ExitPolicyLine:
     return -1
 
 class RouterVersion:
+  """ Represents a Router's version. Overloads all comparison operators
+      to check for newer, older, or equivalent versions. """
   def __init__(self, version):
     if version:
       v = re.search("^(\d+).(\d+).(\d+).(\d+)", version).groups()
@@ -202,6 +230,11 @@ class RouterVersion:
   def __str__(self): return self.ver_string
 
 class Router:
+  """ 
+  Class to represent a router from a descriptor. Can either be
+  created from the parsed fields, or can be built from a
+  descriptor+NetworkStatus 
+  """     
   def __init__(self, idhex, name, bw, down, exitpolicy, flags, ip, version, os, uptime):
     self.idhex = idhex
     self.nickname = name
@@ -216,6 +249,13 @@ class Router:
     self.uptime = uptime
 
   def build_from_desc(desc, ns):
+    """
+    Static method of Router that parses a descriptor string into this class.
+    'desc' is a full descriptor as a string. 
+    'ns' is a TorCtl.NetworkStatus instance for this router (needed for
+    the flags, the nickname, and the idhex string). 
+    Returns a Router instance.
+    """
     # XXX: Compile these regular expressions? This is an expensive process
     # Use http://docs.python.org/lib/profile.html to verify this is 
     # the part of startup that is slow
@@ -264,6 +304,8 @@ class Router:
   build_from_desc = Callable(build_from_desc)
 
   def update_to(self, new):
+    """ Somewhat hackish method to update this router to be a copy of
+    'new' """
     if self.idhex != new.idhex:
       plog("ERROR", "Update of router "+self.nickname+"changes idhex!")
     self.idhex = new.idhex
@@ -277,6 +319,8 @@ class Router:
     self.uptime = new.uptime
 
   def will_exit_to(self, ip, port):
+    """ Check the entire exitpolicy to see if the router will allow
+        connections to 'ip':'port' """
     for line in self.exitpolicy:
       ret = line.check(ip, port)
       if ret != -1:
@@ -285,7 +329,8 @@ class Router:
     return False
    
 class Connection:
-  """A Connection represents a connection to the Tor process."""
+  """A Connection represents a connection to the Tor process via the 
+     control port."""
   def __init__(self, sock):
     """Create a Connection to communicate with the Tor process over the
        socket 'sock'.
@@ -454,7 +499,7 @@ class Connection:
     """Cause future events from the Tor process to be sent to 'handler'.
     """
     self._handler = handler
-    self._handleFn = handler.handle1
+    self._handleFn = handler._handle1
 
   def _read_reply(self):
     lines = []
@@ -572,7 +617,8 @@ class Connection:
     self.sendAndRecv("RESETCONF %s\r\n"%(" ".join(keylist)))
 
   def get_network_status(self, who="all"):
-    """Get the entire network status list"""
+    """Get the entire network status list. Returns a list of
+       TorCtl.NetworkStatus instances."""
     return parse_ns_body(self.sendAndRecv("GETINFO ns/"+who+"\r\n")[0][2])
 
   def get_router(self, ns):
@@ -582,6 +628,9 @@ class Connection:
 
 
   def read_routers(self, nslist):
+    """ Given a list a NetworkStatuses in 'nslist', this function will 
+        return a list of new Router instances.
+    """
     bad_key = 0
     new = []
     for ns in nslist:
@@ -656,6 +705,7 @@ class Connection:
     self.sendAndRecv("RESOLVE %s\r\n"%host)
 
   def map_address(self, kvList):
+    """ Sends the MAPADDRESS command for each of the tuples in kvList """
     if not kvList:
       return
     m = " ".join([ "%s=%s" for k,v in kvList])
@@ -693,9 +743,9 @@ class Connection:
       self.sendAndRecv("REDIRECTSTREAM %d %s\r\n"%(streamid, newaddr))
 
   def attach_stream(self, streamid, circid, hop=None):
-    """Attach a stream to a circuit, specify both by IDs. 
-       If hop is given, try to use the specified hop in 
-       the circuit as the exit node for this stream.
+    """Attach a stream to a circuit, specify both by IDs. If hop is given, 
+       try to use the specified hop in the circuit as the exit node for 
+       this stream.
     """
     if hop:
       self.sendAndRecv("ATTACHSTREAM %d %d HOP=%d\r\n"%(streamid, circid, hop))
@@ -718,7 +768,8 @@ class Connection:
     self.sendAndRecv("+POSTDESCRIPTOR\r\n%s"%escape_dots(desc))
 
 def parse_ns_body(data):
-  "Parse the body of an NS event or command."
+  """Parse the body of an NS event or command into a list of
+     NetworkStatus instances"""
   nsgroups = re.compile(r"^r ", re.M).split(data)
   nsgroups.pop(0)
   nslist = []
@@ -731,7 +782,9 @@ def parse_ns_body(data):
   return nslist
 
 class EventHandler:
-  """An 'EventHandler' wraps callbacks for the events Tor can return."""
+  """An 'EventHandler' wraps callbacks for the events Tor can return. 
+     Each event argument is an instance of the corresponding event
+     class."""
   def __init__(self):
     """Create a new EventHandler."""
     self._map1 = {
@@ -750,15 +803,15 @@ class EventHandler:
       "NS" : self.ns_event
       }
 
-  def handle1(self, timestamp, lines):
+  def _handle1(self, timestamp, lines):
     """Dispatcher: called from Connection when an event is received."""
     for code, msg, data in lines:
-      event = self.decode1(msg, data)
+      event = self._decode1(msg, data)
       event.arrived_at = timestamp
       self.heartbeat_event(event)
       self._map1.get(event.event_name, self.unknown_event)(event)
 
-  def decode1(self, body, data):
+  def _decode1(self, body, data):
     """Unpack an event message into a type/arguments-tuple tuple."""
     if " " in body:
       evtype,body = body.split(" ",1)
@@ -977,6 +1030,9 @@ def parseHostAndPort(h):
   return host, port
 
 def run_example(host,port):
+  """ Example of basic TorCtl usage. See PathSupport for more advanced
+      usage.
+  """
   print "host is %s:%d"%(host,port)
   s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
   s.connect((host,port))
