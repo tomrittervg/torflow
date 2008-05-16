@@ -21,9 +21,7 @@ classes and constants for each event.
 
 """
 
-__all__ = ["EVENTTYPE", "CIRC", "STREAM", "ORCONN", "STREAM_BW", "BW",
-           "NS", "NEWDESC", "ADDRMAP", "DEBUG", "INFO", "NOTICE", "WARN",
-           "ERR", "TorCtlError", "TorCtlClosed", "ProtocolError",
+__all__ = ["EVENT_TYPE", "TorCtlError", "TorCtlClosed", "ProtocolError",
            "ErrorReply", "NetworkStatus", "ExitPolicyLine", "Router",
            "RouterVersion", "Connection", "parse_ns_body",
            "EventHandler", "DebugEventHandler", "NetworkStatusEvent",
@@ -570,8 +568,8 @@ class Connection:
     """Send an authenticating secret to Tor.  You'll need to call this
        method before Tor can start.
     """
-    hexstr = binascii.b2a_hex(secret)
-    self.sendAndRecv("AUTHENTICATE %s\r\n"%hexstr)
+    #hexstr = binascii.b2a_hex(secret)
+    self.sendAndRecv("AUTHENTICATE \"%s\"\r\n"%secret)
 
   def get_option(self, name):
     """Get the value of the configuration option named 'name'.  To
