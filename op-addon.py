@@ -1,8 +1,7 @@
 #!/usr/bin/python
 
 """
-  RWTH Aachen University, Informatik IV
-  Copyright (C) 2007 Johannes Renner 
+  Copyright (C) 2007,2008 Johannes Renner 
   Contact: renner <AT> i4.informatik.rwth-aachen.de
 """
 
@@ -24,7 +23,7 @@ from TorCtl.TorUtil import plog, sort_list
 ## CONFIGURATION ##############################################################
 
 # Set the version
-VERSION = "0.0.10"
+VERSION = "0.01"
 # Path to the data directory
 DATADIR = "data/op-addon/"
 # Our IP-address
@@ -61,13 +60,13 @@ else:
   sys.exit(0)
   
 # Different configuration sections
-HOST_PORT = "HOST_PORT"
+GENERAL = "GENERAL"
 CIRC_MANAGEMENT = "CIRC_MANAGEMENT"
 NODE_SELECTION = "NODE_SELECTION"
 GEOIP = "GEOIP"
-EVALUATE = "EVALUATE"
 RTT = "RTT"
 MODEL = "MODEL"
+EVALUATE = "EVALUATE"
 
 # Measure RTTs of circuits
 ping_circs = config.getboolean(RTT, "ping_circs")
@@ -112,20 +111,20 @@ def get_geoip_config():
   """ Read the geoip-configuration from the config-file """
   # Check for GeoIP
   if config.getboolean(GEOIP, "use_geoip"):
-    # Optional options
+    # Set optional parameters to 'None'
     unique_countries = None
-    continent_crossings = None
-    ocean_crossings = None
+    max_continent_crossings = None
+    max_ocean_crossings = None
     if config.has_option(GEOIP, "unique_countries"):
       unique_countries = config.getboolean(GEOIP, "unique_countries")
-    if config.has_option(GEOIP, "continent_crossings"):
-      continent_crossings = config.getint(GEOIP, "continent_crossings")
-    if config.has_option(GEOIP,"ocean_crossings"):
-      ocean_crossings = config.getint(GEOIP, "ocean_crossings")
+    if config.has_option(GEOIP, "max_continent_crossings"):
+      max_continent_crossings = config.getint(GEOIP, "max_continent_crossings")
+    if config.has_option(GEOIP,"max_ocean_crossings"):
+      max_ocean_crossings = config.getint(GEOIP, "max_ocean_crossings")
     path_config = GeoIPSupport.GeoIPConfig(
        unique_countries,
-       continent_crossings,
-       ocean_crossings,
+       max_continent_crossings,
+       max_ocean_crossings,
        entry_country = config.get(GEOIP, "entry_country"),
        middle_country = config.get(GEOIP, "middle_country"),
        exit_country = config.get(GEOIP, "exit_country"),
@@ -835,12 +834,10 @@ class PingHandler(PathSupport.StreamHandler):
         self.close_circuit(s.circ_id)
 
   def stream_status_event(self, s):
-    """ Separate pings from regular streams directly """
+    """ Identify different kinds of streams and treat them differently """
+    # Separate pings from others
     if not (s.target_host == ping_dummy_host and 
        s.target_port == ping_dummy_port):
-      # XXX: Catch bandwidth-streams
-      if s.target_host == IP and s.target_port == 8041:
-        return self.handle_bw_test(s)      
 
       # TODO: Handle echelon here?
       # - perform DNS request (or use REMAP?)
@@ -848,13 +845,19 @@ class PingHandler(PathSupport.StreamHandler):
       # - check if there is already a circuit with exit node
       #   in destination country
       
-      # This is NO test: call the underlying method to attach
+      # Catch bandwidth-streams
+      if s.target_host == IP and s.target_port == 8041:
+        return self.handle_bw_test(s)
+      # Try to catch Tor internal streams
+      elif s.source_addr == "(Tor_internal):0":
+        return plog("DEBUG", "New internal stream")
+      # This is NO test: call the underlying method
       else:
         return PathSupport.StreamHandler.stream_status_event(self, s)
     
     # Construct debugging output
     output = [s.event_name, str(s.strm_id), s.status, str(s.circ_id), 
-       s.target_host, str(s.target_port)]
+       s.target_host+':'+str(s.target_port)]
     if s.reason: output.append("REASON=" + s.reason)
     if s.remote_reason: output.append("REMOTE_REASON=" + s.remote_reason)
     plog("DEBUG", " ".join(output))
@@ -1133,8 +1136,8 @@ def connect():
   """ Return a connection to Tor's control port """
   try:
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    sock.connect((config.get(HOST_PORT, "control_host"), 
-       config.getint(HOST_PORT, "control_port")))
+    sock.connect((config.get(GENERAL, "control_host"), 
+       config.getint(GENERAL, "control_port")))
     conn = Connection(sock)
     conn.authenticate()
     #conn.debug(file("control.log", "w"))  
@@ -1165,7 +1168,7 @@ def configure(conn):
   """ Set events and options """
   conn.set_events([TorCtl.EVENT_TYPE.STREAM,
      TorCtl.EVENT_TYPE.CIRC,
-     TorCtl.EVENT_TYPE.STREAM_BW,
+     #TorCtl.EVENT_TYPE.STREAM_BW,
      TorCtl.EVENT_TYPE.ADDRMAP,
      TorCtl.EVENT_TYPE.NS,	  
      TorCtl.EVENT_TYPE.NEWDESC], True)
@@ -1244,6 +1247,8 @@ def simulate(n):
       path = path_builder.build_path()
       path_list.append(path)
       n -= 1
+      if n%1000 == 0:
+        plog("INFO", str(time.localtime())+": Still "+str(n)+" paths to create --")
   # Evaluate the generated paths and exit
   evaluate(path_list)
   cleanup(conn)

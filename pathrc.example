@@ -1,4 +1,4 @@
-[HOST_PORT]
+[GENERAL]
 
 # Set the host and port where Tor is
 # listening for control-connections
@@ -25,12 +25,12 @@ percent_skip = 0
 use_all_exits = yes
 
 # UniformGenerator with optionally ordered exits,
-# (uniform = no) --> bandwidth-weighted selection
+# 'uniform = no' --> bandwidth-weighted selection
 uniform = no
 order_exits = no
 
 # Make use of guard-nodes (yes|no) or a specific 
-# exit node (nickname or IDHex) for all paths
+# exit node (nickname or IDHex) for every path
 use_guards = yes
 #use_exit = xyz
 
@@ -38,19 +38,19 @@ use_guards = yes
 
 # Use GeoIP
 # yes|no
-use_geoip = yes
+use_geoip = no
 
-# yes|no for unique|distinct countries,
-# ! comment to don't care
+# yes|no for unique|equal country codes
+# ! comment out to don't care
 unique_countries = yes
 
 # Maximum number of continent crossings: 0-n
 # ! comment out to enforce distinct continents
 # ! set >= pathlen to not care about
-continent_crossings = 2
+max_continent_crossings = 2
 # Maximum number of ocean crossings: 0-n
 # ! comment out to don't care
-ocean_crossings = 1
+max_ocean_crossings = 1
 
 # If echelon is set, OP-Addon will try to find an 
 # exit in the destination country of the current 
@@ -65,24 +65,9 @@ ocean_crossings = 1
 
 # TODO: excludes = [".."]
 
-[EVALUATE]
-
-# Evaluation mode: close every circuit after measuring performance
-# yes|no
-evaluate = no
-
-# Number of latency-tests per circuit (int: 0-n)
-num_rtt_tests = 3
-# Number of bandwidth-tests per circuit (int:0 or 1)
-# Requires stream-server.pl listening on the same host
-num_bw_tests = 0
-
-# Amount of circuits to test (int)
-num_records = 300
-
 [RTT]
 
-# Ping the latencies of complete circuits
+# Frequently ping the latencies of complete circuits
 # yes|no
 ping_circs = yes
 
@@ -121,3 +106,18 @@ min_ratio = 0.5
 max_rtt = 0
 # Minimum number of proposals to choose from (int)
 min_proposals = 100
+
+[EVALUATE]
+
+# Evaluation mode: close every circuit after measuring performance
+# yes|no
+evaluate = no
+
+# Number of latency-tests per circuit (int: 0-n)
+num_rtt_tests = 3
+# Number of bandwidth-tests per circuit (int:0 or 1)
+# Requires stream-server.pl listening on the same host
+num_bw_tests = 0
+
+# Total amount of circuits to test (int)
+num_records = 300
