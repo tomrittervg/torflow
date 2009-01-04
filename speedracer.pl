@@ -14,9 +14,9 @@ my $USER_AGENT = "Mozilla/4.0 (compatible; MSIE 6.0; Windows NT 5.1; .NET CLR 1.
 # http://bitter.stalin.se/torfile
 # http://www.sigma.su.se/~who/torfile
 my $URL = "https://svn.torproject.org/svn/tor/trunk/doc/design-paper/tor-design.pdf"; 
-my $COUNT = 200;
+my $COUNT = 2;
 my $START_PCT = 0;
-my $STOP_PCT = 80;
+my $STOP_PCT = 20;
 my $PCT_STEP = 5;
 my $DOUBLE_FETCH = 0;
 my $CURL_PROXY="--socks4a 127.0.0.1:9060";
@@ -246,6 +246,9 @@ sub main
         plog "DEBUG", "Reset stats\n";
         speedrace($mcp, $pct, $pct+$PCT_STEP); 
         plog "DEBUG", "speedroced\n";
+        print $mcp "CLOSEALLCIRCS\r\n";
+        $line = <$mcp>;
+        die "Error on CLOSEALLCIRCS: $line" if (not $line =~ /^250/);
         print $mcp "SAVESTATS ./data/speedraces/stats-$pct:".($pct+$PCT_STEP)."\r\n";
         $line = <$mcp>;
         die "Error on SAVESTATS: $line" if (not $line =~ /^250/);

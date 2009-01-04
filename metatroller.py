@@ -197,6 +197,10 @@ def commandloop(s, c, h):
         s.write("510 Argument expected\r\n")
     elif command == "GUARDNODES":
       s.write("250 OK\r\n")
+    elif command == "CLOSEALLCIRCS":
+      def notlambda(this): this.close_all_circuits()
+      h.schedule_immediate(notlambda)
+      s.write("250 OK\r\n")
     elif command == "SAVESTATS":
       if arg: filename = arg
       else: filename="./data/stats/stats-"+time.strftime("20%y-%m-%d-%H:%M:%S")
