@@ -28,7 +28,7 @@ import math
 from TorCtl import TorUtil, PathSupport, TorCtl, StatsSupport
 from TorCtl.TorUtil import *
 from TorCtl.PathSupport import *
-from TorCtl.TorUtil import meta_port, meta_host, control_port, control_host
+from TorCtl.TorUtil import meta_port, meta_host, control_port, control_host, control_pass
 from TorCtl.StatsSupport import StatsHandler,StatsRouter
 
 mt_version = "0.1.0-dev"
@@ -240,7 +240,7 @@ def startup():
   s.connect((control_host,control_port))
   c = PathSupport.Connection(s)
   c.debug(file("control.log", "w"))
-  c.authenticate()
+  c.authenticate(control_pass)
   h = StatsHandler(c, __selmgr)
 
   c.set_event_handler(h)

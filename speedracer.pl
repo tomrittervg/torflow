@@ -13,12 +13,13 @@ my $USER_AGENT = "Mozilla/4.0 (compatible; MSIE 6.0; Windows NT 5.1; .NET CLR 1.
 
 # http://bitter.stalin.se/torfile
 # http://www.sigma.su.se/~who/torfile
-my $URL = "https://svn.torproject.org/svn/tor/trunk/doc/design-paper/roadmap-future.pdf"; 
+my $URL = "https://svn.torproject.org/svn/tor/trunk/doc/design-paper/tor-design.pdf"; 
 my $COUNT = 200;
 my $START_PCT = 0;
 my $STOP_PCT = 80;
 my $PCT_STEP = 5;
 my $DOUBLE_FETCH = 0;
+my $CURL_PROXY="--socks4a 127.0.0.1:9060";
 
 my $LOG_LEVEL = "DEBUG";
 my %log_levels = ("DEBUG", 0, "INFO", 1, "NOTICE", 2, "WARN", 3, "ERROR", 4);
@@ -119,8 +120,8 @@ sub speedrace
             
             $t0 = [gettimeofday()];
             $ret = 
-                system("tsocks wget -U \"$USER_AGENT\" \'$URL\' -O - 2>&1 > /dev/null");
-#                system("curl $CURL_PROXY -m 600 -A \"$USER_AGENT\" \'$URL\' >& /dev/null");
+#                system("tsocks wget -U \"$USER_AGENT\" \'$URL\' -O - 2>&1 > /dev/null");
+                system("curl $CURL_PROXY -m 600 -A \"$USER_AGENT\" \'$URL\' >& /dev/null");
 
             if($ret == 2) {
                 plog "NOTICE", "wget got Sigint. Dying\n";
@@ -145,8 +146,8 @@ sub speedrace
                 $i++;
                 $t0 = [gettimeofday()];
                 $ret = 
-                system("tsocks wget -U \"$USER_AGENT\" \'$URL\' -O - 2>&1 > /dev/null");
-#                    system("curl $CURL_PROXY -m 600 -A \"$USER_AGENT\" \'$URL\' >& /dev/null");
+#                system("tsocks wget -U \"$USER_AGENT\" \'$URL\' -O - 2>&1 > /dev/null");
+                    system("curl $CURL_PROXY -m 600 -A \"$USER_AGENT\" \'$URL\' >& /dev/null");
 
                 if($ret == 2) {
                     plog "NOTICE", "wget got Sigint. Dying\n";
