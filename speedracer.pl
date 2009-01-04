@@ -11,12 +11,9 @@ my $META_HOST = "127.0.0.1";
 
 my $USER_AGENT = "Mozilla/4.0 (compatible; MSIE 6.0; Windows NT 5.1; .NET CLR 1.0.3705; .NET CLR 1.1.4322)";
 
-my $SOCKS_PROXY = "127.0.0.1:9060";
-my $CURL_PROXY = "--socks5 $SOCKS_PROXY";
-
 # http://bitter.stalin.se/torfile
 # http://www.sigma.su.se/~who/torfile
-my $URL = "http://bitter.stalin.se/torfile1"; 
+my $URL = "https://svn.torproject.org/svn/tor/trunk/doc/design-paper/roadmap-future.pdf"; 
 my $COUNT = 200;
 my $START_PCT = 0;
 my $STOP_PCT = 80;
@@ -36,7 +33,7 @@ sub plog
     $year += 1900; # lame.
     $mon += 1;
     
-    print "$level \[" . localtime() . "\]: " . $msg if($log_levels{$level} >= $log_levels{$LOG_LEVEL})
+    print "$level \[" . localtime() . "\]: " . $msg if($msg && $log_levels{$level} >= $log_levels{$LOG_LEVEL})
     #print "$level\[$year-$mon-$mday $hour:$min:$sec\]: " . $msg if($log_levels{$level} >= $log_levels{$LOG_LEVEL})
 }
 
@@ -122,7 +119,7 @@ sub speedrace
             
             $t0 = [gettimeofday()];
             $ret = 
-                system("tsocks wget -U \"$USER_AGENT\" \'$URL\' -O - >& /dev/null");
+                system("tsocks wget -U \"$USER_AGENT\" \'$URL\' -O - 2>&1 > /dev/null");
 #                system("curl $CURL_PROXY -m 600 -A \"$USER_AGENT\" \'$URL\' >& /dev/null");
 
             if($ret == 2) {
@@ -148,7 +145,7 @@ sub speedrace
                 $i++;
                 $t0 = [gettimeofday()];
                 $ret = 
-                system("tsocks wget -U \"$USER_AGENT\" \'$URL\' -O - >& /dev/null");
+                system("tsocks wget -U \"$USER_AGENT\" \'$URL\' -O - 2>&1 > /dev/null");
 #                    system("curl $CURL_PROXY -m 600 -A \"$USER_AGENT\" \'$URL\' >& /dev/null");
 
                 if($ret == 2) {
