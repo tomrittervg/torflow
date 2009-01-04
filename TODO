@@ -52,29 +52,55 @@
   - Build circuits in parallel to speed up scanning
 
 - Rewrite soat.pl in python
+   - Improve SSL cert handling/verification. openssl client is broken.
+     - The way we store certs is lame. No need to store so many copies
+       for diff IPs if they are all the same.
+     - Also verify STARTTLS is not molested on smtp, pop and imap ports
+       - Means need to make sure openssl lib supports STARTTLS
+   - Report failing nodes via SETCONF AuthDirBadExit 
+     to potentially alternate control port than used by metatroller 
    - dynamic content scanning
      - tag structure fingerprinting
      - Optionally use same origin policy for dynamic content checks
+       - Anything in same origin should not change?
      - filter out dynamic tags with multiple fetches outside of Tor?
        - Or just target specific tags and verify their content
          doesn't change
+         - css, script, and object tags and tags that can contain script 
+           (there are a LOT of these, but we'd only need to check
+            their attributes)
      - Perhaps "double check" to see if a document has changed
        outside of tor after a failure through tor
-     - GeoIP-based exit node grouping?
+     - GeoIP-based exit node grouping to reduce geo-location false positives?
+   - make sure all http headers match a real browser
+   - DNS rebind attack scan
+     - http://christ1an.blogspot.com/2007/07/dns-pinning-explained.html
+     - Basically we want to make sure that no exit nodes resolve arbitrary
+       domains to internal IP addresses
+       - http://www.faqs.org/rfcs/rfc1918.html
+     - This could be done with periodic calls to 
+       "getinfo address-mappings/cache" during scanning, or by 
+       changing metatroller to inspect STREAM NEWRESOLVE/REMAP events
+   - Improve checking of changes to documents outside of Tor
    - Make a multilingual keyword list of commonly censored terms to google for
      using this scanner
-   - Improve checking of changes to documents outside of Tor
-   - Improve SSL cert handling/verification. openssl client is broken.
-     - Also the way we store certs is lame. No need to store so many copies
-       for diff IPs if they are all the same.
-   - Parallelize scanning
+   - Check Exit policy for sketchyness. Mark BadExit if they allow:
+     - pop but not pops
+     - imap not but imaps
+     - telnet but not ssh
+     - smtp but not smtps
+     - http but not https
+     - This also means we have to verify encrypted ports actually work and
+       all exits will honor connections through them (in addition to 
+       checkign certs)
+   - Support multiple scanners in metatroller
      - Improve interaction between soat+metatroller so soat knows
        which exit was responsible for a given ip/url
    - SYN+Reverse DNS resolve scan
-   - DNS rebind attack scan
-   - make sure all http headers match a real browser
-   - Report failing nodes via SETCONF AuthDirBadExit
-    
+     - This can detect exit sniffers that reverse resolve IPs. However,
+       it is high-effort (requires someone to run reverse DNS for us), 
+       and requires keeping their IP range secret.
+ 
 - Design Reputation System
   - Emit some kind of penalty multiplier based on circuit/stream failure rate
     and the ratio of directory "observed" bandwidth vs avg stream bandwidth
@@ -104,3 +130,4 @@
 - Stopgap for bootstrapping
   - push traffic through the 0.1.1.x with 0 dirport and earlier servers 
     that claim less than 20KB traffic
+

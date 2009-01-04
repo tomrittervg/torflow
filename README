@@ -46,11 +46,18 @@ The metatroller is also pydoced. To view the documentation, you can do:
 # pydoc metatroller
 
 
-3. soat.pl
+3. soat.py
 
-SoaT scans exit nodes to verify that SSL, SSH, and Web connections
-through them are unmolested. It currently does this primarily by
-checking MD5s of these items.
+SoaT provides tests for ensuring the honesty of exit nodes. It can check for
+invalid exit policies and perform tests to see whether nodes are changing
+the requested content for several protocols. See pydoc for details:
+
+# pydoc soat
+
+Important note: soat requires the pyopenssl python module to run.
+You can check if pyopenssl package is available for your distribution
+(python-pyopenssl for debian/ubuntu, pyOpenSSL for fedora etc)
+or get it from http://pyopenssl.sourceforge.net/ 
 
 
 4. speedracer.pl

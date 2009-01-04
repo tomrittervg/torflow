@@ -1,0 +1,101 @@
+GSoc2008 Path Selection Improvements TODO
+
+May 26-Jun 10:
+- Gather Network-wide statistics on circuits construction (1.5-2wks)
+  - 10-100k circuits
+  - 'UseEntryGuards 0' using the actual Tor path selection algorithm.
+  - Tally up overall circuit failure rate and stream failure rate
+  - Plot construction time as a PDF (ie histogram with like 100ms resolution)
+    - Take snapshots of this distribution (and the failure rates) at various 
+      intervals (10 circuits, 100 circuits, 1k, 10k, etc) so we can see how 
+      long it it takes to converge.
+    - Get basic parameters of this distribution (likely avg/min/max/dev).
+  - Ensure results are easily reproducible
+
+Jun 10-Jul 1:
+- Perform same scan with 5% slices of network used as guards (3-4wks)
+  - Update TorCtl's path selection to match new Tor path selection (~1.5-2wks)
+    - TorCtl.PathSupport.BwWeightedGenerator
+    - See also routerlist.c smartlist_choose_by_bandwidth(),
+      http://archives.seul.org/or/dev/Jul-2007/msg00021.html,
+      http://archives.seul.org/or/dev/Jul-2007/msg00056.html,
+      and https://tor-svn.freehaven.net/svn/tor/trunk/doc/spec/path-spec.txt
+    - For testing, have Aleksei's scanner use new algorithm
+  - Use TorCtl.PathBuilder (or potentially metatroller.py's StatsHandler)
+    to gather failure and construction stats as above, except for 5% slices
+    of the network used as guards (1.5-2wks)
+    - use TorCtl.PathSupport.PercentileRestriction for guard RestrictionList
+      - BwWeightedRestriction for everything else
+    - Take snapshots here as well, to check for convergence
+  - Ensure results are easily reproducible
+
+Jul 1-Aug 18:
+- Patch Tor Source Code to gather these same statistics in the client (5-7wks)
+  - Add statistics (likely to circuituse.c) on construction time
+    - Coding: (2-3wks)
+      - record parameters deemed appropriate from above study (like avg & dev)
+      - Use these parameters to set CircuitBuildTimeout automatically
+        after convergence period has passed
+      - write these parameters to state file
+      - Adjust these parameters sanely in the event of circuit timeout 
+        - Whatever backoff value we choose to add in the event of 
+          timeouts should match the truncated remainder of our expected 
+          CDF of timeouts. Thus there should be minimal/no drifting.
+      - Need some intelligence not to rack up timeouts during network failure.
+        - Tor does have logic to give up on circuit creation in 
+          circuituse.c (eg see circuit_increment_failure_count()). 
+          This can potentially be leveraged.
+    - Testing: (~1.5wks, continuous running of scripts, ideally in parallel
+       with coding tasks below)
+      - Verify parameters are being saved/loaded properly
+      - Use simple fetching script, such as speedracer.pl, or perhaps
+        Aleksei's scanner (without the metatroller).
+      - Make sure timeout value and distribution parameters converge and 
+        are stable. 
+      - Determine the rate of backoff this has in the face of changing
+        network conditions. For example, how long does it take for the 
+        CircuitBuildTimeout to double, quadruple if no circuits succeed?
+        - Perhaps a latency simulator can be used?
+      - Verify that disconnecting from the network does not hugely impact
+        timeout value (or if it does, the value quickly reconverges once
+        connectivity is restored).
+  - Add statistics used to drop excessively failing guards
+    - Coding: (2-3wks)
+      - Add num_circuit_failed and num_circuit_attempted to entry_guard_t
+      - Update these values on circuit attempt and failure
+      - Write these values out to state file, read them in
+      - Add code to drop a guard if its failure rate exceeds percentiles from
+        above studies (timeouts will have to be factored in intelligently.. 
+        We will have to hold on off the details on how this is done till we 
+        have data).
+      - Don't penalize guards during periods of no network connectivity 
+        (using mechanisms from above)
+    - Testing (~1-2wks)
+      - Verify values read+written to state file properly
+      - Verify disconnected state does not cause guards to be dropped
+      - Verify timeouts are not causing guards to be dropped prematurely
+
+- Update path-spec.txt to describe new changes (~1wk, but ideally ongoing)
+
+- Patch Tor Source Code to detect local firewall (time permitting)
+  - Goal is to detect either a local firewall, or a guard biasing adversary
+    - Have an exploratory circuit get occasionally built through random 
+      guard nodes. If more than X% of the guards are unreachable, a notice 
+      would be printed to the Tor log, alerting the user to the fact that 
+      they have a local firewall and should set the firewall settings
+      in Vidalia.
+      - Bonus points if we can offer the user suggestions as to which 
+        ports should be reachable based on the guard reachability history
+      - If they have already set the FirewallPorts option and X% are still 
+        failing to connect (or X% are always timing out), the message 
+        should be a warn that the user has either set it incorrectly, or is 
+        the victim of a local adversary biasing their guards
+ 
+- Investigate sjmurdoch's PETS paper results (time permitting)
+  - Do his predictions on the distribution of latency expectations of 
+    nodes match what we can observe with TorFlow?
+    - Does this expectation of latencies say anything about the 7/8 cuttoff
+      for node usage? Maybe we want to tune slightly to avoid a lot of
+      high-latency nodes before the timeout stuff even comes into play?
+
+

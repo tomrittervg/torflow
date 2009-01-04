@@ -4,13 +4,14 @@ import socket
 import math
 #from TorCtl import *
 from TorCtl import TorUtil, PathSupport, TorCtl
+from TorCtl.TorUtil import control_port, control_host
 from TorCtl.TorUtil import *
 from TorCtl.PathSupport import *
 
 TorUtil.loglevel = "NOTICE"
 
 s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-s.connect(("127.0.0.1",9061))
+s.connect((control_host,control_port))
 c = Connection(s)
 c.debug(file("control.log", "w"))
 c.authenticate()
@@ -70,6 +71,7 @@ def check_entropy(rlist, clipping_point):
   exit_bw = 0.0
   pure_entropy = 0.0
   clipped_entropy = 0.0
+  uniform_entropy = 0.0
   for r in rlist:
     if not fast_rst.r_is_ok(r):
       continue
@@ -90,6 +92,7 @@ def check_entropy(rlist, clipping_point):
     if r.bw < 2:
       continue
     pure_entropy += (r.bw/bw)*math.log(r.bw/bw, 2)
+    uniform_entropy += (1.0/nodes)*math.log(1.0/nodes, 2)
   
     rbw = 0
     if r.bw > clipping_point:
@@ -98,6 +101,7 @@ def check_entropy(rlist, clipping_point):
       rbw = r.bw
     clipped_entropy += (rbw/clipped_bw)*math.log(rbw/clipped_bw, 2)
   
+  print "Uniform entropy: " + str(-uniform_entropy)
   print "Raw entropy: " + str(-pure_entropy)
   print "Clipped entropy: " + str(-clipped_entropy)
   print "Nodes: "+str(nodes)+", Exits: "+str(exits)+" Total bw: "+str(round(bw/(1024.0*1024),2))+", Exit Bw: "+str(round(exit_bw/(1024.0*1024),2))

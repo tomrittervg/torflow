@@ -10,6 +10,7 @@ import sys
 import socket
 import traceback
 import re
+from TorCtl.TorUtil import control_port, control_host
 from TorCtl.TorUtil import *
 import sched, time
 import thread
@@ -42,8 +43,6 @@ key_to_name = {}
 name_to_key = {}
 
 # TODO: Move these to config file
-control_host = "127.0.0.1"
-control_port = 9051
 max_detach = 3
 
 def read_routers(c, nslist):

@@ -23,15 +23,13 @@ import threading
 import traceback
 
 from TorCtl import *
+from TorCtl.TorUtil import control_port, control_host
 from TorCtl.TorUtil import *
 
 # Set the version here
 VERSION = "0.0-alpha"
 
 # Move these to a config file:
-# Tor host and port
-control_host = "127.0.0.1"
-control_port = 9051
 # Listen host and port
 listen_host = "137.226.12.177"
 listen_port = 9053
