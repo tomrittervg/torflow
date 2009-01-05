@@ -22,6 +22,7 @@ import atexit
 import threading
 import traceback
 
+sys.path.append("../")
 from TorCtl import *
 from TorCtl.TorUtil import control_port, control_host
 from TorCtl.TorUtil import *

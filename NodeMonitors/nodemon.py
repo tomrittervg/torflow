@@ -5,8 +5,9 @@
 Nodemon - Tor node monitor
 """
 
-from TorCtl import *
 import sys
+sys.path.append("../")
+from TorCtl import *
 import socket
 import traceback
 import re

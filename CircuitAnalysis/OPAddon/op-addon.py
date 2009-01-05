@@ -17,6 +17,8 @@ import threading
 import Queue
 import ConfigParser
 
+sys.path.append("../../")
+
 from TorCtl import *
 from TorCtl.TorUtil import plog, sort_list
 
@@ -25,7 +27,7 @@ from TorCtl.TorUtil import plog, sort_list
 # Set the version
 VERSION = "0.01"
 # Path to the data directory
-DATADIR = "data/op-addon/"
+DATADIR = "data/"
 # Our IP-address
 IP = None
 # Simulation modus

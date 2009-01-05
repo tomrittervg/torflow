@@ -3,6 +3,7 @@
 # [OUTPUT] one directory, with three files: StatsHandler aggregate stats file, file with all circuit events (for detailed reference), file with just buildtimes
 
 import socket,sys,time,getopt,os
+sys.path.append("../../")
 from TorCtl.TorUtil import meta_port,meta_host,control_port,control_host
 from TorCtl.StatsSupport import StatsHandler
 from TorCtl import PathSupport, TorCtl
