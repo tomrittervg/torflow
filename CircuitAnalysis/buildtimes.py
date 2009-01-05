@@ -19,7 +19,6 @@ __selmgr = PathSupport.SelectionManager(
       restrict_guards=True)
 
 class Connection(PathSupport.Connection):
-  
   """ thread quits when required number of circuits found, otherwise identical"""
   def __init__(self,s):
     PathSupport.Connection.__init__(self,s)
@@ -131,6 +130,7 @@ def getdata(filename,ncircuits):
                 TorCtl.EVENT_TYPE.STREAM_BW,
                 TorCtl.EVENT_TYPE.NEWDESC], True)
   return c
+
 def setargs():
   ncircuits = ""
   dirname = ""
@@ -182,15 +182,19 @@ def guardslice(p,ncircuits,dirname):
   
   c = getdata(basefile_name,ncircuits)
 
-  for i in range(0,ncircuits):
+  for i in xrange(0,ncircuits):
     print 'Building circuit',i
     try:
+      # XXX: hrmm.. race conditions on the path_selectior members 
+      # for the event handler thread?
+      # Probably only if streams end up coming in during this test..
       circ = c.build_circuit(__selmgr.pathlen,__selmgr.path_selector)
       c._handler.circuits[circ.circ_id] = circ
     except TorCtl.ErrorReply,e:
       plog("NOTICE","Error building circuit: " + str(e.args))
 
   while True:
+    time.sleep(1)
     if c._handler.circ_built + c._handler.circ_failed >= ncircuits:
       print 'Done gathering stats for slice',p,'to',p+5,'on',ncircuits
       print c._handler.circ_built,'built',c._handler.circ_failed,'failed' 
@@ -198,13 +202,11 @@ def guardslice(p,ncircuits,dirname):
   c._handler.write_stats(aggfile_name)
 
 def main():
-
- 
   ncircuits,p,dirname = setargs()
 
   if p is None:
     # do all
-    for p in range(0,100,5):
+    for p in xrange(0,100,5):
       guardslice(p,ncircuits,dirname)
   else:
     guardslice(p,ncircuits,dirname)
