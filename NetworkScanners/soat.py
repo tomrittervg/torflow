@@ -41,6 +41,8 @@ import urllib2
 import soatstats
 from soatstats import *
 
+sys.path.append("../")
+
 from TorCtl import TorUtil, TorCtl, PathSupport
 from TorCtl.TorUtil import meta_port, meta_host, control_port, control_host, tor_port, tor_host
 from TorCtl.TorUtil import *
@@ -49,7 +51,7 @@ from TorCtl.TorCtl import Connection, EventHandler
 
 from OpenSSL import *
 
-sys.path.append("./tools")
+sys.path.append("./libs/")
 from BeautifulSoup.BeautifulSoup import BeautifulSoup, SoupStrainer
 from SocksiPy import socks
 import Pyssh.pyssh
