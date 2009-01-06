@@ -10,10 +10,11 @@ and measures how long circuit building and downloading takes.
 """
 
 import socket
-from time import time
+from time import time,strftime
 import sys
 import urllib2
 import re
+import os
 
 sys.path.append("../")
 from TorCtl.TorUtil import plog
@@ -25,8 +26,8 @@ from SocksiPy import socks
 # Some constants for measurements
 user_agent = "Mozilla/4.0 (compatible; MSIE 6.0; Windows NT 5.1; .NET CLR 1.0.3705; .NET CLR 1.1.4322)"
 url = "http://svn.torproject.org/svn/tor/trunk/doc/design-paper/tor-design.pdf"
-count = 250
-save_every = 50
+count = 25
+save_every = 5
 start_pct = 0
 stop_pct = 78
 pct_step = 3
@@ -115,7 +116,9 @@ def speedrace(meta, skip, pct):
         plog('DEBUG', 'circuit build+fetch took ' + str(delta_build) + ' for ' + str(fetch_exit))
         
         if (successful % save_every) == 0:
-          meta.send_command_and_check('SAVESTATS ./data/speedraces/stats-'+str(pct)+':'+str(pct+pct_step)+"-"+str(successful)+"-"+time.strftime("20%y-%m-%d-%H:%M:%S"))
+          meta.send_command_and_check('CLOSEALLCIRCS')
+          meta.send_command_and_check('SAVESTATS '+os.getcwd()+'/data/speedraces/stats-'+str(pct)+':'+str(pct+pct_step)+"-"+str(successful)+"-"+strftime("20%y-%m-%d-%H:%M:%S"))
+          meta.send_command_and_check('COMMIT')
 
     plog('INFO', str(skip) + '-' + str(pct) + '% ' + str(count) + ' fetches took ' + str(attempt) + ' tries.')
 
@@ -158,7 +161,7 @@ def main(argv):
 
         plog('DEBUG', 'speedroced')
         meta.send_command_and_check('CLOSEALLCIRCS')
-        meta.send_command_and_check('SAVESTATS ./data/speedraces/stats-'+str(pct) + ':' + str(pct + pct_step)+"-"+str(count)+"-"+time.strftime("20%y-%m-%d-%H:%M:%S"))
+        meta.send_command_and_check('SAVESTATS '+os.getcwd()+'/data/speedraces/stats-'+str(pct) + ':' + str(pct + pct_step)+"-"+str(count)+"-"+strftime("20%y-%m-%d-%H:%M:%S"))
         plog('DEBUG', 'Wrote stats')
         pct += pct_step
         meta.send_command_and_check('COMMIT')
