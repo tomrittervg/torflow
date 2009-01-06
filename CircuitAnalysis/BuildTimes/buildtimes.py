@@ -4,7 +4,7 @@
 
 import socket,sys,time,getopt,os,threading
 sys.path.append("../../")
-from TorCtl.TorUtil import meta_port,meta_host,control_port,control_host
+from TorCtl.TorUtil import meta_port,meta_host,control_port,control_host,control_pass
 from TorCtl.StatsSupport import StatsHandler
 from TorCtl import PathSupport, TorCtl
 
@@ -74,6 +74,7 @@ class StatsGatherer(StatsHandler):
       if circ_event.status == 'BUILT':
         circ = self.circuits[circ_event.circ_id]
         buildtime = reduce(lambda x,y:x+y,circ.extend_times,0.0)
+        # XXX: Write out circ.extend_times as well to get per-hop data
         self.buildtimesfile.write(str(circ.circ_id) + '\t' + str(buildtime) + '\n')
         self.buildtimesfile.flush()
 
@@ -97,7 +98,7 @@ def getdata(filename,ncircuits):
   s = socket.socket(socket.AF_INET,socket.SOCK_STREAM)
   s.connect((control_host,control_port))
   c = PathSupport.Connection(s)
-  c.authenticate()  # also launches thread...
+  c.authenticate(control_pass)  # also launches thread...
   h = StatsGatherer(c,__selmgr,filename,ncircuits)
   c.set_event_handler(h)
 
@@ -179,6 +180,9 @@ def guardslice(p,s,end,ncircuits,dirname):
     print 'Building circuit',i
     try:
       def notlambda(h):
+        # XXX: reschedule if some number n circuits outstanding?
+        # This may result in a large number of circuits at once..
+        # Potentially also close cicuits periodically or on built
         circ = h.c.build_circuit(h.selmgr.pathlen, h.selmgr.path_selector)   
         h.circuits[circ.circ_id] = circ
       c._handler.schedule_low_prio(notlambda)
