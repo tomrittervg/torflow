@@ -20,31 +20,6 @@ __selmgr = PathSupport.SelectionManager(
       use_guards=True,
       restrict_guards=True)
 
-class Connection(PathSupport.Connection):
-  """ thread quits when required number of circuits found, otherwise identical"""
-  def __init__(self,s):
-    PathSupport.Connection.__init__(self,s)
-  def _loop(self):
-    while 1:
-      try:
-        isEvent, reply = self._read_reply()
-      except:
-        self._err(sys.exc_info())
-        return
-
-      if isEvent:
-        if self._handler is not None:
-          self._eventQueue.put((time.time(), reply))
-      else:
-        cb = self._queue.get() # atomic..
-        cb(reply)
-
-      if self._handler is not None:
-        if self._handler.done:
-          print 'Finished gathering',self._handler.circ_failed + self._handler.circ_succeeded,'circuits'
-          print self._handler.circ_failed,'failed',self._handler.circ_succeeded,'built'
-          return 
-
 class StatsGatherer(StatsHandler):
   def __init__(self,c, selmgr,basefile_name,nstats):
     StatsHandler.__init__(self,c, selmgr)
@@ -121,7 +96,7 @@ def getdata(filename,ncircuits):
 
   s = socket.socket(socket.AF_INET,socket.SOCK_STREAM)
   s.connect((control_host,control_port))
-  c = Connection(s)
+  c = PathSupport.Connection(s)
   c.authenticate()  # also launches thread...
   h = StatsGatherer(c,__selmgr,filename,ncircuits)
   c.set_event_handler(h)
@@ -227,12 +202,13 @@ def guardslice(p,s,end,ncircuits,dirname):
     h.write_stats(aggfile_name)
     cond.notify()
     cond.release()
-    h.done = True
     print "Wrote stats."
   cond.acquire()
   c._handler.schedule_low_prio(notlambda)
   cond.wait()
   cond.release()
+  c.close()
+  c._thread.join()
   print "Done in main."
 
 def main():
