@@ -15,6 +15,7 @@ import sys
 import urllib2
 import re
 import os
+import traceback
 
 sys.path.append("../")
 from TorCtl.TorUtil import plog
@@ -88,6 +89,10 @@ def http_request(address):
     except (IndexError, TypeError):
         plog('ERROR', 'An error occured while negotiating socks5 with Tor')
         return 0
+    except:
+        plog('ERROR', 'An unknown HTTP error occured')
+        traceback.print_exc()
+      
 
 def speedrace(meta, skip, pct):
 
@@ -175,5 +180,4 @@ if __name__ == '__main__':
         plog('INFO', "Ctrl + C was pressed. Exiting ... ")
     except Exception, e:
         plog('ERROR', "An unexpected error occured.")
-        plog('ERROR', e)
-
+        traceback.print_exc()
