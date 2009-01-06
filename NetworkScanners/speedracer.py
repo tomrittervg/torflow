@@ -111,17 +111,17 @@ def speedrace(meta, skip, pct):
         
         t0 = time()
         ret = http_request(url)
-        if ret == 1:
-            successful += 1
         delta_build = time() - t0
         if delta_build >= 550.0:
             plog('NOTICE', 'Timer exceeded limit: ' + delta_build + '\n')
 
-        build_exit = get_exit_node(meta)
-        fetch_exit = build_exit
+        if ret == 1:
+            successful += 1
+            build_exit = get_exit_node(meta)
+            plog('DEBUG', str(skip) + '-' + str(pct) + '% circuit build+fetch took ' + str(delta_build) + ' for ' + str(build_exit))
+        else:
+            plog('DEBUG', str(skip) + '-' + str(pct) + '% circuit build+fetch failed for ' + str(build_exit))
 
-        plog('DEBUG', str(skip)+'-'+str(pct)+'% circuit build+fetch took ' + str(delta_build) + ' for ' + str(fetch_exit))
-        
         if (successful % save_every) == 0:
           meta.send_command_and_check('CLOSEALLCIRCS')
           meta.send_command_and_check('SAVESTATS '+os.getcwd()+'/data/speedraces/stats-'+str(skip)+':'+str(pct)+"-"+str(successful)+"-"+race_time)
