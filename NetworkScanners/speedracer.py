@@ -89,10 +89,12 @@ def http_request(address):
     except (IndexError, TypeError):
         plog('ERROR', 'An error occured while negotiating socks5 with Tor')
         return 0
+    except KeyboardInterrupt:
+        raise KeyboardInterrupt
     except:
         plog('ERROR', 'An unknown HTTP error occured')
         traceback.print_exc()
-      
+        return 0 
 
 def speedrace(meta, skip, pct):
 
