@@ -2,6 +2,8 @@
 import sys
 import socket
 import math
+
+sys.path.append("../")
 #from TorCtl import *
 from TorCtl import TorUtil, PathSupport, TorCtl
 from TorCtl.TorUtil import control_port, control_host
@@ -43,7 +45,7 @@ def check(start, stop):
   up = 0
   
   for r in sorted_rlist:
-    if pct_rst.r_is_ok(r):
+    if pct_rst.r_is_ok(r) and fast_rst.r_is_ok(r):
       nodes += 1
       bw += r.bw
       if r.uptime > 0:
@@ -59,8 +61,8 @@ def check(start, stop):
   
   print str(start)+"-"+str(stop)+": N: "+str(nodes)+", Bw: "+str(round(bw/(1024*1024.0), 2))+", X: "+str(exits)+", XBw: "+str(round(exit_bw/(1024*1024.0),2))+", BT: "+str(heavy)+", Dirs:"+str(dirs)+", Up: "+str(round(up/nodes_up/60/60/24, 2))
 
-for i in xrange(0,80,5):
-  check(i,i+5)
+for i in xrange(0,80,3):
+  check(i,i+3)
 
 def check_entropy(rlist, clipping_point):
   clipped = 0

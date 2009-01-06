@@ -178,9 +178,6 @@ def guardslice(p,s,end,ncircuits,dirname):
   for i in xrange(0,ncircuits):
     print 'Building circuit',i
     try:
-      # XXX: hrmm.. race conditions on the path_selectior members 
-      # for the event handler thread?
-      # Probably only if streams end up coming in during this test..
       def notlambda(h):
         circ = h.c.build_circuit(h.selmgr.pathlen, h.selmgr.path_selector)   
         h.circuits[circ.circ_id] = circ

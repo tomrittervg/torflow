@@ -303,6 +303,8 @@ if __name__ == "__main__":
     stddev = s.stddev()
     median = s.median()
     mode = s.mode() # relies on s.makehistogram for buckets
+
+    # XXX: Try EZfit and/or frechet function
     parK = s.paretoK(mode)
     modeN = s.modeN(mode)
     modeMean = s.modeMean(mode)
@@ -320,7 +322,8 @@ if __name__ == "__main__":
     if graph:
       # plot histogram
       # args: values, # bins, normalize y/n, width of bars
-      pylab.hist(s.values,len(s.values) / res, normed=True,width=5)
+      pylab.hist(s.values,(max(s.values)-min(s.values))/res, 
+                 normed=True,width=5)
 
       #plot Pareto curve
       X = pylab.arange(mode, max(s.values), 1)
