@@ -115,9 +115,9 @@ def speedrace(meta, skip, pct):
         if delta_build >= 550.0:
             plog('NOTICE', 'Timer exceeded limit: ' + delta_build + '\n')
 
+        build_exit = get_exit_node(meta)
         if ret == 1:
             successful += 1
-            build_exit = get_exit_node(meta)
             plog('DEBUG', str(skip) + '-' + str(pct) + '% circuit build+fetch took ' + str(delta_build) + ' for ' + str(build_exit))
         else:
             plog('DEBUG', str(skip) + '-' + str(pct) + '% circuit build+fetch failed for ' + str(build_exit))
