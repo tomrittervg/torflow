@@ -96,8 +96,8 @@ def speedrace(meta, skip, pct):
 
     attempt = 0
     successful = 0
+    race_time = strftime("20%y-%m-%d-%H:%M:%S")
     while successful < count:
-
         meta.send_command_and_check('NEWNYM')
         
         attempt += 1
@@ -113,11 +113,11 @@ def speedrace(meta, skip, pct):
         build_exit = get_exit_node(meta)
         fetch_exit = build_exit
 
-        plog('DEBUG', 'circuit build+fetch took ' + str(delta_build) + ' for ' + str(fetch_exit))
+        plog('DEBUG', str(skip)+'-'+str(pct)+'% circuit build+fetch took ' + str(delta_build) + ' for ' + str(fetch_exit))
         
         if (successful % save_every) == 0:
           meta.send_command_and_check('CLOSEALLCIRCS')
-          meta.send_command_and_check('SAVESTATS '+os.getcwd()+'/data/speedraces/stats-'+str(pct)+':'+str(pct+pct_step)+"-"+str(successful)+"-"+strftime("20%y-%m-%d-%H:%M:%S"))
+          meta.send_command_and_check('SAVESTATS '+os.getcwd()+'/data/speedraces/stats-'+str(skip)+':'+str(pct)+"-"+str(successful)+"-"+race_time)
           meta.send_command_and_check('COMMIT')
 
     plog('INFO', str(skip) + '-' + str(pct) + '% ' + str(count) + ' fetches took ' + str(attempt) + ' tries.')
@@ -149,22 +149,23 @@ def main(argv):
     socks.setdefaultproxy(socks.PROXY_TYPE_SOCKS5, tor_host, tor_port)
     socket.socket = socks.socksocket
 
-    pct = start_pct
-    plog('INFO', 'Beginning time loop')
-    
-    while pct < stop_pct:
-        meta.send_command_and_check('RESETSTATS')
-        meta.send_command_and_check('COMMIT')
-        plog('DEBUG', 'Reset stats')
+    while True:
+      pct = start_pct
+      plog('INFO', 'Beginning time loop')
+      
+      while pct < stop_pct:
+          meta.send_command_and_check('RESETSTATS')
+          meta.send_command_and_check('COMMIT')
+          plog('DEBUG', 'Reset stats')
 
-        speedrace(meta, pct, pct + pct_step)
+          speedrace(meta, pct, pct + pct_step)
 
-        plog('DEBUG', 'speedroced')
-        meta.send_command_and_check('CLOSEALLCIRCS')
-        meta.send_command_and_check('SAVESTATS '+os.getcwd()+'/data/speedraces/stats-'+str(pct) + ':' + str(pct + pct_step)+"-"+str(count)+"-"+strftime("20%y-%m-%d-%H:%M:%S"))
-        plog('DEBUG', 'Wrote stats')
-        pct += pct_step
-        meta.send_command_and_check('COMMIT')
+          plog('DEBUG', 'speedroced')
+          meta.send_command_and_check('CLOSEALLCIRCS')
+          meta.send_command_and_check('SAVESTATS '+os.getcwd()+'/data/speedraces/stats-'+str(pct) + ':' + str(pct + pct_step)+"-"+str(count)+"-"+strftime("20%y-%m-%d-%H:%M:%S"))
+          plog('DEBUG', 'Wrote stats')
+          pct += pct_step
+          meta.send_command_and_check('COMMIT')
 
 # initiate the program
 if __name__ == '__main__':
