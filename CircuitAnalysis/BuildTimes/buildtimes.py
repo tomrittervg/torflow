@@ -2,6 +2,15 @@
 # uses metatroller to collect circuit build times for 5% slices of guard nodes
 # [OUTPUT] one directory, with three files: StatsHandler aggregate stats file, file with all circuit events (for detailed reference), file with just buildtimes
 
+try:
+  import psyco
+  psyco.full()
+except ImportError:
+  #print 'Psyco not installed, the program will just run slower'
+  pass
+
+#import profile
+
 import socket,sys,time,getopt,os,threading
 sys.path.append("../../")
 import TorCtl
@@ -23,7 +32,7 @@ __selmgr = PathSupport.SelectionManager(
 
 # Maximum number of concurrent circuits to build:
 # (Gets divided by the number of slices)
-max_circuits = 60
+max_circuits = 30
 
 class StatsGatherer(StatsHandler):
   def __init__(self,c, selmgr,basefile_name,nstats):
@@ -41,6 +50,8 @@ class StatsGatherer(StatsHandler):
     # we track them in self.othercircs: a dictionary of list of events
     self.othercircs = {} 
 
+  # XXX: This is broken... Do full metatroller debug logging and
+  # also do a control.log
   def circ_event_str(self,now,circ_event):
     """ returns an string summarizing the circuit event"""
     output = [circ_event.event_name, str(circ_event.circ_id),
@@ -90,6 +101,7 @@ class StatsGatherer(StatsHandler):
       self.detailfile.flush()
 
       # check to see if done gathering data
+      # XXX: Why are we missing these sometimes?
       if circ_event.status == 'BUILT': 
         self.circ_built += 1
         self.close_circuit(circ_event.circ_id)
@@ -236,5 +248,7 @@ def main():
 
   for p in xrange(begin,end,pct):
     guardslice(p,p+pct,end,ncircuits,dirname)
+
 if __name__ == '__main__':
   main()
+  #profile.run("main()", "prof.out")
