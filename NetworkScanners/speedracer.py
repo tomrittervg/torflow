@@ -113,7 +113,7 @@ def speedrace(meta, skip, pct):
         ret = http_request(url)
         delta_build = time() - t0
         if delta_build >= 550.0:
-            plog('NOTICE', 'Timer exceeded limit: ' + delta_build + '\n')
+            plog('NOTICE', 'Timer exceeded limit: ' + str(delta_build) + '\n')
 
         build_exit = get_exit_node(meta)
         if ret == 1:
