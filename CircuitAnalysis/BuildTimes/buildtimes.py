@@ -32,57 +32,21 @@ __selmgr = PathSupport.SelectionManager(
 
 # Maximum number of concurrent circuits to build:
 # (Gets divided by the number of slices)
-max_circuits = 30
+max_circuits = 60
 
 class StatsGatherer(StatsHandler):
   def __init__(self,c, selmgr,basefile_name,nstats):
     StatsHandler.__init__(self,c, selmgr)
-
-    self.detailfile = open(basefile_name + '.detail','w')
     self.extendtimesfile = open(basefile_name + '.extendtimes','w')
     self.buildtimesfile = open(basefile_name + '.buildtimes','w')
     self.circ_built = 0
     self.nstats = nstats
     self.done = False
 
-    # sometimes relevant CircEvents occur before the circ_id is 
-    # added to self.circuits, which means they get discarded
-    # we track them in self.othercircs: a dictionary of list of events
-    self.othercircs = {} 
-
-  # XXX: This is broken... Do full metatroller debug logging and
-  # also do a control.log
-  def circ_event_str(self,now,circ_event):
-    """ returns an string summarizing the circuit event"""
-    output = [circ_event.event_name, str(circ_event.circ_id),
-        circ_event.status]
-    if circ_event.path:
-      output.append(",".join(circ_event.path))
-    if circ_event.reason:
-      output.append("REASON=" + circ_event.reason)
-    if circ_event.remote_reason:
-      output.append("REMOTE_REASON=" + circ_event.remote_reason)
-    output = [now]+ output
-    outstr = ' '.join(output) + '\n'
-    return outstr
- 
-  def add_missed_events(self,circ_id):
-    """ if there are events for a circuit that were missed, add them"""
-    if circ_id in self.othercircs:
-      for e_str in self.othercircs[circ_id]:
-        self.detailfile.write(e_str)
-      self.detailfile.flush()
-      # now in self.circuits, so can delete it from self.othercircs
-      del self.othercircs[circ_id]
-      
 
   def circ_status_event(self, circ_event):
     """ handles circuit status event """
-    now = time.time()
-    now = '%3.10f' % now
-
     if circ_event.circ_id in self.circuits:
-      self.add_missed_events(circ_event.circ_id)
       if circ_event.status == 'EXTENDED':
         extend_time = circ_event.arrived_at-self.circuits[circ_event.circ_id].last_extended_at
         self.circuits[circ_event.circ_id].extend_times.append(extend_time)
@@ -96,21 +60,10 @@ class StatsGatherer(StatsHandler):
         self.buildtimesfile.write(str(circ.circ_id) + '\t' + str(buildtime) + '\n')
         self.buildtimesfile.flush()
 
-      outstr = self.circ_event_str(now,circ_event)
-      self.detailfile.write(outstr)
-      self.detailfile.flush()
-
       # check to see if done gathering data
-      # XXX: Why are we missing these sometimes?
       if circ_event.status == 'BUILT': 
         self.circ_built += 1
         self.close_circuit(circ_event.circ_id)
-    else:
-      #eventstr = 
-      #if circ_event.circ_id in self.othercircs.keys():
-      if circ_event.circ_id not in self.othercircs:
-        self.othercircs[circ_event.circ_id] = []
-      self.othercircs[circ_event.circ_id] += [self.circ_event_str(now,circ_event)]
     StatsHandler.circ_status_event(self,circ_event)
 
 def open_controller(filename,ncircuits):
@@ -120,6 +73,7 @@ def open_controller(filename,ncircuits):
   s.connect((control_host,control_port))
   c = PathSupport.Connection(s)
   c.authenticate(control_pass)  # also launches thread...
+  c.debug(file(filename+".log", "w"))
   h = StatsGatherer(c,__selmgr,filename,ncircuits)
   c.set_event_handler(h)
 
@@ -204,9 +158,9 @@ def guardslice(p,s,end,ncircuits,dirname):
     try:
       def circuit_builder(h):
         # reschedule if some number n circuits outstanding
-        if h.circ_count - h.circ_succeeded > max_circuits:
+        if h.circ_count - h.circ_succeeded - h.circ_failed > max_circuits:
           from TorCtl.TorUtil import plog
-          plog("DEBUG", "Too many circuits: "+str(h.circ_count-h.circ_succeeded)+", delaying build")
+          plog("DEBUG", "Too many circuits: "+str(h.circ_count-h.circ_succeeded-h.circ_failed)+", delaying build")
           h.schedule_low_prio(circuit_builder)
           return
         circ = h.c.build_circuit(h.selmgr.pathlen, h.selmgr.path_selector)   
