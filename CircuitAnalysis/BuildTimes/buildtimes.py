@@ -37,6 +37,7 @@ max_circuits = 60
 class StatsGatherer(StatsHandler):
   def __init__(self,c, selmgr,basefile_name,nstats):
     StatsHandler.__init__(self,c, selmgr)
+    self.nodesfile = open(basefile_name + '.nodes','w')
     self.extendtimesfile = open(basefile_name + '.extendtimes','w')
     self.buildtimesfile = open(basefile_name + '.buildtimes','w')
     self.circ_built = 0
@@ -57,6 +58,8 @@ class StatsGatherer(StatsHandler):
         buildtime = reduce(lambda x,y:x+y,circ.extend_times,0.0)
         self.extendtimesfile.write(str(circ.circ_id)+'\t'+'\t'.join(map(str, circ.extend_times))+'\n')
         self.extendtimesfile.flush()
+        self.nodesfile.write(str(circ.circ_id)+'\t'+'\t'.join(self.circuits[circ_event.circ_id].id_path())+'\n')
+        self.nodesfile.flush()
         self.buildtimesfile.write(str(circ.circ_id) + '\t' + str(buildtime) + '\n')
         self.buildtimesfile.flush()
 
@@ -93,7 +96,7 @@ def getargs():
     usage()
     sys.exit(2)
   try:
-    opts,args = getopt.getopt(sys.argv[1:],"b:e:s:n:d:")
+    opts,args = getopt.getopt(sys.argv[1:],"b:e:s:n:d:g")
   except getopt.GetoptError,err:
     print str(err)
     usage()
@@ -102,6 +105,7 @@ def getargs():
   end=80
   slice=5
   dirname=""
+  guard_slices = False
   for o,a in opts:
     if o == '-n': 
       if a.isdigit(): ncircuits = int(a)
@@ -116,16 +120,18 @@ def getargs():
     elif o == '-s':
       if a.isdigit(): slice = int(a)
       else: usage()
+    elif o == '-g':
+      guard_slices = True
     else:
       assert False, "Bad option"
-  return ncircuits,begin,end,slice,dirname
+  return guard_slices,ncircuits,begin,end,slice,dirname
 
 def usage():
-    print 'usage: statscontroller.py [-b <#begin percentile>] [-e <end percentile] [-s <percentile slice>] -n <# circuits> -d <output dir name>'
+    print 'usage: statscontroller.py [-b <#begin percentile>] [-e <end percentile] [-s <percentile slice size>] [-g] -n <# circuits> -d <output dir name>'
     sys.exit(1)
 
 
-def guardslice(p,s,end,ncircuits,dirname):
+def guardslice(guard_slices,p,s,end,ncircuits,dirname):
 
   print 'Making new directory:',dirname
   if not os.path.isdir(dirname):
@@ -142,7 +148,9 @@ def guardslice(p,s,end,ncircuits,dirname):
   # Ok, since we create a new StatsGatherer each segment..
   __selmgr.percent_fast = s
   __selmgr.percent_skip = p
-  if s-p >= end:
+  __selmgr.restrict_guards_only = guard_slices
+
+  if s-p >= end or guard_slices:
     print 'Using bandwidth weighted selection'
     __selmgr.uniform = False 
     __selmgr.use_guards = True
@@ -193,15 +201,15 @@ def guardslice(p,s,end,ncircuits,dirname):
   print "Done in main."
 
 def main():
-  ncircuits,begin,end,pct,dirname = getargs()
+  guard_slices,ncircuits,begin,end,pct,dirname = getargs()
   
-  global max_circuits
-  max_circuits = max_circuits/((end-begin)/pct)
+  #global max_circuits
+  #max_circuits = max_circuits/((end-begin)/pct)
 
   print "Using max_circuits: "+str(max_circuits)
 
   for p in xrange(begin,end,pct):
-    guardslice(p,p+pct,end,ncircuits,dirname)
+    guardslice(guard_slices,p,p+pct,end,ncircuits,dirname)
 
 if __name__ == '__main__':
   main()
