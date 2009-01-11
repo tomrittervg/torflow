@@ -37,6 +37,7 @@ import sys
 import time
 import urllib
 import urllib2
+import traceback
 
 import soatstats
 from soatstats import *
@@ -61,8 +62,8 @@ import Pyssh.pyssh
 #
 
 # these are used when searching for 'random' urls for testing
-wordlist_file = './wordlist.txt'; 
-allowed_filetypes = ['all','pdf'] 
+wordlist_file = './wordlist.txt';
+allowed_filetypes = ['all','pdf']
 result_per_type = 5 
 
 #
@@ -1012,6 +1013,12 @@ class ExitNodeScanner:
         except (IndexError, TypeError):
             plog('ERROR', 'An error occured while negotiating socks5 with Tor')
             return 0
+        except KeyboardInterrupt:
+            raise KeyboardInterrupt
+        except:
+            plog('ERROR', 'An unknown HTTP error occured')
+            traceback.print_exc()
+            return 0
 
         return content
 
@@ -1365,4 +1372,4 @@ if __name__ == '__main__':
         plog('INFO', "Ctrl + C was pressed. Exiting ... ")
     except Exception, e:
         plog('ERROR', "An unexpected error occured.")
-        plog('ERROR', e)
+        traceback.print_exc()
