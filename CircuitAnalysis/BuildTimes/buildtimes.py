@@ -11,20 +11,24 @@ except ImportError:
 
 #import profile
 
-import socket,sys,time,getopt,os,threading
+import socket,sys,time,getopt,os,threading,atexit
 sys.path.append("../../")
 import TorCtl
 from TorCtl.TorUtil import meta_port,meta_host,control_port,control_host,control_pass
 from TorCtl.StatsSupport import StatsHandler
 from TorCtl import PathSupport, TorCtl
+from TorCtl.PathSupport import ExitPolicyRestriction,OrNodeRestriction
 
+# Note: It is not recommended to set order_exits to True, because
+# of the lifetime differences between this __selmgr and the 
+# StatsGatherer when slicing the network into segments.
 __selmgr = PathSupport.SelectionManager(
       pathlen=3,
-      order_exits=True,
+      order_exits=False, 
       percent_fast=80,
       percent_skip=0,
       min_bw=1024,
-      use_all_exits=True,
+      use_all_exits=False,
       uniform=True,
       use_exit=None,
       use_guards=True,
@@ -33,6 +37,9 @@ __selmgr = PathSupport.SelectionManager(
 # Maximum number of concurrent circuits to build:
 # (Gets divided by the number of slices)
 max_circuits = 60
+
+# Original value of FetchUselessDescriptors
+FUDValue = None
 
 class StatsGatherer(StatsHandler):
   def __init__(self,c, selmgr,basefile_name,nstats):
@@ -43,6 +50,16 @@ class StatsGatherer(StatsHandler):
     self.circ_built = 0
     self.nstats = nstats
     self.done = False
+    # Set up the exit restriction to include either 443 or 80 exits.
+    # Since Tor dynamically pre-builds circuits depending on port usage, and 
+    # these are the two most commonly used user ports, this seems as good 
+    # first approximation to model the dynamic behavior of a real client's 
+    # circuit choice. 
+    self.selmgr.exit_rstr.del_restriction(ExitPolicyRestriction)
+    self.selmgr.exit_rstr.del_restriction(OrNodeRestriction)
+    self.selmgr.exit_rstr.add_restriction(OrNodeRestriction([
+                  ExitPolicyRestriction("255.255.255.255", 80), 
+                  ExitPolicyRestriction("255.255.255.255", 443)]))
 
 
   def circ_status_event(self, circ_event):
@@ -69,6 +86,16 @@ class StatsGatherer(StatsHandler):
         self.close_circuit(circ_event.circ_id)
     StatsHandler.circ_status_event(self,circ_event)
 
+def cleanup():
+  s = socket.socket(socket.AF_INET,socket.SOCK_STREAM)
+  s.connect((control_host,control_port))
+  c = PathSupport.Connection(s)
+  c.authenticate(control_pass)  # also launches thread...
+  global FUDValue
+  from TorCtl.TorUtil import plog
+  plog("INFO", "Resetting FetchUselessDescriptors="+FUDValue)
+  c.set_option("FetchUselessDescriptors", FUDValue) 
+
 def open_controller(filename,ncircuits):
   """ starts stat gathering thread """
 
@@ -79,6 +106,10 @@ def open_controller(filename,ncircuits):
   c.debug(file(filename+".log", "w"))
   h = StatsGatherer(c,__selmgr,filename,ncircuits)
   c.set_event_handler(h)
+  global FUDValue
+  if not FUDValue:
+    FUDValue = c.get_option("FetchUselessDescriptors")[0][1]
+  c.set_option("FetchUselessDescriptors", "1") 
 
   c.set_events([TorCtl.EVENT_TYPE.STREAM,
                 TorCtl.EVENT_TYPE.BW,
@@ -130,7 +161,6 @@ def usage():
     print 'usage: statscontroller.py [-b <#begin percentile>] [-e <end percentile] [-s <percentile slice size>] [-g] -n <# circuits> -d <output dir name>'
     sys.exit(1)
 
-
 def guardslice(guard_slices,p,s,end,ncircuits,dirname):
 
   print 'Making new directory:',dirname
@@ -158,9 +188,14 @@ def guardslice(guard_slices,p,s,end,ncircuits,dirname):
     print 'Using uniform weighted selection'
     __selmgr.uniform = True
     __selmgr.use_guards = False
- 
+
+  # Need to kill the old ordered exit generator because it has
+  # an old sorted router list.
+  __selmgr.__ordered_exit_gen = None
+
   c = open_controller(basefile_name,ncircuits)
 
+ 
   for i in xrange(0,ncircuits):
     print 'Building circuit',i
     try:
@@ -202,7 +237,8 @@ def guardslice(guard_slices,p,s,end,ncircuits,dirname):
 
 def main():
   guard_slices,ncircuits,begin,end,pct,dirname = getargs()
-  
+ 
+  atexit.register(cleanup) 
   #global max_circuits
   #max_circuits = max_circuits/((end-begin)/pct)
 
