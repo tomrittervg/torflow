@@ -224,14 +224,16 @@ def commandloop(s, c, h):
       s.write("500 "+buf+" is not a metatroller command\r\n")
   s.close()
 
-def cleanup(c, s):
+def cleanup(c, s, f):
+  plog("INFO", "Resetting __LeaveStreamsUnattached=0 and FetchUselessDescriptors="+f)
   c.set_option("__LeaveStreamsUnattached", "0")
+  c.set_option("FetchUselessDescriptors", f) 
   s.close()
 
-def listenloop(c, h):
+def listenloop(c, h, f):
   """Loop that handles metatroller commands"""
   srv = ListenSocket(meta_host, meta_port)
-  atexit.register(cleanup, *(c, srv))
+  atexit.register(cleanup, *(c, srv, f))
   while 1:
     client = srv.accept()
     if not client: break
@@ -255,10 +257,11 @@ def startup():
           TorCtl.EVENT_TYPE.CIRC,
           TorCtl.EVENT_TYPE.STREAM_BW,
           TorCtl.EVENT_TYPE.NEWDESC], True)
-  c.set_option("__LeaveStreamsUnattached", "1")
+  c.set_option("__LeaveStreamsUnattached", "1") 
+  f = c.get_option("FetchUselessDescriptors")[0][1]
+  c.set_option("FetchUselessDescriptors", "1") 
 
-
-  return (c,h)
+  return (c,h,f)
 
 def main(argv):
   listenloop(*startup())

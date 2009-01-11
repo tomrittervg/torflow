@@ -9,14 +9,24 @@ from TorCtl import TorUtil, PathSupport, TorCtl
 from TorCtl.TorUtil import control_port, control_host
 from TorCtl.TorUtil import *
 from TorCtl.PathSupport import *
+import atexit
 
 TorUtil.loglevel = "NOTICE"
+
+
+def cleanup(c, f):
+  print "Resetting FetchUselessDescriptors to "+f
+  c.set_option("FetchUselessDescriptors", f) 
+  
 
 s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 s.connect((control_host,control_port))
 c = Connection(s)
 c.debug(file("control.log", "w"))
 c.authenticate()
+FUDValue = c.get_option("FetchUselessDescriptors")[0][1]
+c.set_option("FetchUselessDescriptors", "1") 
+atexit.register(cleanup, *(c, FUDValue))
 nslist = c.get_network_status()
 sorted_rlist = c.read_routers(c.get_network_status())
 
