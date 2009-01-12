@@ -18,6 +18,7 @@ from TorCtl.TorUtil import meta_port,meta_host,control_port,control_host,control
 from TorCtl.StatsSupport import StatsHandler
 from TorCtl import PathSupport, TorCtl
 from TorCtl.PathSupport import ExitPolicyRestriction,OrNodeRestriction
+from TorCtl.TorUtil import plog
 
 # Note: It is not recommended to set order_exits to True, because
 # of the lifetime differences between this __selmgr and the 
