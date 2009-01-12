@@ -180,6 +180,7 @@ if __name__ == '__main__':
         main(sys.argv)
     except KeyboardInterrupt:
         plog('INFO', "Ctrl + C was pressed. Exiting ... ")
+        traceback.print_exc()
     except Exception, e:
         plog('ERROR', "An unexpected error occured.")
         traceback.print_exc()

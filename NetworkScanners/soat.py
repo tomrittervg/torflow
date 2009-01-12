@@ -1179,7 +1179,7 @@ def main(argv):
         print '--dnsrebind (works with the ssl test)'
         print '--policies (~works)'
         print ''
-        sys.exit(0)
+        return
 
     opts = ['ssl','http','ssh','smtp','pop','imap','dns','dnsrebind','policies']
     flags, trailer = getopt.getopt(argv[1:], [], opts)
@@ -1212,7 +1212,7 @@ def main(argv):
     # maybe only the consistency test was required
     if not (do_ssl or do_http or do_ssh or do_smtp or do_pop or do_imap or do_dns_basic):
         plog('INFO', 'Done.')
-        sys.exit(0)
+        return
 
     # declare some variables and assign values if neccessary
     ssl_nodes = http_nodes = ssh_nodes = smtp_nodes = pop_nodes = imap_nodes = dns_nodes = []
@@ -1370,6 +1370,7 @@ if __name__ == '__main__':
         main(sys.argv)
     except KeyboardInterrupt:
         plog('INFO', "Ctrl + C was pressed. Exiting ... ")
+        traceback.print_exc()
     except Exception, e:
         plog('ERROR', "An unexpected error occured.")
         traceback.print_exc()
