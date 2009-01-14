@@ -55,7 +55,7 @@ class StatsGatherer(StatsHandler):
     # Since Tor dynamically pre-builds circuits depending on port usage, and 
     # these are the two most commonly used user ports, this seems as good 
     # first approximation to model the dynamic behavior of a real client's 
-    # circuit choice. 
+    # circuit choice.
     self.selmgr.exit_rstr.del_restriction(ExitPolicyRestriction)
     self.selmgr.exit_rstr.del_restriction(OrNodeRestriction)
     self.selmgr.exit_rstr.add_restriction(OrNodeRestriction([
@@ -135,7 +135,7 @@ def getargs():
   ncircuits=None
   begin=0
   end=80
-  slice=5
+  pslice=5
   dirname=""
   guard_slices = False
   for o,a in opts:
@@ -150,13 +150,13 @@ def getargs():
       if a.isdigit(): end = int(a)
       else: usage()
     elif o == '-s':
-      if a.isdigit(): slice = int(a)
+      if a.isdigit(): pslice = int(a)
       else: usage()
     elif o == '-g':
       guard_slices = True
     else:
       assert False, "Bad option"
-  return guard_slices,ncircuits,begin,end,slice,dirname
+  return guard_slices,ncircuits,begin,end,pslice,dirname
 
 def usage():
     print 'usage: statscontroller.py [-b <#begin percentile>] [-e <end percentile] [-s <percentile slice size>] [-g] -n <# circuits> -d <output dir name>'
@@ -173,7 +173,11 @@ def guardslice(guard_slices,p,s,end,ncircuits,dirname):
   print 'Guard percentiles:',p,'to',s
   print '#Circuits',ncircuits
 
-  basefile_name = dirname + '/' + str(p) + '-' + str(s) + '.' + str(ncircuits)
+  if guard_slices:
+    basefile_name = dirname + '/' + str(p) + '-' + str(s) + 'g.' + str(ncircuits)
+  else: 
+    basefile_name = dirname + '/' + str(p) + '-' + str(s) + '.' + str(ncircuits)
+
   aggfile_name =  basefile_name + '.agg'
 
   # Ok, since we create a new StatsGatherer each segment..

@@ -110,8 +110,11 @@ def main():
         print "Exit policy:"
         for e in router_map[nodes[2]].exitpolicy:
           print " "+str(e)
+        print " 80: "+str(router_map[nodes[2]].will_exit_to("255.255.255.255",
+80))
+        print " 443: "+str(router_map[nodes[2]].will_exit_to("255.255.255.255", 443))
 
-    
+
   # FIXME: Compare circuits/chosen to %bw. Multiply by pct_min+max
   # FIXME: Verify by guard+exit weighting?
   for i in xrange(0, 3):
@@ -120,7 +123,7 @@ def main():
     unchosen = 0
     for r in routers:
       if r.chosen[i] == 0: unchosen+=1
-      else: print r.idhex+" chosen: "+str(r.chosen[i]) 
+      else: print r.idhex+" "+str((100.0*r.list_rank)/len(routers))+"%, chosen: "+str(r.chosen[i])
 
     print "Nodes not chosen for this hop: "+str(unchosen)+"/"+str(len(routers))
 
