@@ -648,6 +648,11 @@ class PingHandler(PathSupport.StreamHandler):
     self.sorted_circs = sort_list(self.circuits.values(), notlambda)
     plog("DEBUG", "Refreshed sorted list of circuits")
 
+  def circuit_list(self):
+    "Return an iterator or a list of circuits prioritized for stream selection"
+    if self.sorted_circs: return self.sorted_circs
+    else: return self.circuits.itervalues()
+
   def print_circuits(self, list=None):
     """ Print out the circuits + some info, optionally pass a (sorted) list """
     if list: circs = list
