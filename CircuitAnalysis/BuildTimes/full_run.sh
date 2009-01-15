@@ -1,12 +1,32 @@
 #!/bin/sh
-./buildtimes.py -n 20000 -d slices/ -s 80 >& bt.log &
-./buildtimes.py -n 10000 -s 3 -g -e 50 -d ./slices >& bt.log &
-./buildtimes.py -n 10000 -s 3 -e 80 -d ./slices >& bt.log &
+
+mkdir slices
+
+./buildtimes.py -n 10000 -s 3 -e 80 -d ./slices >& ./slices/bt-slices.log
 
 # Check all slices
 for f in ./slices/*.nodes
 do
   ./dist_check.py -f ${f} >& ${f}.check
+  mv ${f} ${f}.checked
+done
+
+./buildtimes.py -n 10000 -s 3 -g -e 50 -d ./slices >& ./slices/bt-guards.log
+
+# Check all slices
+for f in ./slices/*.nodes
+do
+  ./dist_check.py -f ${f} >& ${f}.check
+  mv ${f} ${f}.checked
+done
+
+./buildtimes.py -n 20000 -d slices/ -s 80 >& ./slices/bt-all.log
+
+# Check all slices
+for f in ./slices/*.nodes
+do
+  ./dist_check.py -f ${f} >& ${f}.check
+  mv ${f} ${f}.checked
 done
 
 mv slices slices-`date +%Y-%m-%d-%H:%M`
