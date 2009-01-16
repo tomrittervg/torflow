@@ -46,6 +46,7 @@ class StatsGatherer(StatsHandler):
   def __init__(self,c, selmgr,basefile_name,nstats):
     StatsHandler.__init__(self,c, selmgr)
     self.nodesfile = open(basefile_name + '.nodes','w')
+    self.failfile = open(basefile_name + '.failed','w')
     self.extendtimesfile = open(basefile_name + '.extendtimes','w')
     self.buildtimesfile = open(basefile_name + '.buildtimes','w')
     self.circ_built = 0
@@ -61,8 +62,8 @@ class StatsGatherer(StatsHandler):
     self.selmgr.exit_rstr.add_restriction(OrNodeRestriction([
                   ExitPolicyRestriction("255.255.255.255", 80), 
                   ExitPolicyRestriction("255.255.255.255", 443)]))
-
-
+    self.selmgr.path_selector.exit_gen.rebuild()
+    
   def circ_status_event(self, circ_event):
     """ handles circuit status event """
     if circ_event.circ_id in self.circuits:
@@ -76,7 +77,7 @@ class StatsGatherer(StatsHandler):
         buildtime = reduce(lambda x,y:x+y,circ.extend_times,0.0)
         self.extendtimesfile.write(str(circ.circ_id)+'\t'+'\t'.join(map(str, circ.extend_times))+'\n')
         self.extendtimesfile.flush()
-        self.nodesfile.write(str(circ.circ_id)+'\t'+'\t'.join(self.circuits[circ_event.circ_id].id_path())+'\n')
+        self.nodesfile.write(str(circ.circ_id)+'\t'+'\t'.join(circ.id_path())+'\n')
         self.nodesfile.flush()
         self.buildtimesfile.write(str(circ.circ_id) + '\t' + str(buildtime) + '\n')
         self.buildtimesfile.flush()
@@ -85,6 +86,12 @@ class StatsGatherer(StatsHandler):
       if circ_event.status == 'BUILT': 
         self.circ_built += 1
         self.close_circuit(circ_event.circ_id)
+
+      if circ_event.status == 'FAILED':
+        circ = self.circuits[circ_event.circ_id]
+        # Record it to the failed file..
+        self.failfile.write(str(circ.circ_id)+'\t'+'\t'.join(circ.id_path())+'\n')
+        self.failfile.flush()
     StatsHandler.circ_status_event(self,circ_event)
 
 def cleanup():
@@ -179,6 +186,7 @@ def guardslice(guard_slices,p,s,end,ncircuits,dirname):
     basefile_name = dirname + '/' + str(p) + '-' + str(s) + '.' + str(ncircuits)
 
   aggfile_name =  basefile_name + '.agg'
+  uptime_name = basefile_name + '.uptime'
 
   # Ok, since we create a new StatsGatherer each segment..
   __selmgr.percent_fast = s
@@ -229,6 +237,14 @@ def guardslice(guard_slices,p,s,end,ncircuits,dirname):
     cond.acquire()
     h.close_all_circuits()
     h.write_stats(aggfile_name)
+
+    f = open(uptime_name, "w")
+    # Write out idhex+uptime info
+    for r in h.sorted_r:
+      f.write(r.idhex+"\t"+str(r.current_uptime())+"\n")
+
+    f.flush()
+    f.close()
     cond.notify()
     cond.release()
     print "Wrote stats."

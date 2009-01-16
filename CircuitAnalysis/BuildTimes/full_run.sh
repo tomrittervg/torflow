@@ -7,7 +7,8 @@ mkdir slices
 # Check all slices
 for f in ./slices/*.nodes
 do
-  ./dist_check.py -f ${f} >& ${f}.check
+  base = `basename ${f} .nodes`
+  ./dist_check.py -f ${base} >& ${base}.check
   mv ${f} ${f}.checked
 done
 
@@ -16,7 +17,8 @@ done
 # Check all slices
 for f in ./slices/*.nodes
 do
-  ./dist_check.py -f ${f} >& ${f}.check
+  base = `basename ${f} .nodes`
+  ./dist_check.py -f $base >& ${base}.check
   mv ${f} ${f}.checked
 done
 
@@ -25,7 +27,8 @@ done
 # Check all slices
 for f in ./slices/*.nodes
 do
-  ./dist_check.py -f ${f} >& ${f}.check
+  base = `basename ${f} .nodes`
+  ./dist_check.py -f ${base} >& ${base}.check
   mv ${f} ${f}.checked
 done
 

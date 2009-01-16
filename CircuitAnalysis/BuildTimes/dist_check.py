@@ -56,6 +56,7 @@ class ChosenRouter(TorCtl.Router):
   def __init__(self, router):
     self.__dict__ = router.__dict__
     self.chosen = [0,0,0]
+    self.uptime = 0
 
 
 def main():
@@ -70,7 +71,19 @@ def main():
   routers.sort(lambda x, y: cmp(y.bw, x.bw))
   for i in xrange(len(routers)): routers[i].list_rank = i
 
-  f = open(pathfile, "r")
+  f = open(pathfile+".nodes", "r")
+  ok_circs = f.readlines()
+  f.close()
+    
+  f = open(pathfile+".failed", "r")
+  failed_circs = f.readlines()
+  f.close()
+
+  uptimes = open(pathfile+".uptime", "r")
+  for line in uptimes:
+    nodes = map(lambda n: n.strip(), line.split("\t"))
+    if nodes[0] in router_map:
+      router_map[nodes[0]].uptime = float(nodes[1])/60.0
 
   pct_mins = [100, 100, 100]
   pct_maxes = [0, 0, 0]
@@ -83,7 +96,7 @@ def main():
                   ExitPolicyRestriction("255.255.255.255", 80),
                   ExitPolicyRestriction("255.255.255.255", 443)])
   
-  for line in f:
+  for line in ok_circs+failed_circs:
     nodes = map(lambda n: n.strip(), line.split("\t"))
     id,nodes = (nodes[0],nodes[1:])
     circuits+=1
@@ -123,7 +136,7 @@ def main():
     unchosen = 0
     for r in routers:
       if r.chosen[i] == 0: unchosen+=1
-      else: print r.idhex+" "+str((100.0*r.list_rank)/len(routers))+"%, chosen: "+str(r.chosen[i])
+      else: print r.idhex+" "+str(round((100.0*r.list_rank)/len(routers),2))+"%, chosen: "+str(r.chosen[i])+", up: "+str(round(r.uptime,2))
 
     print "Nodes not chosen for this hop: "+str(unchosen)+"/"+str(len(routers))
 
@@ -134,6 +147,9 @@ def main():
         print f+": "+str(flags[i][f])+" (all)"
       else:
         print f+": "+str(flags[i][f])
+
+  # FIXME: Print out summaries for failure information for some routers
+  
 
 
   print "Routers used that are still present: "+str(len(present.keys()))
