@@ -15,10 +15,14 @@ import socket,sys,time,getopt,os,threading,atexit
 sys.path.append("../../")
 import TorCtl
 from TorCtl.TorUtil import meta_port,meta_host,control_port,control_host,control_pass
+from TorCtl import StatsSupport
 from TorCtl.StatsSupport import StatsHandler
 from TorCtl import PathSupport, TorCtl
 from TorCtl.PathSupport import ExitPolicyRestriction,OrNodeRestriction
 from TorCtl.TorUtil import plog
+
+# For testing:
+from dist_check import run_check
 
 # Note: It is not recommended to set order_exits to True, because
 # of the lifetime differences between this __selmgr and the 
@@ -42,9 +46,22 @@ max_circuits = 60
 # Original value of FetchUselessDescriptors
 FUDValue = None
 
+# XXX: This router is in both buildtimes and dist_check
+# Probably should be in its own file..
+class BTRouter(StatsSupport.StatsRouter):
+  def __init__(self, router):
+    StatsSupport.StatsRouter.__init__(self, router)
+ 
+  def reset(self):
+    StatsSupport.StatsRouter.reset(self)
+    self.rank_history = []
+    self.bw_history = []
+    self.chosen = [0,0,0]
+    self.uptime = 0
+ 
 class StatsGatherer(StatsHandler):
   def __init__(self,c, selmgr,basefile_name,nstats):
-    StatsHandler.__init__(self,c, selmgr)
+    StatsHandler.__init__(self,c, selmgr, BTRouter)
     self.nodesfile = open(basefile_name + '.nodes','w')
     self.failfile = open(basefile_name + '.failed','w')
     self.extendtimesfile = open(basefile_name + '.extendtimes','w')
@@ -94,6 +111,27 @@ class StatsGatherer(StatsHandler):
         self.failfile.flush()
     StatsHandler.circ_status_event(self,circ_event)
 
+  def new_desc_event(self, d):
+    for idhex in d.idlist: 
+      if not idhex in self.routers:
+        continue
+      r = self.routers[idhex]
+      r.bw_history.append(r.bw)
+    for r in self.sorted_r:
+      r.rank_history.append(r.list_rank)
+    StatsHandler.new_desc_event(self, d)
+
+  def ns_event(self, n):
+    for ns in n.nslist:
+      if not ns.idhex in self.routers:
+        continue
+      r = self.routers[ns.idhex]
+      r.bw_history.append(r.bw)
+    for r in self.sorted_r:
+      r.rank_history.append(r.list_rank)
+    StatsHandler.ns_event(self, n)
+
+
 def cleanup():
   s = socket.socket(socket.AF_INET,socket.SOCK_STREAM)
   s.connect((control_host,control_port))
@@ -130,7 +168,6 @@ def open_controller(filename,ncircuits):
 def getargs():
   ncircuits = ""
   dirname = ""
-  filename = ""
   if len(sys.argv[1:]) < 3:
     usage()
     sys.exit(2)
@@ -252,6 +289,14 @@ def guardslice(guard_slices,p,s,end,ncircuits,dirname):
   c._handler.schedule_low_prio(notlambda)
   cond.wait()
   cond.release()
+
+  # Run self-checks
+  checkfile = open(basefile_name+".check", "w")
+  def logger(msg):
+    checkfile.write(msg+"\n")
+
+  run_check(c._handler.sorted_r, basefile_name, logger)
+  checkfile.close()
   c.close()
   c._thread.join()
   print "Done in main."
