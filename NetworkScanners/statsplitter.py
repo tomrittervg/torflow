@@ -11,7 +11,7 @@ from TorCtl.TorUtil import *
 from TorCtl.PathSupport import *
 import atexit
 
-TorUtil.loglevel = "NOTICE"
+TorUtil.loglevel = "INFO"
 
 
 def cleanup(c, f):
@@ -51,7 +51,7 @@ def check(start, stop):
   exit_bw = 0
   heavy = 0
   dirs = 0
-  nodes_up = 0
+  nodes_up = 0.0000000005 # shhh. dirty hack for div 0 
   up = 0
   
   for r in sorted_rlist:
@@ -68,10 +68,10 @@ def check(start, stop):
         heavy += 1
       if dir_rst.r_is_ok(r):
         dirs += 1
-  
+
   print str(start)+"-"+str(stop)+": N: "+str(nodes)+", Bw: "+str(round(bw/(1024*1024.0), 2))+", X: "+str(exits)+", XBw: "+str(round(exit_bw/(1024*1024.0),2))+", BT: "+str(heavy)+", Dirs:"+str(dirs)+", Up: "+str(round(up/nodes_up/60/60/24, 2))
 
-for i in xrange(0,80,3):
+for i in xrange(0,100,3):
   check(i,i+3)
 
 def check_entropy(rlist, clipping_point):
