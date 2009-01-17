@@ -39,10 +39,6 @@ __selmgr = PathSupport.SelectionManager(
       use_guards=True,
       restrict_guards=False)
 
-# Maximum number of concurrent circuits to build:
-# (Gets divided by the number of slices)
-max_circuits = 60
-
 # Original value of FetchUselessDescriptors
 FUDValue = None
 
@@ -172,7 +168,7 @@ def getargs():
     usage()
     sys.exit(2)
   try:
-    opts,args = getopt.getopt(sys.argv[1:],"b:e:s:n:d:g")
+    opts,args = getopt.getopt(sys.argv[1:],"b:e:s:n:d:c:g")
   except getopt.GetoptError,err:
     print str(err)
     usage()
@@ -182,6 +178,7 @@ def getargs():
   pslice=5
   dirname=""
   guard_slices = False
+  max_circuits=60
   for o,a in opts:
     if o == '-n': 
       if a.isdigit(): ncircuits = int(a)
@@ -198,15 +195,18 @@ def getargs():
       else: usage()
     elif o == '-g':
       guard_slices = True
+    elif o == '-c':
+      if a.isdigit(): max_circuits = int(a)
+      else: usage()
     else:
       assert False, "Bad option"
-  return guard_slices,ncircuits,begin,end,pslice,dirname
+  return guard_slices,ncircuits,max_circuits,begin,end,pslice,dirname
 
 def usage():
     print 'usage: statscontroller.py [-b <#begin percentile>] [-e <end percentile] [-s <percentile slice size>] [-g] -n <# circuits> -d <output dir name>'
     sys.exit(1)
 
-def guardslice(guard_slices,p,s,end,ncircuits,dirname):
+def guardslice(guard_slices,p,s,end,ncircuits,max_circuits,dirname):
 
   print 'Making new directory:',dirname
   if not os.path.isdir(dirname):
@@ -243,8 +243,11 @@ def guardslice(guard_slices,p,s,end,ncircuits,dirname):
   # an old sorted router list.
   __selmgr.__ordered_exit_gen = None
 
-  c = open_controller(basefile_name,ncircuits)
-
+  try:
+    c = open_controller(basefile_name,ncircuits)
+  except PathSupport.NoNodesRemain:
+    print 'No nodes remain at this percentile range ('+str(p)+"-"+str(s)+")"
+    return
  
   for i in xrange(0,ncircuits):
     print 'Building circuit',i
@@ -302,16 +305,14 @@ def guardslice(guard_slices,p,s,end,ncircuits,dirname):
   print "Done in main."
 
 def main():
-  guard_slices,ncircuits,begin,end,pct,dirname = getargs()
+  guard_slices,ncircuits,max_circuits,begin,end,pct,dirname = getargs()
  
   atexit.register(cleanup) 
-  #global max_circuits
-  #max_circuits = max_circuits/((end-begin)/pct)
 
   print "Using max_circuits: "+str(max_circuits)
 
   for p in xrange(begin,end,pct):
-    guardslice(guard_slices,p,p+pct,end,ncircuits,dirname)
+    guardslice(guard_slices,p,p+pct,end,ncircuits,max_circuits,dirname)
 
 if __name__ == '__main__':
   main()

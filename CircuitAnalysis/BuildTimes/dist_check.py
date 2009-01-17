@@ -144,7 +144,6 @@ def run_check(routers, pathfile, log):
         log(" 80: "+str(router_map[nodes[2]].will_exit_to("255.255.255.255", 80)))
         log(" 443: "+str(router_map[nodes[2]].will_exit_to("255.255.255.255", 443)))
 
-
   # FIXME: Compare circuits/chosen to %bw. Multiply by pct_min+max
   # FIXME: Verify by guard+exit weighting?
   for i in xrange(0, 3):
