@@ -55,6 +55,7 @@ class BTRouter(StatsSupport.StatsRouter):
     self.chosen = [0,0,0]
     self.uptime = 0
  
+# TODO: Make this passive, or make PathBuild have a passive option
 class StatsGatherer(StatsHandler):
   def __init__(self,c, selmgr,basefile_name,nstats):
     StatsHandler.__init__(self,c, selmgr, BTRouter)
@@ -76,6 +77,12 @@ class StatsGatherer(StatsHandler):
                   ExitPolicyRestriction("255.255.255.255", 80), 
                   ExitPolicyRestriction("255.255.255.255", 443)]))
     self.selmgr.path_selector.exit_gen.rebuild()
+
+
+  def stream_status_event(self, strm_event):
+    # Prevent PathBuilder code from attaching streams
+    # TODO: Passively gather stream stats without building
+    pass
     
   def circ_status_event(self, circ_event):
     """ handles circuit status event """
@@ -292,7 +299,20 @@ def guardslice(guard_slices,p,s,end,ncircuits,max_circuits,dirname):
   c._handler.schedule_low_prio(notlambda)
   cond.wait()
   cond.release()
-
+  
+  # Write out rank_history and bw listings
+  rankfile = open(basefile_name+".ranks", "w")
+  for r in c._handler.sorted_r:
+    if r.rank_history:
+      rankfile.write("r "+r.idhex+" "+" ".join(map(str, r.rank_history))+"\n")
+    else:
+      rankfile.write("r "+r.idhex+" "+str(r.list_rank)+"\n")
+    if r.bw_history:
+      rankfile.write("b "+r.idhex+" "+" ".join(map(str, r.bw_history))+"\n")
+    else:
+      rankfile.write("b "+r.idhex+" "+str(r.bw)+"\n")
+  rankfile.close()
+ 
   # Run self-checks
   checkfile = open(basefile_name+".check", "w")
   def logger(msg):

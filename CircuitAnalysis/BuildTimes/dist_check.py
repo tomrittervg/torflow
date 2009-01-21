@@ -54,18 +54,22 @@ def getargs():
       assert False, "Bad option"
   return pathfile
 
-def check_ranks(r):
-  if not r.rank_history:
-    return (r.list_rank, r.list_rank, r.list_rank)
+
+def min_avg_max(list):
   minr = 100
   maxr = 0
   avgr = 0.0
-  for rank in r.rank_history:
-    avgr += rank
-    if rank < minr: minr = rank
-    if rank > maxr: maxr = rank
-  avgr /= len(r.rank_history)
-  return (avgr,minr,maxr)
+  for v in list:
+    avgr += v
+    if v < minr: minr = v
+    if v > maxr: maxr = v
+  avgr /= len(list)
+  return (minr,avgr,maxr)
+
+def check_ranks(r):
+  if not r.rank_history:
+    return (r.list_rank, r.list_rank, r.list_rank)
+  return min_avg_max(r.rank_history)
 
 def open_controller():
   """ starts stat gathering thread """
@@ -102,6 +106,7 @@ def run_check(routers, pathfile, log):
       router_map[nodes[0]].uptime = float(nodes[1])/60.0
     else:
       total_absent += 1
+  uptimes.close()
 
   pct_mins = [100, 100, 100]
   pct_maxes = [0, 0, 0]
@@ -146,6 +151,29 @@ def run_check(routers, pathfile, log):
 
   # FIXME: Compare circuits/chosen to %bw. Multiply by pct_min+max
   # FIXME: Verify by guard+exit weighting?
+  tot_len = len(routers)
+
+  # FIXME: Read in from files, compare against saved infoz
+  rankfile = open(pathfile+".ranks", "r")
+  for line in rankfile:
+    nodes = map(lambda n: n.strip(), line.split(" "))
+    if nodes[0] == 'r': # rank list
+      ranks = map(int, nodes[2:])   
+    elif nodes[0] == 'b': # bw list
+      bws = map(int, nodes[2:])
+    router = router_map[nodes[1]]
+    if router.rank_history:
+      for i,r in enumerate(ranks):
+        if router.rank_history[i] != r:
+          print "WARN: Rank mismatch for "+router.idhex+": "+str(check_ranks(router))+" vs "+str(min_avg_max(ranks))
+          break
+    if router.bw_history:
+      for i,b in enumerate(bws):
+        if router.bw_history[i] != b:
+          print "WARN: Bw mismatch for "+router.idhex+": "+str(check_ranks(router))+" vs "+str(min_avg_max(ranks))
+          break
+  rankfile.close()
+
   for i in xrange(0, 3):
     routers.sort(lambda x, y: cmp(y.chosen[i], x.chosen[i]))
     log("\nHop "+str(i)+": ")
@@ -154,7 +182,7 @@ def run_check(routers, pathfile, log):
       if r.chosen[i] == 0: unchosen+=1
       else:
         ranks = check_ranks(r) 
-        log(r.idhex+" "+"/".join(map(lambda f: str(round(f, 2)), ranks))+"%, chosen: "+str(r.chosen[i])+", up: "+str(round(r.uptime,2)))
+        log(r.idhex+" "+("/".join(map(lambda f: str(round(100.0*f/tot_len, 1)), ranks)))+"%\tchosen: "+str(r.chosen[i])+"\tup: "+str(round(r.uptime,1)))
         #log(r.idhex+" "+str(round((100.0*r.list_rank)/len(routers),2))+"%, chosen: "+str(r.chosen[i])+", up: "+str(round(r.uptime,2)))
 
     log("Nodes not chosen for this hop: "+str(unchosen)+"/"+str(len(routers)))
