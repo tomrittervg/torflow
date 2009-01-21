@@ -1054,6 +1054,10 @@ class ExitNodeScanner:
         except (IndexError, TypeError):
             plog('ERROR', 'An error occured while negotiating socks5 with Tor')
             return 0
+        except:
+            plog('ERROR', 'An unknown SSL error occured')
+            traceback.print_exc()
+            return 0
         
         # return the cert
         return c.get_peer_certificate()
