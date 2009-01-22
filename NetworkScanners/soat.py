@@ -39,8 +39,8 @@ import urllib
 import urllib2
 import traceback
 
-import soatstats
-from soatstats import *
+import libsoat 
+from libsoat import *
 
 sys.path.append("../")
 
@@ -50,6 +50,7 @@ from TorCtl.TorUtil import *
 from TorCtl.PathSupport import *
 from TorCtl.TorCtl import Connection, EventHandler
 
+import OpenSSL
 from OpenSSL import *
 
 sys.path.append("./libs/")
@@ -181,7 +182,7 @@ class ExitNodeScanner:
             reply = self.__meta.readline()
             if reply[:3] != '250': # first three chars indicate the reply code
                 reply += self.__meta.readline()
-                plog('ERROR', 'Error configuring metatroller (' + command + ' failed)')
+                plog('ERROR', 'Error configuring metatroller (' + c + ' failed)')
                 plog('ERROR', reply)
                 exit()
 
@@ -457,19 +458,19 @@ class ExitNodeScanner:
             plog('INFO', 'Opening a direct ssl connection to ' + address)
             original_cert = self.ssl_request(address)
             if not original_cert:
-                plog('ERROR', 'Error getting the correct cert for ' + address)
+                plog('WARN', 'Error getting the correct cert for ' + address)
                 return TEST_INCONCLUSIVE
             if original_cert.has_expired():
-                plog('ERROR', 'The ssl cert for ' + address + 'seems to have expired. Skipping to the next test...')
+                plog('WARN', 'The ssl cert for ' + address + 'seems to have expired. Skipping to the next test...')
                 return TEST_INCONCLUSIVE
             cert_file = open(ssl_certs_dir + address_file + '.pem', 'w')
             cert_file.write(crypto.dump_certificate(crypto.FILETYPE_PEM, original_cert))
             cert_file.close()
         except OpenSSL.crypto.Error:
-            plog('ERROR', 'There are non-related files in ' + ssl_certs_dir + '. You should probably clean it.')
+            plog('NOTICE', 'There are non-related files in ' + ssl_certs_dir + '. You should probably clean it.')
             return TEST_INCONCLUSIVE
         if not original_cert:
-            plog('ERROR', 'Error getting the correct cert for ' + address)
+            plog('WARN', 'Error getting the correct cert for ' + address)
             return TEST_INCONCLUSIVE
 
         # get an easily comparable representation of the certs
@@ -490,7 +491,7 @@ class ExitNodeScanner:
         plog('INFO', 'Opening a direct ssl connection to ' + address)
         original_cert_new = self.ssl_request(address)
         if original_cert_new == 0:
-            plog('ERROR', 'Error getting the correct cert for ' + address)
+            plog('WARN', 'Error getting the correct cert for ' + address)
             result = SSLTestResult(exit_node, address, 0, TEST_INCONCLUSIVE)
             self.__datahandler.saveResult(result)
             return TEST_INCONCLUSIVE
@@ -571,13 +572,13 @@ class ExitNodeScanner:
             if ehlo2_reply != 250:
                 raise smtplib.SMTPException('Second ehlo failed')
         except socket.gaierror, e:
-            plog('ERROR', 'A connection error occured while testing smtp at ' + address)
-            plog('ERROR', e)
+            plog('WARN', 'A connection error occured while testing smtp at ' + address)
+            plog('WARN', e)
             socket.socket = defaultsocket
             return TEST_INCONCLUSIVE
         except smtplib.SMTPException, e:
-            plog('ERROR','An error occured while testing smtp at ' + address)
-            plog('ERROR', e)
+            plog('WARN','An error occured while testing smtp at ' + address)
+            plog('WARN', e)
             return TEST_INCONCLUSIVE
         # reset the connection method back to direct
         socket.socket = defaultsocket 
@@ -607,13 +608,13 @@ class ExitNodeScanner:
             if ehlo2_reply_d != 250:
                 raise smtplib.SMTPException('Second ehlo failed')
         except socket.gaierror, e:
-            plog('ERROR', 'A connection error occured while testing smtp at ' + address)
-            plog('ERROR', e)
+            plog('WARN', 'A connection error occured while testing smtp at ' + address)
+            plog('WARN', e)
             socket.socket = defaultsocket
             return TEST_INCONCLUSIVE
         except smtplib.SMTPException, e:
-            plog('ERROR', 'An error occurred while testing smtp at ' + address)
-            plog('ERROR', e)
+            plog('WARN', 'An error occurred while testing smtp at ' + address)
+            plog('WARN', e)
             return TEST_INCONCLUSIVE
 
         print ehlo1_reply, ehlo1_reply_d, has_starttls, has_starttls_d, ehlo2_reply, ehlo2_reply_d
@@ -673,6 +674,7 @@ class ExitNodeScanner:
             if starttls_present:
                 pop.writeline('STLS')
 
+            starttls_response = pop.readline()
             starttls_started = '+OK' in starttls_response
 
             # negotiate TLS and issue some request to feel good about it
@@ -702,13 +704,13 @@ class ExitNodeScanner:
                     tls_succeeded = False
 
         except socket.error, e: 
-            plog('ERROR', 'Connection to ' + address + ':' + port + ' refused')
-            plog('ERROR', e)
+            plog('WARN', 'Connection to ' + address + ':' + port + ' refused')
+            plog('WARN', e)
             socket.socket = defaultsocket
             return TEST_INCONCLUSIVE
         except OpenSSL.SSL.SysCallError, e:
-            plog('ERROR', 'Error while negotiating an SSL connection to ' + address + ':' + port)
-            plog('ERROR', e)
+            plog('WARN', 'Error while negotiating an SSL connection to ' + address + ':' + port)
+            plog('WARN', e)
             socket.socket = defaultsocket
             return TEST_INCONCLUSIVE
 
@@ -781,19 +783,19 @@ class ExitNodeScanner:
                     tls_succeeded_d = False
 
         except socket.error, e: 
-            plog('ERROR', 'Connection to ' + address + ':' + port + ' refused')
-            plog('ERROR', e)
+            plog('WARN', 'Connection to ' + address + ':' + port + ' refused')
+            plog('WARN', e)
             socket.socket = defaultsocket
             return TEST_INCONCLUSIVE
         except OpenSSL.SSL.SysCallError, e:
-            plog('ERROR', 'Error while negotiating an SSL connection to ' + address + ':' + port)
-            plog('ERROR', e)
+            plog('WARN', 'Error while negotiating an SSL connection to ' + address + ':' + port)
+            plog('WARN', e)
             socket.socket = defaultsocket
             return TEST_INCONCLUSIVE
 
         # compare
         if (capabilities_ok != capabilities_ok_d or starttls_present != starttls_present_d or 
-                tls_started != tls_started_d or tls_suceeded != tls_succeeded_d):
+                tls_started != tls_started_d or tls_succeeded != tls_succeeded_d):
             result = POPTestResult(exit_node, address, TEST_FAILURE)
             self.__datahandler.saveResult(result)
             return TEST_FAILURE
@@ -867,13 +869,13 @@ class ExitNodeScanner:
                     tls_succeeded = False
     
         except socket.error, e: 
-            plog('ERROR', 'Connection to ' + address + ':' + port + ' refused')
-            plog('ERROR', e)
+            plog('WARN', 'Connection to ' + address + ':' + port + ' refused')
+            plog('WARN', e)
             socket.socket = defaultsocket
             return TEST_INCONCLUSIVE
         except OpenSSL.SSL.SysCallError, e:
-            plog('ERROR', 'Error while negotiating an SSL connection to ' + address + ':' + port)
-            plog('ERROR', e)
+            plog('WARN', 'Error while negotiating an SSL connection to ' + address + ':' + port)
+            plog('WARN', e)
             socket.socket = defaultsocket
             return TEST_INCONCLUSIVE
         
@@ -936,13 +938,13 @@ class ExitNodeScanner:
                     tls_succeeded_d = False
 
         except socket.error, e: 
-            plog('ERROR', 'Connection to ' + address + ':' + port + ' refused')
-            plog('ERROR', e)
+            plog('WARN', 'Connection to ' + address + ':' + port + ' refused')
+            plog('WARN', e)
             socket.socket = defaultsocket
             return TEST_INCONCLUSIVE
         except OpenSSL.SSL.SysCallError, e:
-            plog('ERROR', 'Error while negotiating an SSL connection to ' + address + ':' + port)
-            plog('ERROR', e)
+            plog('WARN', 'Error while negotiating an SSL connection to ' + address + ':' + port)
+            plog('WARN', e)
             socket.socket = defaultsocket
             return TEST_INCONCLUSIVE
 
@@ -976,8 +978,8 @@ class ExitNodeScanner:
             for result in results:
                 ips_d.add(result[4][0])
         except socket.herror, e:
-            plog('ERROR', 'An error occured while performing a basic dns test')
-            plog('ERROR', e)
+            plog('WARN', 'An error occured while performing a basic dns test')
+            plog('WARN', e)
             return TEST_INCONCLUSIVE
 
         if ip in ips_d:
@@ -1008,15 +1010,15 @@ class ExitNodeScanner:
             reply = urllib2.urlopen(request)
             content = reply.read()
         except (ValueError, urllib2.URLError):
-            plog('ERROR', 'The http-request address ' + address + ' is malformed')
+            plog('WARN', 'The http-request address ' + address + ' is malformed')
             return 0
         except (IndexError, TypeError):
-            plog('ERROR', 'An error occured while negotiating socks5 with Tor')
+            plog('WARN', 'An error occured while negotiating socks5 with Tor')
             return 0
         except KeyboardInterrupt:
             raise KeyboardInterrupt
         except:
-            plog('ERROR', 'An unknown HTTP error occured')
+            plog('WARN', 'An unknown HTTP error occured')
             traceback.print_exc()
             return 0
 
@@ -1048,14 +1050,14 @@ class ExitNodeScanner:
             c.connect((address, 443))
             c.send(crypto.dump_certificate_request(crypto.FILETYPE_PEM,request))
         except socket.error, e:
-            plog('ERROR','An error occured while opening an ssl connection to ' + address)
-            plog('ERROR', e)
+            plog('WARN','An error occured while opening an ssl connection to ' + address)
+            plog('WARN', e)
             return 0
         except (IndexError, TypeError):
-            plog('ERROR', 'An error occured while negotiating socks5 with Tor')
+            plog('WARN', 'An error occured while negotiating socks5 with Tor (timeout?)')
             return 0
         except:
-            plog('ERROR', 'An unknown SSL error occured')
+            plog('WARN', 'An unknown SSL error occured')
             traceback.print_exc()
             return 0
         
@@ -1227,8 +1229,7 @@ def main(argv):
     if do_ssl:
         ssl_nodes = scanner.get_nodes_for_port(443)
         ssl_nodes_n = len(ssl_nodes)
-        # the search for https urls is yet too slow
-        ssl_urls =  ['https://mail.google.com', 'https://addons.mozilla.org', 'https://www.fastmail.fm'] 
+        http_urls = get_urls(wordlist, protocol='https', results_per_type=10, g_results_per_page=20)
         ssl_fail = len(scanner.ssl_fail)
 
         if len(ssl_urls) == 0:
@@ -1287,10 +1288,13 @@ def main(argv):
     if not (do_ssl or do_http or do_ssh or do_smtp or do_pop or do_imap or do_dns_basic):
         plog('INFO', 'Done.')
         sys.exit(0)
+        
+
+    # TODO: Do set intersection and reuse nodes for shared tests
 
     # start testing
     while 1:  
-        
+       
         # https test  
         if do_ssl:
             candidates = [x for x in ssl_nodes if ('$' + `x.idhex`) not in scanner.ssl_tested]
@@ -1332,7 +1336,7 @@ def main(argv):
                 
             scanner.get_new_circuit()
             ssh_site = random.choice(ssh_urls)
-            scanner.check_ssh(ssh_site)
+            scanner.check_openssh(ssh_site)
  
             ssh_tested_n = len(scanner.ssh_tested)
             if ssh_nodes_n > ssh_tested_n:
