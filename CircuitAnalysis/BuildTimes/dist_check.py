@@ -157,21 +157,43 @@ def run_check(routers, pathfile, log):
   rankfile = open(pathfile+".ranks", "r")
   for line in rankfile:
     nodes = map(lambda n: n.strip(), line.split(" "))
+    ranks = []
+    bws = []
     if nodes[0] == 'r': # rank list
       ranks = map(int, nodes[2:])   
     elif nodes[0] == 'b': # bw list
       bws = map(int, nodes[2:])
     router = router_map[nodes[1]]
-    if router.rank_history:
+    if router.rank_history and not ranks or ranks and not router.rank_history:
+      print "WARN: Rank storage mismatch for "+router.idhex
+      continue
+    if router.bw_history and not bws or bws and not router.bw_history:
+      print "WARN: Bw storage mismatch for "+router.idhex
+      continue
+
+    if router.rank_history and ranks:
+      if len(ranks) != len(router.rank_history):
+          print "WARN: Rank mismatch for "+router.idhex+": "+str(check_ranks(router))+" vs "+str(min_avg_max(ranks))
+          print " local: "+str(router.rank_history)
+          print " disk: "+str(ranks)
       for i,r in enumerate(ranks):
         if router.rank_history[i] != r:
           print "WARN: Rank mismatch for "+router.idhex+": "+str(check_ranks(router))+" vs "+str(min_avg_max(ranks))
+          print " local: "+str(router.rank_history)
+          print " disk: "+str(ranks)
           break
-    if router.bw_history:
-      for i,b in enumerate(bws):
-        if router.bw_history[i] != b:
+    if router.bw_history and bws:
+      if len(bws) != len(router.bw_history):
           print "WARN: Bw mismatch for "+router.idhex+": "+str(check_ranks(router))+" vs "+str(min_avg_max(ranks))
-          break
+          print " local: "+str(router.bw_history)
+          print " disk: "+str(bws)
+      else:
+        for i,b in enumerate(bws):
+          if router.bw_history[i] != b:
+            print "WARN: Bw mismatch for "+router.idhex+": "+str(check_ranks(router))+" vs "+str(min_avg_max(ranks))
+            print " local: "+str(router.bw_history)
+            print " disk: "+str(bws)
+            break
   rankfile.close()
 
   for i in xrange(0, 3):
