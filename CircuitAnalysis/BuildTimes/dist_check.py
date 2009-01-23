@@ -55,15 +55,15 @@ def getargs():
   return pathfile
 
 
-def min_avg_max(list):
-  minr = 100
+def min_avg_max(l):
+  minr = 2**30
   maxr = 0
   avgr = 0.0
-  for v in list:
+  for v in l:
     avgr += v
     if v < minr: minr = v
     if v > maxr: maxr = v
-  avgr /= len(list)
+  avgr /= len(l)
   return (minr,avgr,maxr)
 
 def check_ranks(r):
@@ -79,7 +79,7 @@ def open_controller():
   c.authenticate(control_pass)  # also launches thread...
   return c
 
-def run_check(routers, pathfile, log):
+def run_check(routers, pathfile, log, disk_only=False):
   for i in xrange(len(routers)):
     if routers[i].list_rank != i:
       log("WARN: List unsorted at position "+str(i)+", "+routers[i].idhex)
@@ -118,7 +118,9 @@ def run_check(routers, pathfile, log):
   exit_check = OrNodeRestriction([
                   ExitPolicyRestriction("255.255.255.255", 80),
                   ExitPolicyRestriction("255.255.255.255", 443)])
-  
+   
+  exit_fails={}
+
   for line in ok_circs+failed_circs:
     nodes = map(lambda n: n.strip(), line.split("\t"))
     cid,nodes = (nodes[0],nodes[1:])
@@ -142,15 +144,21 @@ def run_check(routers, pathfile, log):
 
     if nodes[2] in router_map:
       if not exit_check.r_is_ok(router_map[nodes[2]]):
-        log("WARN: Exit policy fail for circ "+str(cid)+" on "+nodes[2])
-        log("Exit policy:")
-        for e in router_map[nodes[2]].exitpolicy:
-          log(" "+str(e))
-        log(" 80: "+str(router_map[nodes[2]].will_exit_to("255.255.255.255", 80)))
-        log(" 443: "+str(router_map[nodes[2]].will_exit_to("255.255.255.255", 443)))
+        if not nodes[2] in exit_fails: exit_fails[nodes[2]] = 1
+        else: exit_fails[nodes[2]] += 1
 
-  # FIXME: Compare circuits/chosen to %bw. Multiply by pct_min+max
-  # FIXME: Verify by guard+exit weighting?
+  for e in exit_fails.iterkeys():
+    log("WARN: "+str(exit_fails[e])+"/"+str(router_map[e].chosen[2])+" exit policy mismatches using exit "+e)
+    log("Exit policy:")
+    for p in router_map[e].exitpolicy:
+      log(" "+str(p))
+    log(" 80: "+str(router_map[e].will_exit_to("255.255.255.255", 80)))
+    log(" 443: "+str(router_map[e].will_exit_to("255.255.255.255", 443)))
+
+
+  # FIXME: Compare chosen/n_circuits to weighted %bw. 
+  # Multiply by pct_min+max
+
   tot_len = len(routers)
 
   # FIXME: Read in from files, compare against saved infoz
@@ -163,7 +171,15 @@ def run_check(routers, pathfile, log):
       ranks = map(int, nodes[2:])   
     elif nodes[0] == 'b': # bw list
       bws = map(int, nodes[2:])
-    router = router_map[nodes[1]]
+    if nodes[1] in router_map:
+      router = router_map[nodes[1]]
+      if disk_only:
+        if ranks: router.rank_history = ranks
+        if bws: router.bw_history = bws
+        continue
+    elif disk_only:
+        continue  
+
     if router.rank_history and not ranks or ranks and not router.rank_history:
       print "WARN: Rank storage mismatch for "+router.idhex
       continue
@@ -235,7 +251,7 @@ def main():
   routers = map(BTRouter, c.read_routers(c.get_network_status())) 
   routers.sort(lambda x, y: cmp(y.bw, x.bw))
   for i in xrange(len(routers)): routers[i].list_rank = i
-  run_check(routers, pathfile, logger)
+  run_check(routers, pathfile, logger, True)
 
 if __name__ == '__main__':
   main()
