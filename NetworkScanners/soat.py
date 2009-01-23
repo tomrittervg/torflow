@@ -237,12 +237,12 @@ class ExitNodeScanner:
         p = re.compile('250 LASTEXIT=[\S]+')
         m = p.match(reply)
         self.__exit = m.group()[13:] # drop the irrelevant characters    
-        plog('NOTICE','Current node: ' + self.__exit)
+        plog('INFO','Current node: ' + self.__exit)
         return self.__exit
 
     def get_new_circuit(self):
         ''' tell metatroller to close the current circuit and open a new one '''
-        plog('NOTICE', 'Trying to construct a new circuit')
+        plog('DEBUG', 'Trying to construct a new circuit')
         self.__meta.writeline("NEWEXIT")
         reply = self.__meta.readline()
 
@@ -254,7 +254,7 @@ class ExitNodeScanner:
         ''' 
         tell metatroller to set the given node as the exit in the next circuit 
         '''
-        plog('NOTICE', 'Trying to set ' + `exit` + ' as the exit for the next circuit')
+        plog('DEBUG', 'Trying to set ' + `exit` + ' as the exit for the next circuit')
         self.__meta.writeline("SETEXIT $"+exit)
         reply = self.__meta.readline()
 
@@ -1003,6 +1003,7 @@ class ExitNodeScanner:
     def http_request(self, address):
         ''' perform a http GET-request and return the content received '''
         request = urllib2.Request(address)
+        # XXX: Make all headers match a real firefox browser
         request.add_header('User-Agent','Mozilla/5.0 (Windows; U; Windows NT 5.1; de; rv:1.8.1) Gecko/20061010 Firefox/2.0')
 
         content = 0
@@ -1018,7 +1019,7 @@ class ExitNodeScanner:
         except KeyboardInterrupt:
             raise KeyboardInterrupt
         except:
-            plog('WARN', 'An unknown HTTP error occured')
+            plog('WARN', 'An unknown HTTP error occured for '+address)
             traceback.print_exc()
             return 0
 
@@ -1057,7 +1058,7 @@ class ExitNodeScanner:
             plog('WARN', 'An error occured while negotiating socks5 with Tor (timeout?)')
             return 0
         except:
-            plog('WARN', 'An unknown SSL error occured')
+            plog('WARN', 'An unknown SSL error occured for '+address)
             traceback.print_exc()
             return 0
         
@@ -1104,12 +1105,14 @@ def get_urls(wordlist, filetypes=['any'], results_per_type=5, protocol='any', g_
             if filetype != 'any':
                 query += ' filetype:' + filetype
             if protocol != 'any':
-                query += ' allinurl:' + protocol # this isn't too reliable, but we'll re-filter results later
+                query += ' inurl:' + protocol # this isn't too reliable, but we'll re-filter results later
             #query += '&num=' + `g_results_per_page` 
 
             # search google for relevant pages
             # note: google only accepts requests from idenitified browsers
             # TODO gracefully handle the case when google doesn't want to give us result anymore
+            # XXX: Make more of these headers match? Maybe set a cookie.. or
+            # use scroogle :)
             host = 'www.google.com'
             params = urllib.urlencode({'q' : query})
             headers = {'User-Agent' : 'Mozilla/5.0 (Windows; U; Windows NT 5.1; de; rv:1.8.1) Gecko/20061010 Firefox/2.0'}
@@ -1125,9 +1128,14 @@ def get_urls(wordlist, filetypes=['any'], results_per_type=5, protocol='any', g_
                 if response.status != 200:
                     raise Exception(response.status, response.reason)
             except socket.gaierror, e:
-                plog('ERROR', 'Connection to google.com failed')
-                plog('ERROR', e)
+                plog('ERROR', 'Scraping of http://'+host+search_path+" failed")
+                traceback.print_exc()
                 return list(Set(urllist))
+            except:
+                plog('ERROR', 'Scraping of http://'+host+search_path+" failed")
+                traceback.print_exc()
+                # XXX: Bloody hack just to run some tests overnight
+                return [protocol+"://www.eff.org", protocol+"://www.fastmail.fm", protocol+"://www.torproject.org", protocol+"://secure.wikileaks.org/"]
 
             content = response.read()
             links = SoupStrainer('a')
@@ -1167,6 +1175,49 @@ def int2bin(n):
             bin += str(n % 2)
             n = n >> 1
         return bin[::-1]
+
+
+class NoURLsFound(Exception):
+    pass
+
+class Test:
+    def __init__(self, scanner, proto, port, url_fcn, test_fcn):
+        self.proto = proto
+        self.port = port
+        self.scanner = scanner
+        self.url_fcn = url_fcn
+        self.test_fcn = test_fcn
+        self.rewind()
+
+    def run_test(self):
+        self.tests_run += 1
+        return self.test_fcn(random.choice(self.urls))
+
+    def get_node(self):
+        return random.choice(self.nodes)
+ 
+    def mark_chosen(self, node):
+        self.nodes_marked += 1
+        self.nodes.remove(node)
+       
+    def finished(self):
+        return not self.nodes
+
+    def percent_complete(self):
+        return round(100.0*self.nodes_marked/self.total_nodes, 1)
+ 
+    def rewind(self):
+        self.tests_run = 0
+        self.nodes_marked = 0
+        self.urls = self.url_fcn()
+        if not self.urls:
+            raise NoURLsFound("No URLS found for protocol "+self.proto)
+        self.nodes = self.scanner.get_nodes_for_port(self.port)
+        self.node_map = {}
+        for n in self.nodes: 
+            self.node_map[n.idhex] = n
+        self.total_nodes = len(self.nodes)
+
 #
 # main logic
 #
@@ -1181,7 +1232,6 @@ def main(argv):
         print '--smtp (~works)'
         print '--pop (~works)'
         print '--imap (~works)'
-        print '--dns (a basic test, not really reliable)'
         print '--dnsrebind (works with the ssl test)'
         print '--policies (~works)'
         print ''
@@ -1197,7 +1247,6 @@ def main(argv):
     do_smtp = ('--smtp','') in flags
     do_pop = ('--pop','') in flags
     do_imap = ('--imap','') in flags
-    do_dns_basic = ('--dns','') in flags
     do_dns_rebind = ('--dnsrebind','') in flags
     do_consistency = ('--policies','') in flags
 
@@ -1216,159 +1265,125 @@ def main(argv):
         scanner.check_all_exits_port_consistency()
 
     # maybe only the consistency test was required
-    if not (do_ssl or do_http or do_ssh or do_smtp or do_pop or do_imap or do_dns_basic):
+    if not (do_ssl or do_http or do_ssh or do_smtp or do_pop or do_imap):
         plog('INFO', 'Done.')
         return
 
     # declare some variables and assign values if neccessary
-    ssl_nodes = http_nodes = ssh_nodes = smtp_nodes = pop_nodes = imap_nodes = dns_nodes = []
-    ssl_nodes_n = http_nodes_n = ssh_nodes_n = smtp_nodes_n = pop_nodes_n = imap_nodes_n = dns_nodes_n = 0
-    ssl_urls = http_urls = ssh_urls = smtp_urls = pop_urls = imap_urls = dns_urls = []
-    ssl_fail = http_fail = ssh_fail = smtp_fail = pop_fail = imap_fail = imap_urls = 0
+    http_fail = 0
 
+    tests = {}
+
+    # FIXME: Create an event handler that updates these lists
     if do_ssl:
-        ssl_nodes = scanner.get_nodes_for_port(443)
-        ssl_nodes_n = len(ssl_nodes)
-        http_urls = get_urls(wordlist, protocol='https', results_per_type=10, g_results_per_page=20)
-        ssl_fail = len(scanner.ssl_fail)
+        try:
+            tests["SSL"] = Test(scanner, "SSL", 443, 
+                lambda:
+                  get_urls(wordlist, protocol='https', results_per_type=10,
+g_results_per_page=20), lambda u: scanner.check_openssl(u))
+        except NoURLsFound, e:
+            plog('ERROR', e.message)
 
-        if len(ssl_urls) == 0:
-            plog('ERROR', 'No urls specified for ssl testing.')
-            do_ssl = False
 
     if do_http:
-        http_nodes = scanner.get_nodes_for_port(80)
-        http_nodes_n = len(http_nodes)
-        http_urls = get_urls(wordlist, protocol='http', results_per_type=10, g_results_per_page=20)
         http_fail = len(scanner.http_fail)
-
-        if len(http_urls) == 0:
-            plog('ERROR', 'No urls specified for http testing.')
-            do_http = False
+        try:
+            tests["HTTP"] = Test(scanner, "HTTP", 80, 
+                lambda:
+                  get_urls(wordlist, protocol='http', results_per_type=10, g_results_per_page=20), lambda u: scanner.check_http(u)) 
+        except NoURLsFound, e:
+            plog('ERROR', e.message)
 
     if do_ssh:
-        ssh_nodes = scanner.get_nodes_for_port(22)
-        ssh_nodes_n = len(ssh_nodes)
-        ssh_urls = []
-        ssh_fail = len(scanner.ssh_fail)
-
-        if len(ssl_urls) == 0:
-            plog('ERROR', 'No urls specified for ssh testing.')
-            do_ssh = False
+        try:
+            tests["SSH"] = Test(scanner, "SSH", 22, lambda: [], 
+                                lambda u: scanner.check_openssh(u))
+        except NoURLsFound, e:
+            plog('ERROR', e.message)
 
     if do_smtp:
-        smtp_urls = [('smtp.gmail.com','587')]
-
-        if len(smtp_urls) == 0:
-            plog('ERROR', 'No urls specified for smtp testing.')
-            do_smtp = False
-
+        try:
+            tests["SMTP"] = Test(scanner, "SMTP", 587, 
+               lambda: [('smtp.gmail.com','587')], 
+               lambda u: scanner.check_smtp(*u))
+        except NoURLsFound, e:
+            plog('ERROR', e.message)
+      
     if do_pop:
-        pop_urls = []
-
-        if len(pop_urls) == 0:
-            plog('ERROR', 'No urls specified for pop testing.')
-            do_pop = False
+        try:
+            tests["POP"] = Test(scanner, "POP", 110, lambda: [],
+               lambda u: scanner.check_pop(*u))
+        except NoURLsFound, e:
+            plog('ERROR', e.message)
 
     if do_imap:
-        imap_urls = []
-
-        if len(imap_urls) == 0:
-            plog('ERROR', 'No urls specified for imap testing.')
-            do_imap = False
-
-    if do_dns_basic:
-        dns_urls = []
-
-        if len(dns_urls) == 0:
-            plog('ERROR', 'No urls specified for dns testing.')
-            do_dns_basic = False
+        try:
+            tests["IMAP"] = Test(scanner, "IMAP", 143, lambda: [],
+               lambda u: scanner.check_imap(*u))
+        except NoURLsFound, e:
+            plog('ERROR', e.message)
 
     # maybe no tests could be initialized
-    if not (do_ssl or do_http or do_ssh or do_smtp or do_pop or do_imap or do_dns_basic):
+    if not (do_ssl or do_http or do_ssh or do_smtp or do_pop or do_imap):
         plog('INFO', 'Done.')
         sys.exit(0)
         
-
-    # TODO: Do set intersection and reuse nodes for shared tests
-
     # start testing
-    while 1:  
+    while 1:
+        # Get as much milage out of each exit as we safely can:
+        # Run a random subset of our tests in random order
+        avail_tests = tests.values()
+        n_tests = random.choice(xrange(1,len(avail_tests)+1))
+        
+        to_run = random.sample(avail_tests, n_tests)
+
+        common_nodes = None
+        # Do set intersection and reuse nodes for shared tests
+        for test in to_run:
+            if not common_nodes: common_nodes = Set(map(lambda n: n.idhex, test.nodes))
+            else: common_nodes &= Set(map(lambda n: n.idhex, test.nodes))
+
+        if common_nodes:
+            current_exit_idhex = random.choice(list(common_nodes))
+            plog("DEBUG", "Chose to run "+str(n_tests)+" tests via "+current_exit_idhex+" (tests share "+str(len(common_nodes))+" exit nodes")
+
+            scanner.set_new_exit(current_exit_idhex)
+            scanner.get_new_circuit()
+            for test in to_run:
+                # Keep testing failures and inconclusives
+                result = test.run_test()
+                if result == TEST_SUCCESS:
+                    test.mark_chosen(test.node_map[current_exit_idhex])
+                plog("INFO", test.proto+" test via "+current_exit_idhex+" has result "+str(result))
+                plog("INFO", test.proto+" attempts: "+str(test.tests_run)+". Completed: "+str(test.nodes_marked)+"/"+str(test.total_nodes)+" ("+str(test.percent_complete())+"%)")
+        else:
+            plog("NOTICE", "No nodes in common between "+", ".join(map(lambda t: t.proto, to_run)))
+            for test in to_run:
+                current_exit = test.get_node()
+                scanner.set_new_exit(current_exit.idhex)
+                scanner.get_new_circuit()
+                # Keep testing failures and inconclusives
+                result = test.run_test()
+                plog("INFO", test.proto+" test via "+current_exit.idhex+" has result "+str(result))
+                plog("INFO", test.proto+" attempts: "+str(test.tests_run)+". Completed: "+str(test.nodes_marked)+"/"+str(test.total_nodes)+" ("+str(test.percent_complete())+"%)")
+                if result == TEST_SUCCESS:
+                    test.mark_chosen(current_exit)
        
-        # https test  
-        if do_ssl:
-            candidates = [x for x in ssl_nodes if ('$' + `x.idhex`) not in scanner.ssl_tested]
-            if len(candidates) > 0:
-                current_exit = random.choice(candidates)
-                scanner.set_new_exit(current_exit.idhex)
-            
-            scanner.get_new_circuit()
-            ssl_site = random.choice(ssl_urls)
-            scanner.check_openssl(ssl_site)
-            
-            ssl_tested_n = len(scanner.ssl_tested)
-            if ssl_nodes_n > ssl_tested_n:
-                plog('INFO', 'Nodes ssl-tested: ' + `ssl_tested_n` + '/' + `ssl_nodes_n`
-                    + ' (~' + `((ssl_tested_n * 100) / ssl_nodes_n)` + '%)')
-        
-        # http test
-        if do_http:
-            candidates = [x for x in http_nodes if ('$' + `x.idhex`) not in scanner.http_tested]
-            if len(candidates) > 0 :
-                current_exit = random.choice(candidates)
-                scanner.set_new_exit(current_exit.idhex)
-            
-            scanner.get_new_circuit()
-            http_site = random.choice(http_urls)
-            scanner.check_http(http_site)
-
-            http_tested_n = len(scanner.http_tested)
-            if http_nodes_n > http_tested_n:
-                plog('INFO', 'Nodes http-tested: ' + `http_tested_n` + '/' + `http_nodes_n`
-                    + ' (~' + `((http_tested_n * 100) / http_nodes_n)` + '%)')
-        
-        # ssh test
-        if do_ssh:
-            candidates = [x for x in ssh_nodes if ('$' + `x.idhex`) not in scanner.ssh_tested]
-            if len(candidates) > 0:
-                current_exit = random.choice(candidates)
-                scanner.set_new_exit(current_exit.idhex)
-                
-            scanner.get_new_circuit()
-            ssh_site = random.choice(ssh_urls)
-            scanner.check_openssh(ssh_site)
  
-            ssh_tested_n = len(scanner.ssh_tested)
-            if ssh_nodes_n > ssh_tested_n:
-                plog('INFO', 'Nodes ssh-tested: ' + `ssh_tested_n` + '/' + `ssh_nodes_n`
-                    + '(~' + `((ssh_tested_n * 100) / ssh_nodes_n)` + '%')
-
-        # smtp test
-        if do_smtp:
-            scanner.get_new_circuit()
-            smtp_site = random.choice(smtp_urls)
-            scanner.check_smtp(smtp_site[0], smtp_site[1])
-
-        # pop test
-        if do_pop:
-            scanner.get_new_circuit()
-            pop_site = random.choice(pop_urls)
-            scanner.check_pop(pop_site[0], pop_site[1])
-
-        # imap test
-        if do_imap:
-            scanner.get_new_circuit()
-            imap_site = random.choice(imap_urls)
-            scanner.check_imap(imap_site[0], imap_site[1])
-
+        # Check each test for rewind 
+        for test in tests.itervalues():
+            if test.finished():
+                plog("NOTICE", test.proto+" test has finished all nodes.  Rewinding")
+                test.rewind() 
+       
         #
         # managing url lists
         # if we've been having too many false positives lately, get a new target list
-        # 
+        # XXX: Do this on a per-url basis
 
-        if do_http and len(scanner.http_fail) - http_fail >= len(http_urls):
-            http_urls = get_urls(wordlist, protocol='http', results_per_type=10, g_results_per_page=20)
-            http_fail = len(scanner.http_fail)
+        #if do_http and len(scanner.http_fail) - http_fail >= len(http_urls):
+        #    http_urls = get_urls(wordlist, protocol='http', results_per_type=10, g_results_per_page=20)
+        #    http_fail = len(scanner.http_fail)
         
 #
 # initiate the program
