@@ -38,6 +38,7 @@ import time
 import urllib
 import urllib2
 import traceback
+import copy
 
 import libsoat 
 from libsoat import *
@@ -66,6 +67,19 @@ import Pyssh.pyssh
 wordlist_file = './wordlist.txt';
 allowed_filetypes = ['all','pdf']
 result_per_type = 5 
+
+firefox_headers = {
+    'User-Agent':'Mozilla/5.0 (Windows; U; Windows NT 5.1; de; rv:1.8.1) Gecko/20061010 Firefox/2.0',
+    'Accept':'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+    'Accept-Language':"en-us,en;q=0.5",
+    'Accept-Encoding':"gzip,deflate",
+    'Accept-Charset': "ISO-8859-1,utf-8;q=0.7,*;q=0.7",
+    'Keep-Alive':"300",
+    'Connection':"keep-alive"
+}
+
+# This will be set the first time we hit google if it is empty
+google_cookie=""
 
 #
 # ports to test in the consistency test
@@ -1000,11 +1014,16 @@ class ExitNodeScanner:
         self.__control.set_event_handler(self.__dnshandler)
         self.__control.set_events([TorCtl.EVENT_TYPE.STREAM], True)
 
+    def _firefoxify(self, request):
+        # XXX: Fix user agent, add cookie support
+        for h in firefox_headers.iterkeys():
+            request.add_header(h, firefox_headers[h])
+        
+
     def http_request(self, address):
         ''' perform a http GET-request and return the content received '''
         request = urllib2.Request(address)
-        # XXX: Make all headers match a real firefox browser
-        request.add_header('User-Agent','Mozilla/5.0 (Windows; U; Windows NT 5.1; de; rv:1.8.1) Gecko/20061010 Firefox/2.0')
+        self._firefoxify(request)
 
         content = 0
         try:
@@ -1111,13 +1130,14 @@ def get_urls(wordlist, filetypes=['any'], results_per_type=5, protocol='any', g_
             # search google for relevant pages
             # note: google only accepts requests from idenitified browsers
             # TODO gracefully handle the case when google doesn't want to give us result anymore
-            # XXX: Make more of these headers match? Maybe set a cookie.. or
-            # use scroogle :)
+            # XXX: Maybe set a cookie.. or use scroogle :)
             host = 'www.google.com'
             params = urllib.urlencode({'q' : query})
-            headers = {'User-Agent' : 'Mozilla/5.0 (Windows; U; Windows NT 5.1; de; rv:1.8.1) Gecko/20061010 Firefox/2.0'}
             search_path = '/search' + '?' + params
-
+            headers = copy.copy(firefox_headers)
+            global google_cookie
+            if google_cookie:
+                headers["Cookie"] = google_cookie
             connection = None
             response = None
 
@@ -1127,6 +1147,11 @@ def get_urls(wordlist, filetypes=['any'], results_per_type=5, protocol='any', g_
                 response = connection.getresponse()
                 if response.status != 200:
                     raise Exception(response.status, response.reason)
+                cookie = response.getheader("Cookie")
+                if cookie:
+                    plog("INFO", "Got google cookie: "+cookie)
+                    google_cookie=cookie
+                
             except socket.gaierror, e:
                 plog('ERROR', 'Scraping of http://'+host+search_path+" failed")
                 traceback.print_exc()
