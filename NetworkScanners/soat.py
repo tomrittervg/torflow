@@ -42,6 +42,7 @@ import copy
 import StringIO
 import zlib,gzip
 import urlparse
+import cookielib
 
 import libsoat 
 from libsoat import *
@@ -81,10 +82,9 @@ firefox_headers = {
     'Connection':"keep-alive"
 }
 
-# This will be set the first time we hit google if it is empty
-# XXX This sucks. Use:
 # http://www.voidspace.org.uk/python/articles/cookielib.shtml
-google_cookie="SS=Q0=Y3V0ZSBmbHVmZnkgYnVubmllcw; PREF=ID=6765c28f7a1cc0ee:TM=1232841580:LM=1232841580:S=AkJ2XoknzizJ9uHu; NID=19=U2wSG00R6qYU4UPUZgjzWi9q0aFwDAnliUhHGwaA4oKXw-D9EgSPVejdmwPIVWFPJuGEfIkmJ5mn2i1Cn2Xt1JVhQp0uWOemJmzWwRvYVTJPDuQDaMIYuvyiIpH9HLET"
+google_cookie_file="google_cookies.lwp"
+google_cookies=None
 
 #
 # ports to test in the consistency test
@@ -142,6 +142,38 @@ attrs_to_check = ['onclick', 'ondblclick', 'onmousedown', 'onmouseup', 'onmouseo
 #
 
 linebreak = '\r\n'
+
+# Http request handling
+def http_request(address, cookie_jar=None):
+    ''' perform a http GET-request and return the content received '''
+    request = urllib2.Request(address)
+    for h in firefox_headers.iterkeys():
+        request.add_header(h, firefox_headers[h])
+
+    content = ""
+    try:
+        if cookie_jar != None:
+            opener = urllib2.build_opener(urllib2.HTTPCookieProcessor(cookie_jar))
+            reply = opener.open(request)
+            if "__filename" in cookie_jar.__dict__:
+                cookie_jar.save(cookie_jar.__filename)
+        else:
+            reply = urllib2.urlopen(request)
+        content = decompress_response_data(reply)
+    except (ValueError, urllib2.URLError):
+        plog('WARN', 'The http-request address ' + address + ' is malformed')
+        return ""
+    except (IndexError, TypeError):
+        plog('WARN', 'An error occured while negotiating socks5 with Tor')
+        return ""
+    except KeyboardInterrupt:
+        raise KeyboardInterrupt
+    except:
+        plog('WARN', 'An unknown HTTP error occured for '+address)
+        traceback.print_exc()
+        return ""
+
+    return content
 
 # a simple interface to handle a socket connection
 class Client:
@@ -351,7 +383,7 @@ class ExitNodeScanner:
         socks.setdefaultproxy(socks.PROXY_TYPE_SOCKS5, tor_host, tor_port)
         socket.socket = socks.socksocket
 
-        pcontent = self.http_request(address)
+        pcontent = http_request(address)
 
         # reset the connection to direct
         socket.socket = defaultsocket
@@ -383,7 +415,7 @@ class ExitNodeScanner:
             soup = BeautifulSoup(tag_file.read())
             tag_file.close()
         except IOError:
-            content = self.http_request(address)
+            content = http_request(address)
             content = content.decode('ascii','ignore')
             soup = BeautifulSoup(content, parseOnlyThese=elements)
             tag_file = open(http_tags_dir + address_file + '.tags', 'w')
@@ -407,7 +439,7 @@ class ExitNodeScanner:
             return TEST_SUCCESS
 
         # if content doesnt match, update the direct content
-        content_new = self.http_request(address)
+        content_new = http_request(address)
         content_new = content_new.decode('ascii', 'ignore')
         if not content_new:
             result = HttpTestResult(exit_node, address, 0, TEST_INCONCLUSIVE)
@@ -1043,46 +1075,14 @@ class ExitNodeScanner:
         self.__control.set_event_handler(self.__dnshandler)
         self.__control.set_events([TorCtl.EVENT_TYPE.STREAM], True)
 
-    def _firefoxify(self, request):
-        # XXX: Fix user agent, add cookie support
-        for h in firefox_headers.iterkeys():
-            request.add_header(h, firefox_headers[h])
-        
-
-    def http_request(self, address):
-        ''' perform a http GET-request and return the content received '''
-        request = urllib2.Request(address)
-        self._firefoxify(request)
-
-        content = ""
-        try:
-            reply = urllib2.urlopen(request)
-            content = decompress_response_data(reply)
-        except (ValueError, urllib2.URLError):
-            plog('WARN', 'The http-request address ' + address + ' is malformed')
-            return ""
-        except (IndexError, TypeError):
-            plog('WARN', 'An error occured while negotiating socks5 with Tor')
-            return ""
-        except KeyboardInterrupt:
-            raise KeyboardInterrupt
-        except:
-            plog('WARN', 'An unknown HTTP error occured for '+address)
-            traceback.print_exc()
-            return ""
-
-        return content
 
     def ssh_request(self):
         pass
 
     def ssl_request(self, address):
         ''' initiate an ssl connection and return the server certificate '''
-        
-        # drop the https:// prefix if present (not needed for a socket connection)
-        if address[:8] == 'https://':
-            address = address[8:]
-    
+        address=str(address) # Unicode hostnames not supported..
+         
         # specify the context
         ctx = SSL.Context(SSL.SSLv23_METHOD)
         ctx.set_verify_depth(1)
@@ -1105,6 +1105,8 @@ class ExitNodeScanner:
         except (IndexError, TypeError):
             plog('WARN', 'An error occured while negotiating socks5 with Tor (timeout?)')
             return 0
+        except KeyboardInterrupt:
+            raise KeyboardInterrupt
         except:
             plog('WARN', 'An unknown SSL error occured for '+address)
             traceback.print_exc()
@@ -1178,37 +1180,16 @@ def get_urls(wordlist, host_only=False, filetypes=['any'], results_per_type=5, p
             # search google for relevant pages
             # note: google only accepts requests from idenitified browsers
             # TODO gracefully handle the case when google doesn't want to give us result anymore
-            # XXX: Maybe set a cookie.. or use scroogle :)
             host = 'www.google.com'
             params = urllib.urlencode({'q' : query})
             search_path = '/search' + '?' + params
-            headers = copy.copy(firefox_headers)
-            global google_cookie
-            if google_cookie:
-                headers["Cookie"] = google_cookie
+            search_url = "http://"+host+search_path
             connection = None
             response = None
 
-            # XXX: Why does this not use urllib2?
             try:
-                connection = httplib.HTTPConnection(host)
-                connection.request("GET", search_path, {}, headers)
-                response = connection.getresponse()
-                if response.status != 200:
-                    resp_headers = response.getheaders()
-                    header_str = ""
-                    for h in resp_headers:
-                        header_str += "\t"+str(h)+"\n"
-                    plog("WARN", "Google scraping failure. Response: \n"+header_str)
-                    raise Exception(response.status, response.reason)
-
-                cookie = response.getheader("Set-Cookie")
-                if cookie:
-                    plog("INFO", "Got new google cookie: "+cookie)
-                    google_cookie=cookie
- 
-                content = decompress_response_data(response)
-                
+                # XXX: This does not handle http error codes.. (like 302!)
+                content = http_request(search_url, google_cookies)
             except socket.gaierror, e:
                 plog('ERROR', 'Scraping of http://'+host+search_path+" failed")
                 traceback.print_exc()
@@ -1303,6 +1284,8 @@ class Test:
         self.urls = self.url_fcn()
         if not self.urls:
             raise NoURLsFound("No URLS found for protocol "+self.proto)
+        urls = "\n\t".join(self.urls)
+        plog("INFO", "Using the following urls for "+self.proto+" scan:\n\t"+urls) 
         self.nodes = self.scanner.get_nodes_for_port(self.port)
         self.node_map = {}
         for n in self.nodes: 
@@ -1359,6 +1342,13 @@ def main(argv):
     if not (do_ssl or do_http or do_ssh or do_smtp or do_pop or do_imap):
         plog('INFO', 'Done.')
         return
+
+    # Load the cookie jar
+    global google_cookies
+    google_cookies = cookielib.LWPCookieJar()
+    if os.path.isfile(google_cookie_file):
+        google_cookies.load(google_cookie_file)
+    google_cookies.__filename = google_cookie_file
 
     # declare some variables and assign values if neccessary
     http_fail = 0
