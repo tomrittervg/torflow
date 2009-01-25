@@ -39,6 +39,8 @@ import urllib
 import urllib2
 import traceback
 import copy
+import StringIO
+import zlib,gzip
 
 import libsoat 
 from libsoat import *
@@ -79,7 +81,9 @@ firefox_headers = {
 }
 
 # This will be set the first time we hit google if it is empty
-google_cookie=""
+# XXX This sucks. Use:
+# http://www.voidspace.org.uk/python/articles/cookielib.shtml
+google_cookie="SS=Q0=Y3V0ZSBmbHVmZnkgYnVubmllcw; PREF=ID=6765c28f7a1cc0ee:TM=1232841580:LM=1232841580:S=AkJ2XoknzizJ9uHu; NID=19=U2wSG00R6qYU4UPUZgjzWi9q0aFwDAnliUhHGwaA4oKXw-D9EgSPVejdmwPIVWFPJuGEfIkmJ5mn2i1Cn2Xt1JVhQp0uWOemJmzWwRvYVTJPDuQDaMIYuvyiIpH9HLET"
 
 #
 # ports to test in the consistency test
@@ -90,7 +94,24 @@ ports_to_check = [
     ["imap", ExitPolicyRestriction('255.255.255.255', 143), "imaps", ExitPolicyRestriction('255.255.255.255', 993)],
     ["telnet", ExitPolicyRestriction('255.255.255.255', 23), "ssh", ExitPolicyRestriction('255.255.255.255', 22)],
     ["smtp", ExitPolicyRestriction('255.255.255.255', 25), "smtps", ExitPolicyRestriction('255.255.255.255', 465)],
-    ["http", ExitPolicyRestriction('255.255.255.255', 80), "https", ExitPolicyRestriction('255.255.255.255', 443)]
+    ["http", ExitPolicyRestriction('255.255.255.255', 80), "https",
+ExitPolicyRestriction('255.255.255.255', 443)],
+    ["plaintext", NodeRestrictionList([
+ExitPolicyRestriction('255.255.255.255',110),
+ExitPolicyRestriction('255.255.255.255',143),
+ExitPolicyRestriction('255.255.255.255',23),
+ExitPolicyRestriction('255.255.255.255',25),
+ExitPolicyRestriction('255.255.255.255',80)
+]),
+"secure",
+OrNodeRestriction([
+ExitPolicyRestriction('255.255.255.255',995),
+ExitPolicyRestriction('255.255.255.255',993),
+ExitPolicyRestriction('255.255.255.255',22),
+ExitPolicyRestriction('255.255.255.255',465),
+ExitPolicyRestriction('255.255.255.255',587),
+ExitPolicyRestriction('255.255.255.255',443)
+])]
 ]
 
 #
@@ -158,7 +179,9 @@ class DNSRebindScanner(EventHandler):
             for network in ipv4_nonpublic:
                 if ipbin[:len(network)] == network:
                     handler = DataHandler()
-                    result = DNSRebindTestResult(self.__soat.get_exit_node(), '', TEST_FAILURE)
+                    node = self.__soat.get_exit_node()
+                    plog("ERROR", "DNS Rebeind failure via "+node)
+                    result = DNSRebindTestResult(node, '', TEST_FAILURE)
                     handler.saveResult(result)
 
 class ExitNodeScanner:
@@ -183,7 +206,7 @@ class ExitNodeScanner:
         # configure metatroller
         commands = [
             'PATHLEN 2',
-            'PERCENTFAST 88',
+            'PERCENTFAST 10', # Cheat to win!
             'USEALLEXITS 1',
             'UNIFORM 0',
             'BWCUTOFF 1',
@@ -341,7 +364,7 @@ class ExitNodeScanner:
         address_file = self.__datahandler.safeFilename(address[7:])
 
         # if we have no content, we had a connection error
-        if pcontent == 0:
+        if pcontent == "":
             result = HttpTestResult(exit_node, address, 0, TEST_INCONCLUSIVE)
             self.__datahandler.saveResult(result)
             return TEST_INCONCLUSIVE
@@ -385,7 +408,7 @@ class ExitNodeScanner:
         # if content doesnt match, update the direct content
         content_new = self.http_request(address)
         content_new = content_new.decode('ascii', 'ignore')
-        if content_new == 0:
+        if not content_new:
             result = HttpTestResult(exit_node, address, 0, TEST_INCONCLUSIVE)
             self.__datahandler.saveResult(result)
             return TEST_INCONCLUSIVE
@@ -399,6 +422,7 @@ class ExitNodeScanner:
             tag_file = open(http_tags_dir + `exit_node` + '_' + address_file + '.tags', 'w')
             tag_file.write(psoup.__str__())
             tag_file.close()
+            plog("ERROR", "HTTP Failure at "+exit_node)
             return TEST_FAILURE
 
         # if content has changed outside of tor, update the saved file
@@ -420,6 +444,7 @@ class ExitNodeScanner:
         tag_file.write(psoup.__str__())
         tag_file.close()
         
+        plog("ERROR", "HTTP Failure at "+exit_node)
         return TEST_FAILURE
 
     def check_openssh(self, address):
@@ -452,7 +477,7 @@ class ExitNodeScanner:
 
         exit_node = self.get_exit_node()
         if exit_node == 0 or exit_node == '0' or not exit_node:
-            plog('INFO', 'We had no exit node to test, skipping to the next test.')
+            plog('WARN', 'We had no exit node to test, skipping to the next test.')
             return TEST_FAILURE
 
         # if we got no cert, there was an ssl error
@@ -637,6 +662,7 @@ class ExitNodeScanner:
         if ehlo1_reply != ehlo1_reply_d or has_starttls != has_starttls_d or ehlo2_reply != ehlo2_reply_d:
             result = SMTPTestResult(exit_node, address, TEST_FAILURE)
             self.__datahandler.saveResult(result)
+            # XXX: Log?
             return TEST_FAILURE
 
         result = SMTPTestResult(exit_node, address, TEST_SUCCESS)
@@ -812,6 +838,7 @@ class ExitNodeScanner:
                 tls_started != tls_started_d or tls_succeeded != tls_succeeded_d):
             result = POPTestResult(exit_node, address, TEST_FAILURE)
             self.__datahandler.saveResult(result)
+            # XXX: Log?
             return TEST_FAILURE
         
         result = POPTestResult(exit_node, address, TEST_SUCCESS)
@@ -967,6 +994,7 @@ class ExitNodeScanner:
             tls_started != tls_started_d or tls_succeeded != tls_succeeded_d):
             result = IMAPTestResult(exit_node, address, TEST_FAILURE)
             self.__datahandler.saveResult(result)
+            # XXX: log?
             return TEST_FAILURE
 
         result = IMAPTestResult(exit_node, address, TEST_SUCCESS)
@@ -1025,22 +1053,22 @@ class ExitNodeScanner:
         request = urllib2.Request(address)
         self._firefoxify(request)
 
-        content = 0
+        content = ""
         try:
             reply = urllib2.urlopen(request)
-            content = reply.read()
+            content = decompress_response_data(reply)
         except (ValueError, urllib2.URLError):
             plog('WARN', 'The http-request address ' + address + ' is malformed')
-            return 0
+            return ""
         except (IndexError, TypeError):
             plog('WARN', 'An error occured while negotiating socks5 with Tor')
-            return 0
+            return ""
         except KeyboardInterrupt:
             raise KeyboardInterrupt
         except:
             plog('WARN', 'An unknown HTTP error occured for '+address)
             traceback.print_exc()
-            return 0
+            return ""
 
         return content
 
@@ -1106,6 +1134,25 @@ def load_wordlist(file):
 
     return wordlist
 
+
+def decompress_response_data(response):
+    encoding = None
+
+    # a reponse to a httplib.HTTPRequest 
+    if (response.__class__.__name__ == "HTTPResponse"):
+        encoding = response.getheader("Content-Encoding")
+    # a response to urllib2.urlopen()
+    elif (response.__class__.__name__ == "addinfourl"):
+        encoding = response.info().get("Content-Encoding")
+
+    if encoding == 'gzip' or encoding == 'x-gzip':
+        return gzip.GzipFile('', 'rb', 9, StringIO.StringIO(response.read())).read()
+    elif encoding == 'deflate':
+        return StringIO.StringIO(zlib.decompress(response.read())).read()
+    else:
+        return response.read()
+
+
 def get_urls(wordlist, filetypes=['any'], results_per_type=5, protocol='any', g_results_per_page=10):
     ''' 
     construct a list of urls based on the wordlist, filetypes and protocol. 
@@ -1141,16 +1188,25 @@ def get_urls(wordlist, filetypes=['any'], results_per_type=5, protocol='any', g_
             connection = None
             response = None
 
+            # XXX: Why does this not use urllib2?
             try:
                 connection = httplib.HTTPConnection(host)
                 connection.request("GET", search_path, {}, headers)
                 response = connection.getresponse()
                 if response.status != 200:
+                    resp_headers = response.getheaders()
+                    header_str = ""
+                    for h in resp_headers:
+                        header_str += "\t"+str(h)+"\n"
+                    plog("WARN", "Google scraping failure. Response: \n"+header_str)
                     raise Exception(response.status, response.reason)
-                cookie = response.getheader("Cookie")
+
+                cookie = response.getheader("Set-Cookie")
                 if cookie:
-                    plog("INFO", "Got google cookie: "+cookie)
+                    plog("INFO", "Got new google cookie: "+cookie)
                     google_cookie=cookie
+ 
+                content = decompress_response_data(response)
                 
             except socket.gaierror, e:
                 plog('ERROR', 'Scraping of http://'+host+search_path+" failed")
@@ -1162,9 +1218,14 @@ def get_urls(wordlist, filetypes=['any'], results_per_type=5, protocol='any', g_
                 # XXX: Bloody hack just to run some tests overnight
                 return [protocol+"://www.eff.org", protocol+"://www.fastmail.fm", protocol+"://www.torproject.org", protocol+"://secure.wikileaks.org/"]
 
-            content = response.read()
             links = SoupStrainer('a')
-            soup = BeautifulSoup(content, parseOnlyThese=links)
+            try:
+                soup = BeautifulSoup(content, parseOnlyThese=links)
+            except Exception, e:
+                plog('ERROR', 'Soup-scraping of http://'+host+search_path+" failed")
+                traceback.print_exc()
+                print "Content is: "+str(content)
+                return [protocol+"://www.eff.org", protocol+"://www.fastmail.fm", protocol+"://www.torproject.org", protocol+"://secure.wikileaks.org/"]
             
             # get the links and do some additional filtering
             for link in soup.findAll('a', {'class' : 'l'}):

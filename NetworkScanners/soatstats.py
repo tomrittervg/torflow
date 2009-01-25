@@ -28,7 +28,6 @@ class ResultNode:
     self.counts = {}
     self.idhex = idhex 
 
-
 def main(argv):
   dh = DataHandler()
   data = dh.getAll()
@@ -64,9 +63,40 @@ def main(argv):
   failed_nodes.sort(lambda x, y: cmp(y.total.bad, x.total.bad))
 
   inconclusive_nodes = nodeResults.values()
-  inconclusive_nodes.sort(lambda x, y: cmp(y.total.inconclusive, y.total.inconclusive))
+  inconclusive_nodes.sort(lambda x, y: cmp(y.total.inconclusive, x.total.inconclusive))
 
   # Sort by individual test counts, print out nodes with highest counts first
+
+  failed_nodes_specific = {}
+  inconclusive_nodes_specific = {}
+  for test in tests:
+    tested = [node for node in nodeResults.values() if node.counts.get(test)]
+    failed_nodes_specific[test] = list(sorted(tested, lambda x, y: cmp(y.counts[test].bad, x.counts[test].bad)))
+    inconclusive_nodes_specific[test] = list(sorted(tested, lambda x, y: cmp(y.counts[test].inconclusive, x.counts[test].inconclusive)))
+
+  print "\nFailures"
+  for node in failed_nodes:
+    if node.total.bad != 0:
+      print `node.idhex` + "\t" + `node.total.bad`
+
+  print "\nInconclusive test results"
+  for node in inconclusive_nodes:
+    if node.total.inconclusive != 0:
+      print `node.idhex` + "\t" + `node.total.inconclusive`
+
+  for test in tests:
+    print "\n" + test[:(-6)] + " failures"
+    for node in failed_nodes_specific[test]:
+      if node.counts[test].bad != 0:
+        print `node.idhex` + "\t" + `node.counts[test].bad`
+
+  for test in tests:
+    print "\n" + test[:(-6)] + " inconclusive results"
+    for node in inconclusive_nodes_specific[test]:
+      if node.counts[test].inconclusive != 0:
+        print `node.idhex` + "\t" + `node.counts[test].inconclusive`
+
+  print ""
 
 if __name__ == "__main__":
   main(sys.argv)
