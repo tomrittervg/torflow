@@ -41,6 +41,7 @@ import traceback
 import copy
 import StringIO
 import zlib,gzip
+import urlparse
 
 import libsoat 
 from libsoat import *
@@ -1153,7 +1154,7 @@ def decompress_response_data(response):
         return response.read()
 
 
-def get_urls(wordlist, filetypes=['any'], results_per_type=5, protocol='any', g_results_per_page=10):
+def get_urls(wordlist, host_only=False, filetypes=['any'], results_per_type=5, protocol='any', g_results_per_page=10):
     ''' 
     construct a list of urls based on the wordlist, filetypes and protocol. 
     
@@ -1234,7 +1235,11 @@ def get_urls(wordlist, filetypes=['any'], results_per_type=5, protocol='any', g_
                         filetype != 'any' and url[-len(filetype):] != filetype):
                     pass
                 else:
-                    type_urls.append(link['href'])
+                    if host_only:
+                        host = urlparse.urlparse(link['href'])[1]
+                        type_urls.append(host)
+                    else:
+                        type_urls.append(link['href'])
         
         if type_urls > results_per_type:
             type_urls = random.sample(type_urls, results_per_type) # make sure we don't get more urls than needed
@@ -1365,7 +1370,7 @@ def main(argv):
         try:
             tests["SSL"] = Test(scanner, "SSL", 443, 
                 lambda:
-                  get_urls(wordlist, protocol='https', results_per_type=10,
+                  get_urls(wordlist, protocol='https', host_only=True, results_per_type=10,
 g_results_per_page=20), lambda u: scanner.check_openssl(u))
         except NoURLsFound, e:
             plog('ERROR', e.message)
