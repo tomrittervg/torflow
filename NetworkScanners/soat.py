@@ -452,7 +452,7 @@ class ExitNodeScanner:
         if soup == soup_new:
             result = HttpTestResult(exit_node, address, 0, TEST_FAILURE)
             self.__datahandler.saveResult(result)
-            tag_file = open(http_tags_dir + `exit_node` + '_' + address_file + '.tags', 'w')
+            tag_file = open(http_tags_dir + exit_node[1:] + '_' + address_file + '.tags', 'w')
             tag_file.write(psoup.__str__())
             tag_file.close()
             plog("ERROR", "HTTP Failure at "+exit_node)
@@ -473,7 +473,7 @@ class ExitNodeScanner:
         # if it doesn't match, means the node has been changing the content
         result = HttpTestResult(exit_node, address, 0, TEST_FAILURE)
         self.__datahandler.saveResult(result)
-        tag_file = open(http_tags_dir + `exit_node` + '_' + address_file + '.tags', 'w')
+        tag_file = open(http_tags_dir + exit_node[1:] + '_' + address_file + '.tags', 'w')
         tag_file.write(psoup.__str__())
         tag_file.close()
         
@@ -573,9 +573,9 @@ class ExitNodeScanner:
         # compare the old and new cert
         # if certs match, means the exit node has been messing with the cert
         if original_cert_pem == original_cert_new_pem:
-            plog('ERROR', 'Exit node ' + `exit_node` + ' seems to be meddling with certificates. (' + address + ')')
+            plog('ERROR', 'Exit node ' + exit_node + ' seems to be meddling with certificates. (' + address + ')')
 
-            cert_file_name = ssl_certs_dir + address_file + '_' + `exit_node` + '.pem'
+            cert_file_name = ssl_certs_dir + address_file + '_' + exit_node[1:] + '.pem'
             cert_file = open(cert_file_name, 'w')
             cert_file.write(cert_pem)
             cert_file.close()
@@ -601,9 +601,9 @@ class ExitNodeScanner:
             return TEST_SUCCESS
 
         # if certs dont match, means the exit node has been messing with the cert
-        plog('ERROR', 'Exit node ' + `exit_node` + ' seems to be meddling with certificates. (' + address + ')')
+        plog('ERROR', 'Exit node ' + exit_node + ' seems to be meddling with certificates. (' + address + ')')
 
-        cert_file_name = ssl_certs_dir + address + '_' + `exit_node` + '.pem'
+        cert_file_name = ssl_certs_dir + address + '_' + exit_node[1:] + '.pem'
         cert_file = open(cert_file_name, 'w')
         cert_file.write(cert_pem)
         cert_file.close()
@@ -1197,7 +1197,7 @@ def get_urls(wordlist, host_only=False, filetypes=['any'], results_per_type=5, p
             except:
                 plog('ERROR', 'Scraping of http://'+host+search_path+" failed")
                 traceback.print_exc()
-                # XXX: Bloody hack just to run some tests overnight
+                # Bloody hack just to run some tests overnight
                 return [protocol+"://www.eff.org", protocol+"://www.fastmail.fm", protocol+"://www.torproject.org", protocol+"://secure.wikileaks.org/"]
 
             links = SoupStrainer('a')
