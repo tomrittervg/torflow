@@ -21,18 +21,16 @@ To run SoaT:
 
 '''
 
-__all__ = ["ExitNodeScanner", "DNSRebindScanner", "load_wordlist", "get_urls"]
+__all__ = ["ExitNodeScanner", "DNSRebindScanner", "load_wordlist"]
 
 import commands
 import getopt
-import httplib
 import os
 import random
 import re
 from sets import Set
 import smtplib
 import socket
-import string
 import sys
 import time
 import urllib
@@ -44,7 +42,6 @@ import zlib,gzip
 import urlparse
 import cookielib
 
-import libsoat 
 from libsoat import *
 
 sys.path.append("../")
@@ -97,13 +94,25 @@ ports_to_check = [
   ["smtp", ExitPolicyRestriction('255.255.255.255', 25), "smtps", ExitPolicyRestriction('255.255.255.255', 465)],
   ["http", ExitPolicyRestriction('255.255.255.255', 80), "https",
 ExitPolicyRestriction('255.255.255.255', 443)],
-  ["plaintext", NodeRestrictionList([
+  ["email", NodeRestrictionList([
+ExitPolicyRestriction('255.255.255.255',110),
+ExitPolicyRestriction('255.255.255.255',143)
+]),
+"secure email",
+OrNodeRestriction([
+ExitPolicyRestriction('255.255.255.255',995),
+ExitPolicyRestriction('255.255.255.255',993),
+ExitPolicyRestriction('255.255.255.255',465),
+ExitPolicyRestriction('255.255.255.255',587)
+])],
+  ["plaintext", AtLeastNNodeRestriction([
 ExitPolicyRestriction('255.255.255.255',110),
 ExitPolicyRestriction('255.255.255.255',143),
 ExitPolicyRestriction('255.255.255.255',23),
-ExitPolicyRestriction('255.255.255.255',25),
+ExitPolicyRestriction('255.255.255.255',21),
 ExitPolicyRestriction('255.255.255.255',80)
-]),
+#ExitPolicyRestriction('255.255.255.255',25),
+], 4),
 "secure",
 OrNodeRestriction([
 ExitPolicyRestriction('255.255.255.255',995),
@@ -175,205 +184,151 @@ def http_request(address, cookie_jar=None):
 
   return content
 
-# a simple interface to handle a socket connection
-class Client:
+class Test:
+  """ Base class for our tests """
+  def __init__(self, mt, proto, port):
+    self.proto = proto
+    self.port = port
+    self.mt = mt
+    self.datahandler = DataHandler()
+    self.min_targets = 10
+    self.rewind()
 
-  def __init__(self, host, port):
-    self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    self.sock.connect((host, port))
-    self.buffer = self.sock.makefile('rb')
+  def run_test(self): 
+    raise NotImplemented()
 
-  def writeline(self, line):
-    self.sock.send(line + linebreak)
+  def get_targets(self): 
+    raise NotImplemented()
 
-  def readline(self):
-    response = self.buffer.readline()
-    if not response:
-      raise EOFError
-    elif response[-2:] == linebreak:
-      response = response[:-2]
-    elif response[-1:] in linebreak:
-      response = response[:-1]
-    return response 
+  def get_node(self):
+    return random.choice(self.nodes)
 
-class DNSRebindScanner(EventHandler):
-  ''' 
-  A tor control event handler extending TorCtl.EventHandler 
-  Monitors for REMAP events (see check_dns_rebind())
-  '''
-  def __init__(self, exit_node_scanner):
-    EventHandler.__init__(self)
-    self.__soat = exit_node_scanner
+  def remove_target(self, target):
+    self.targets.remove(target)
+    if len(self.targets) < self.min_targets:
+      plog("NOTICE", self.proto+" scanner short on targets. Adding more")
+      self.targets.extend(self.get_targets())
+ 
+  def mark_chosen(self, node):
+    self.nodes_marked += 1
+    self.nodes.remove(node)
+     
+  def finished(self):
+    return not self.nodes
 
-  def stream_status_event(self, event):
-    if event.status == 'REMAP':
-      octets = map(lambda x: int2bin(x).zfill(8), event.target_host.split('.'))
-      ipbin = ''.join(octets)
-      for network in ipv4_nonpublic:
-        if ipbin[:len(network)] == network:
-          handler = DataHandler()
-          node = self.__soat.get_exit_node()
-          plog("ERROR", "DNS Rebeind failure via "+node)
-          result = DNSRebindTestResult(node, '', TEST_FAILURE)
-          handler.saveResult(result)
+  def percent_complete(self):
+    return round(100.0*self.nodes_marked/self.total_nodes, 1)
+ 
+  def rewind(self):
+    self.targets = self.get_targets()
+    if not self.targets:
+      raise NoURLsFound("No URLS found for protocol "+self.proto)
+    targets = "\n\t".join(self.targets)
+    plog("INFO", "Using the following urls for "+self.proto+" scan:\n\t"+targets) 
+    self.tests_run = 0
+    self.nodes_marked = 0
+    self.nodes = self.mt.get_nodes_for_port(self.port)
+    self.node_map = {}
+    for n in self.nodes: 
+      self.node_map[n.idhex] = n
+    self.total_nodes = len(self.nodes)
 
-class ExitNodeScanner:
-  ''' The scanner class '''
-  def __init__(self):
+
+class GoogleBasedTest(Test):
+  def __init__(self, mt, proto, port, wordlist):
+    self.wordlist = wordlist
+    Test.__init__(self, mt, proto, port)
+
+  def get_google_urls(self, protocol='any', results_per_type=10, host_only=False, filetypes=['any']):
     ''' 
-    Establish a connection to metatroller & control port, 
-    configure metatroller, load the number of previously tested nodes 
+    construct a list of urls based on the wordlist, filetypes and protocol. 
+    
+    Note: since we currently use google, which doesn't index by protocol,
+    searches for anything but 'any' could be rather slow
     '''
-    # establish a metatroller connection
-    plog('INFO', 'ExitNodeScanner starting up...')
-    try:
-      self.__meta = Client(meta_host, meta_port)
-    except socket.error:
-      plog('ERROR', 'Couldn\'t connect to metatroller. Is it on?')
-      exit()
+    plog('INFO', 'Searching google for relevant sites...')
   
-    # skip two lines of metatroller introduction
-    data = self.__meta.readline()
-    data = self.__meta.readline()
-    
-    # configure metatroller
-    commands = [
-      'PATHLEN 2',
-      'PERCENTFAST 10', # Cheat to win!
-      'USEALLEXITS 1',
-      'UNIFORM 0',
-      'BWCUTOFF 1',
-      'ORDEREXITS 1',
-      'GUARDNODES 0',
-      'RESETSTATS']
-    plog('INFO', 'Executing preliminary configuration commands')
-    for c in commands:
-      self.__meta.writeline(c)
-      reply = self.__meta.readline()
-      if reply[:3] != '250': # first three chars indicate the reply code
-        reply += self.__meta.readline()
-        plog('ERROR', 'Error configuring metatroller (' + c + ' failed)')
-        plog('ERROR', reply)
-        exit()
-
-    # establish a control port connection
-    try:
-      s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-      s.connect((control_host, control_port))
-      c = Connection(s)
-      c.authenticate()
-      self.__control = c
-    except socket.error, e:
-      plog('ERROR', 'Couldn\'t connect to the control port')
-      plog('ERROR', e)
-      exit()
-    except AttributeError, e:
-      plog('ERROR', 'A service other that the Tor control port is listening on ' + control_host + ':' + control_port)
-      plog('ERROR', e)
-      exit()
-
-    # get a data handler
-    self.__datahandler = DataHandler()
-
-    # TODO get stats about previous runs
-    plog('INFO', 'Loading the previous run stats')
-
-    ssh_results = self.__datahandler.getSsh()
-    ssl_results = self.__datahandler.getSsl()
-    http_results = self.__datahandler.getHttp()
-
-    # get lists of tested nodes
-    self.ssh_tested = Set([x.exit_node for x in ssh_results])
-    self.http_tested = Set([x.exit_node for x in http_results])
-    self.ssl_tested = Set([x.exit_node for x in ssl_results])
-    
-    # get the number of failures
-    self.ssh_fail = [self.__datahandler.filterResults(ssh_results, protocols=["ssh"], show_bad=True)]
-    self.http_fail =  [self.__datahandler.filterResults(http_results, protocols=["http"], show_bad=True)]
-    self.ssl_fail = [self.__datahandler.filterResults(ssl_results, protocols=["ssl"], show_bad=True)]
-
-    plog('INFO', 'ExitNodeScanner up and ready')
-
-  def get_exit_node(self):
-    ''' ask metatroller for the last exit used '''
-    self.__meta.writeline("GETLASTEXIT")
-    reply = self.__meta.readline()
-    
-    if reply[:3] != '250':
-      reply += self.__meta.readline()
-      plog('ERROR', reply)
-      return 0
-    
-    p = re.compile('250 LASTEXIT=[\S]+')
-    m = p.match(reply)
-    self.__exit = m.group()[13:] # drop the irrelevant characters  
-    plog('INFO','Current node: ' + self.__exit)
-    return self.__exit
-
-  def get_new_circuit(self):
-    ''' tell metatroller to close the current circuit and open a new one '''
-    plog('DEBUG', 'Trying to construct a new circuit')
-    self.__meta.writeline("NEWEXIT")
-    reply = self.__meta.readline()
-
-    if reply[:3] != '250':
-      plog('ERROR', 'Choosing a new exit failed')
-      plog('ERROR', reply)
-
-  def set_new_exit(self, exit):
-    ''' 
-    tell metatroller to set the given node as the exit in the next circuit 
-    '''
-    plog('DEBUG', 'Trying to set ' + `exit` + ' as the exit for the next circuit')
-    self.__meta.writeline("SETEXIT $"+exit)
-    reply = self.__meta.readline()
-
-    if reply[:3] != '250':
-      plog('ERROR', 'Setting ' + exit + ' as the new exit failed')
-      plog('ERROR', reply)
-
-  def report_bad_exit(self, exit):
-    ''' 
-    report an evil exit to the control port using AuthDirBadExit 
-    Note: currently not used  
-    '''
-    # self.__contol.set_option('AuthDirBadExit', exit) ?
-    pass
-
-  def get_nodes_for_port(self, port):
-    ''' ask control port for a list of nodes that allow exiting to a given port '''
-    routers = self.__control.read_routers(self.__control.get_network_status())
-    restriction = NodeRestrictionList([FlagsRestriction(["Running", "Valid"]), ExitPolicyRestriction('255.255.255.255', port)])
-    return [x for x in routers if restriction.r_is_ok(x)]
-
-  def check_all_exits_port_consistency(self):
-    ''' 
-    an independent test that finds nodes that allow connections over a common protocol
-    while disallowing connections over its secure version (for instance http/https)
-    '''
-
-    # get the structure
-    routers = self.__control.read_routers(self.__control.get_network_status())
-    bad_exits = Set([])
-    specific_bad_exits = [None]*len(ports_to_check)
-    for i in range(len(ports_to_check)):
-      specific_bad_exits[i] = []
-
-    # check exit policies
-    for router in routers:
-      for i in range(len(ports_to_check)):
-        [common_protocol, common_restriction, secure_protocol, secure_restriction] = ports_to_check[i]
-        if common_restriction.r_is_ok(router) and not secure_restriction.r_is_ok(router):
-          bad_exits.add(router)
-          specific_bad_exits[i].append(router)
-          plog('INFO', 'Router ' + router.nickname + ' allows ' + common_protocol + ' but not ' + secure_protocol)
+    urllist = []
+    for filetype in filetypes:
+      type_urls = []
   
-    # report results
-    plog('INFO', 'Total exits: ' + `len(routers)`)
-    for i in range(len(ports_to_check)):
-      [common_protocol, _, secure_protocol, _] = ports_to_check[i]
-      plog('INFO', 'Exits with ' + common_protocol + ' / ' + secure_protocol + ' problem: ' + `len(specific_bad_exits[i])` + ' (~' + `(len(specific_bad_exits[i]) * 100 / len(routers))` + '%)')
-    plog('INFO', 'Total bad exits: ' + `len(bad_exits)` + ' (~' + `(len(bad_exits) * 100 / len(routers))` + '%)')
+      while len(type_urls) < results_per_type:
+        query = random.choice(self.wordlist)
+        if filetype != 'any':
+          query += ' filetype:' + filetype
+        if protocol != 'any':
+          query += ' inurl:' + protocol # this isn't too reliable, but we'll re-filter results later
+        #query += '&num=' + `g_results_per_page` 
+  
+        # search google for relevant pages
+        # note: google only accepts requests from idenitified browsers
+        # TODO gracefully handle the case when google doesn't want to give us result anymore
+        host = 'www.google.com'
+        params = urllib.urlencode({'q' : query})
+        search_path = '/search' + '?' + params
+        search_url = "http://"+host+search_path
+  
+        try:
+          # XXX: This does not handle http error codes.. (like 302!)
+          content = http_request(search_url, google_cookies)
+        except socket.gaierror:
+          plog('ERROR', 'Scraping of http://'+host+search_path+" failed")
+          traceback.print_exc()
+          return list(Set(urllist))
+        except:
+          plog('ERROR', 'Scraping of http://'+host+search_path+" failed")
+          traceback.print_exc()
+          # Bloody hack just to run some tests overnight
+          return [protocol+"://www.eff.org", protocol+"://www.fastmail.fm", protocol+"://www.torproject.org", protocol+"://secure.wikileaks.org/"]
+  
+        links = SoupStrainer('a')
+        try:
+          soup = BeautifulSoup(content, parseOnlyThese=links)
+        except Exception:
+          plog('ERROR', 'Soup-scraping of http://'+host+search_path+" failed")
+          traceback.print_exc()
+          print "Content is: "+str(content)
+          return [protocol+"://www.eff.org", protocol+"://www.fastmail.fm", protocol+"://www.torproject.org", protocol+"://secure.wikileaks.org/"]
+        
+        # get the links and do some additional filtering
+        for link in soup.findAll('a', {'class' : 'l'}):
+          url = link['href']
+          if (protocol != 'any' and url[:len(protocol)] != protocol or 
+              filetype != 'any' and url[-len(filetype):] != filetype):
+            pass
+          else:
+            if host_only:
+              host = urlparse.urlparse(link['href'])[1]
+              type_urls.append(host)
+            else:
+              type_urls.append(link['href'])
+      
+      if type_urls > results_per_type:
+        type_urls = random.sample(type_urls, results_per_type) # make sure we don't get more urls than needed
+      urllist.extend(type_urls)
+       
+    return list(Set(urllist))
+
+class HTTPTest(GoogleBasedTest):
+  # TODO: Create an MD5HTTPTest for filetype scans, and also have this
+  # test spawn instances of it for script, image, and object tags
+  # Also, spawn copies of ourself for frame and iframe tags
+  def __init__(self, mt, wordlist):
+    # XXX: Change these to 10 and 20 once we exercise the fetch logic
+    self.fetch_targets = 10
+    GoogleBasedTest.__init__(self, mt, "HTTP", 80, wordlist)
+    self.min_targets = 9 
+    self.three_way_fails = {}
+    self.two_way_fails = {}
+    self.three_way_limit = 10
+    self.two_way_limit = 250 
+  
+  def run_test(self):
+    self.tests_run += 1
+    return self.check_http(random.choice(self.targets))
+
+  def get_targets(self):
+    return self.get_google_urls('http', self.fetch_targets) 
 
   def check_http(self, address):
     ''' check whether a http connection to a given address is molested '''
@@ -388,18 +343,18 @@ class ExitNodeScanner:
     # reset the connection to direct
     socket.socket = defaultsocket
 
-    exit_node = self.get_exit_node()
+    exit_node = self.mt.get_exit_node()
     if exit_node == 0 or exit_node == '0' or not exit_node:
       plog('INFO', 'We had no exit node to test, skipping to the next test.')
       return TEST_SUCCESS
 
     # an address representation acceptable for a filename 
-    address_file = self.__datahandler.safeFilename(address[7:])
+    address_file = self.datahandler.safeFilename(address[7:])
 
     # if we have no content, we had a connection error
     if pcontent == "":
       result = HttpTestResult(exit_node, address, 0, TEST_INCONCLUSIVE)
-      self.__datahandler.saveResult(result)
+      self.datahandler.saveResult(result)
       return TEST_INCONCLUSIVE
 
     elements = SoupStrainer(lambda name, attrs : name in tags_to_check or 
@@ -421,6 +376,10 @@ class ExitNodeScanner:
       tag_file = open(http_tags_dir + address_file + '.tags', 'w')
       tag_file.write(soup.__str__() +  ' ') # the space is needed in case we have some page with no matching tags at all
       tag_file.close()
+
+      content_file = open(http_tags_dir+address_file+'.content-orig', 'w')
+      content_file.write(content)
+      content_file.close()
     except TypeError, e:
       plog('ERROR', 'Failed parsing the tag tree for ' + address)
       plog('ERROR', e)
@@ -429,13 +388,11 @@ class ExitNodeScanner:
       plog('ERROR', 'Failed to get the correct tag structure for ' + address)
       return TEST_INCONCLUSIVE
 
-    self.http_tested.add(exit_node)
-
     # compare the content
     # if content matches, everything is ok
     if psoup == soup:
       result = HttpTestResult(exit_node, address, 0, TEST_SUCCESS)
-      self.__datahandler.saveResult(result)
+      self.datahandler.saveResult(result)
       return TEST_SUCCESS
 
     # if content doesnt match, update the direct content
@@ -443,7 +400,7 @@ class ExitNodeScanner:
     content_new = content_new.decode('ascii', 'ignore')
     if not content_new:
       result = HttpTestResult(exit_node, address, 0, TEST_INCONCLUSIVE)
-      self.__datahandler.saveResult(result)
+      self.datahandler.saveResult(result)
       return TEST_INCONCLUSIVE
 
     soup_new = BeautifulSoup(content_new, parseOnlyThese=elements)
@@ -451,11 +408,26 @@ class ExitNodeScanner:
     # if they match, means the node has been changing the content
     if soup == soup_new:
       result = HttpTestResult(exit_node, address, 0, TEST_FAILURE)
-      self.__datahandler.saveResult(result)
+      self.datahandler.saveResult(result)
       tag_file = open(http_tags_dir + exit_node[1:] + '_' + address_file + '.tags', 'w')
       tag_file.write(psoup.__str__())
       tag_file.close()
-      plog("ERROR", "HTTP Failure at "+exit_node)
+
+      content_file = open(http_tags_dir+exit_node[1:]+'_'+address_file+'.content-exit', 'w')
+      content_file.write(pcontent)
+      content_file.close()
+ 
+      if address in self.two_way_fails:
+        self.two_way_fails[address].add(exit_node.idhex)
+      else:
+        self.two_way_fails[address] = sets.Set([exit_node.idhex])
+
+      err_cnt = len(self.two_way_fails[address])
+      if err_cnt > self.two_way_limit:
+        plog("NOTICE", "Excessive HTTP 2-way failure for "+address+". Removing.")
+        self.remove_target(address)
+      else:
+        plog("ERROR", "HTTP 2-way failure at "+exit_node+". This makes "+str(err_cnt)+" node failures for "+address)
       return TEST_FAILURE
 
     # if content has changed outside of tor, update the saved file
@@ -467,35 +439,95 @@ class ExitNodeScanner:
     # if it matches, everything is ok
     if psoup == soup_new:
       result = HttpTestResult(exit_node, address, 0, TEST_SUCCESS)
-      self.__datahandler.saveResult(result)
+      self.datahandler.saveResult(result)
       return TEST_SUCCESS
 
     # if it doesn't match, means the node has been changing the content
     result = HttpTestResult(exit_node, address, 0, TEST_FAILURE)
-    self.__datahandler.saveResult(result)
+    self.datahandler.saveResult(result)
     tag_file = open(http_tags_dir + exit_node[1:] + '_' + address_file + '.tags', 'w')
     tag_file.write(psoup.__str__())
     tag_file.close()
+
+    content_file = open(http_tags_dir+exit_node[1:]+'_'+address_file+'.content-exit', 'w')
+    content_file.write(pcontent)
+    content_file.close()
+
+    content_file = open(http_tags_dir+exit_node[1:]+'_'+address_file+'.content-new', 'w')
+    content_file.write(content_new)
+    content_file.close()
+
+    if address in self.three_way_fails:
+      self.three_way_fails[address].add(exit_node.idhex)
+    else:
+      self.three_way_fails[address] = sets.Set([exit_node.idhex])
     
-    plog("ERROR", "HTTP Failure at "+exit_node)
+    err_cnt = len(self.three_way_fails[address])
+    if err_cnt > self.three_way_limit:
+      # FIXME: Remove all associated data for this url.
+      # (Note, this also seems to imply we should report BadExit in bulk,
+      # after we've had a chance for these false positives to be weeded out)
+      plog("NOTICE", "Excessive HTTP 3-way failure for "+address+". Removing.")
+      self.remove_target(address)
+    else:
+      plog("ERROR", "HTTP 3-way failure at "+exit_node+". This makes "+str(err_cnt)+" node failures for "+address)
+    
     return TEST_FAILURE
 
-  def check_openssh(self, address):
-    ''' check whether an openssh connection to a given address is molested '''
-    # TODO
-    #ssh = pyssh.Ssh('username', 'host', 22)
-    #ssh.set_sshpath(pyssh.SSH_PATH)
-    #response = self.ssh.sendcmd('ls')
-    #print response
+class SSLTest(GoogleBasedTest):
+  def __init__(self, mt, wordlist):
+    self.test_hosts = 15
+    GoogleBasedTest.__init__(self, mt, "SSL", 443, wordlist)
 
-    return 0 
+  def run_test(self):
+    self.tests_run += 1
+    return self.check_openssl(random.choice(self.targets))
+
+  def get_targets(self):
+    return self.get_google_urls('https', self.test_hosts, True) 
+
+  def ssl_request(self, address):
+    ''' initiate an ssl connection and return the server certificate '''
+    address=str(address) # Unicode hostnames not supported..
+     
+    # specify the context
+    ctx = SSL.Context(SSL.SSLv23_METHOD)
+    ctx.set_verify_depth(1)
+
+    # ready the certificate request
+    request = crypto.X509Req()
+
+    # open an ssl connection
+    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    c = SSL.Connection(ctx, s)
+    c.set_connect_state()
+     
+    try:
+      c.connect((address, 443))
+      c.send(crypto.dump_certificate_request(crypto.FILETYPE_PEM,request))
+    except socket.error, e:
+      plog('WARN','An error occured while opening an ssl connection to ' + address)
+      plog('WARN', e)
+      return 0
+    except (IndexError, TypeError):
+      plog('WARN', 'An error occured while negotiating socks5 with Tor (timeout?)')
+      return 0
+    except KeyboardInterrupt:
+      raise KeyboardInterrupt
+    except:
+      plog('WARN', 'An unknown SSL error occured for '+address)
+      traceback.print_exc()
+      return 0
+    
+    # return the cert
+    return c.get_peer_certificate()
 
   def check_openssl(self, address):
     ''' check whether an https connection to a given address is molested '''
     plog('INFO', 'Conducting an ssl test with destination ' + address)
 
     # an address representation acceptable for a filename 
-    address_file = self.__datahandler.safeFilename(address[8:])
+    address_file = self.datahandler.safeFilename(address[8:])
 
     # get the cert via tor
 
@@ -508,7 +540,7 @@ class ExitNodeScanner:
     # reset the connection method back to direct
     socket.socket = defaultsocket
 
-    exit_node = self.get_exit_node()
+    exit_node = self.mt.get_exit_node()
     if exit_node == 0 or exit_node == '0' or not exit_node:
       plog('WARN', 'We had no exit node to test, skipping to the next test.')
       return TEST_FAILURE
@@ -516,7 +548,7 @@ class ExitNodeScanner:
     # if we got no cert, there was an ssl error
     if cert == 0:
       result = SSLTestResult(exit_node, address, 0, TEST_INCONCLUSIVE)
-      self.__datahandler.saveResult(result)
+      self.datahandler.saveResult(result)
       return TEST_INCONCLUSIVE
 
     # load the original cert and compare
@@ -549,14 +581,11 @@ class ExitNodeScanner:
     cert_pem = crypto.dump_certificate(crypto.FILETYPE_PEM, cert)
     original_cert_pem = crypto.dump_certificate(crypto.FILETYPE_PEM, original_cert)
 
-    # in any case we can consider the node looked at
-    self.ssl_tested.add(exit_node)
-
     # if certs match, everything is ok
     if cert_pem == original_cert_pem:
       cert_file = ssl_certs_dir + address_file + '.pem'
       result = SSLTestResult(exit_node, address, cert_file, TEST_SUCCESS)
-      self.__datahandler.saveResult(result)
+      self.datahandler.saveResult(result)
       return TEST_SUCCESS
     
     # if certs dont match, open up a direct connection and update the cert
@@ -565,7 +594,7 @@ class ExitNodeScanner:
     if original_cert_new == 0:
       plog('WARN', 'Error getting the correct cert for ' + address)
       result = SSLTestResult(exit_node, address, 0, TEST_INCONCLUSIVE)
-      self.__datahandler.saveResult(result)
+      self.datahandler.saveResult(result)
       return TEST_INCONCLUSIVE
 
     original_cert_new_pem = crypto.dump_certificate(crypto.FILETYPE_PEM, original_cert_new)
@@ -581,7 +610,7 @@ class ExitNodeScanner:
       cert_file.close()
 
       result = SSLTestResult(exit_node, address, cert_file_name, TEST_FAILURE)
-      self.__datahandler.saveResult(result)
+      self.datahandler.saveResult(result)
       return TEST_FAILURE
 
     # if comparsion fails, replace the old cert with the new one
@@ -597,7 +626,7 @@ class ExitNodeScanner:
     if cert_pem == original_cert_new_pem:
       cert_file = ssl_certs_dir + address_file + '.pem'
       result = SSLTestResult(exit_node, address, cert_file, TEST_SUCCESS)
-      self.__datahandler.saveResult(result)
+      self.datahandler.saveResult(result)
       return TEST_SUCCESS
 
     # if certs dont match, means the exit node has been messing with the cert
@@ -609,98 +638,20 @@ class ExitNodeScanner:
     cert_file.close()
 
     result = SSLTestResult(exit_node, address, cert_file_name, TEST_FAILURE)
-    self.__datahandler.saveResult(result)
+    self.datahandler.saveResult(result)
 
     return TEST_FAILURE
 
-  def check_smtp(self, address, port=''):
-    ''' 
-    check whether smtp + tls connection to a given address is molested
-    this is done by going through the STARTTLS sequence and comparing server
-    responses for the direct and tor connections
-    '''
+class POP3STest(Test):
+  def __init__(self, mt):
+    Test.__init__(self, mt, "POP3S", 110)
 
-    plog('INFO', 'Conducting an smtp test with destination ' + address)
+  def run_test(self):
+    self.tests_run += 1
+    return self.check_pop(random.choice(self.targets))
 
-    defaultsocket = socket.socket
-    socks.setdefaultproxy(socks.PROXY_TYPE_SOCKS5, tor_host, tor_port)
-    socket.socket = socks.socksocket
-
-    ehlo1_reply = 0
-    has_starttls = 0
-    ehlo2_reply = 0
-
-    try:
-      s = smtplib.SMTP(address, port)
-      ehlo1_reply = s.ehlo()[0]
-      if ehlo1_reply != 250:
-        raise smtplib.SMTPException('First ehlo failed')
-      has_starttls = s.has_extn('starttls')
-      if not has_starttls:
-        raise smtplib.SMTPException('It seems the server doesn\'t support starttls')
-      s.starttls()
-      # TODO check certs?
-      ehlo2_reply = s.ehlo()[0]
-      if ehlo2_reply != 250:
-        raise smtplib.SMTPException('Second ehlo failed')
-    except socket.gaierror, e:
-      plog('WARN', 'A connection error occured while testing smtp at ' + address)
-      plog('WARN', e)
-      socket.socket = defaultsocket
-      return TEST_INCONCLUSIVE
-    except smtplib.SMTPException, e:
-      plog('WARN','An error occured while testing smtp at ' + address)
-      plog('WARN', e)
-      return TEST_INCONCLUSIVE
-    # reset the connection method back to direct
-    socket.socket = defaultsocket 
-
-    # check whether the test was valid at all
-    exit_node = self.get_exit_node()
-    if exit_node == 0 or exit_node == '0':
-      plog('INFO', 'We had no exit node to test, skipping to the next test.')
-      return TEST_SUCCESS
-
-    # now directly
-
-    ehlo1_reply_d = 0
-    has_starttls_d = 0
-    ehlo2_reply_d = 0
-
-    try:
-      s = smtplib.SMTP(address, port)
-      ehlo1_reply_d = s.ehlo()[0]
-      if ehlo1_reply != 250:
-        raise smtplib.SMTPException('First ehlo failed')
-      has_starttls_d = s.has_extn('starttls')
-      if not has_starttls_d:
-        raise smtplib.SMTPException('It seems that the server doesn\'t support starttls')
-      s.starttls()
-      ehlo2_reply_d = s.ehlo()[0]
-      if ehlo2_reply_d != 250:
-        raise smtplib.SMTPException('Second ehlo failed')
-    except socket.gaierror, e:
-      plog('WARN', 'A connection error occured while testing smtp at ' + address)
-      plog('WARN', e)
-      socket.socket = defaultsocket
-      return TEST_INCONCLUSIVE
-    except smtplib.SMTPException, e:
-      plog('WARN', 'An error occurred while testing smtp at ' + address)
-      plog('WARN', e)
-      return TEST_INCONCLUSIVE
-
-    print ehlo1_reply, ehlo1_reply_d, has_starttls, has_starttls_d, ehlo2_reply, ehlo2_reply_d
-
-    # compare
-    if ehlo1_reply != ehlo1_reply_d or has_starttls != has_starttls_d or ehlo2_reply != ehlo2_reply_d:
-      result = SMTPTestResult(exit_node, address, TEST_FAILURE)
-      self.__datahandler.saveResult(result)
-      # XXX: Log?
-      return TEST_FAILURE
-
-    result = SMTPTestResult(exit_node, address, TEST_SUCCESS)
-    self.__datahandler.saveResult(result)
-    return TEST_SUCCESS
+  def get_targets(self):
+    return [] # XXX
 
   def check_pop(self, address, port=''):
     ''' 
@@ -791,7 +742,7 @@ class ExitNodeScanner:
     socket.socket = defaultsocket
 
     # check whether the test was valid at all
-    exit_node = self.get_exit_node()
+    exit_node = self.mt.get_exit_node()
     if exit_node == 0 or exit_node == '0':
       plog('INFO', 'We had no exit node to test, skipping to the next test.')
       return TEST_SUCCESS
@@ -870,13 +821,125 @@ class ExitNodeScanner:
     if (capabilities_ok != capabilities_ok_d or starttls_present != starttls_present_d or 
         tls_started != tls_started_d or tls_succeeded != tls_succeeded_d):
       result = POPTestResult(exit_node, address, TEST_FAILURE)
-      self.__datahandler.saveResult(result)
+      self.datahandler.saveResult(result)
       # XXX: Log?
       return TEST_FAILURE
     
     result = POPTestResult(exit_node, address, TEST_SUCCESS)
-    self.__datahandler.saveResult(result)
+    self.datahandler.saveResult(result)
     return TEST_SUCCESS
+
+class SMTPSTest(Test):
+  def __init__(self, mt):
+    Test.__init__(self, mt, "SMTPS", 587)
+
+  def run_test(self):
+    self.tests_run += 1
+    return self.check_smtp(random.choice(self.targets))
+
+  def get_targets(self):
+    return [('smtp.gmail.com','587')]
+
+  def check_smtp(self, address, port=''):
+    ''' 
+    check whether smtp + tls connection to a given address is molested
+    this is done by going through the STARTTLS sequence and comparing server
+    responses for the direct and tor connections
+    '''
+
+    plog('INFO', 'Conducting an smtp test with destination ' + address)
+
+    defaultsocket = socket.socket
+    socks.setdefaultproxy(socks.PROXY_TYPE_SOCKS5, tor_host, tor_port)
+    socket.socket = socks.socksocket
+
+    ehlo1_reply = 0
+    has_starttls = 0
+    ehlo2_reply = 0
+
+    try:
+      s = smtplib.SMTP(address, port)
+      ehlo1_reply = s.ehlo()[0]
+      if ehlo1_reply != 250:
+        raise smtplib.SMTPException('First ehlo failed')
+      has_starttls = s.has_extn('starttls')
+      if not has_starttls:
+        raise smtplib.SMTPException('It seems the server doesn\'t support starttls')
+      s.starttls()
+      # TODO check certs?
+      ehlo2_reply = s.ehlo()[0]
+      if ehlo2_reply != 250:
+        raise smtplib.SMTPException('Second ehlo failed')
+    except socket.gaierror, e:
+      plog('WARN', 'A connection error occured while testing smtp at ' + address)
+      plog('WARN', e)
+      socket.socket = defaultsocket
+      return TEST_INCONCLUSIVE
+    except smtplib.SMTPException, e:
+      plog('WARN','An error occured while testing smtp at ' + address)
+      plog('WARN', e)
+      return TEST_INCONCLUSIVE
+    # reset the connection method back to direct
+    socket.socket = defaultsocket 
+
+    # check whether the test was valid at all
+    exit_node = self.mt.get_exit_node()
+    if exit_node == 0 or exit_node == '0':
+      plog('INFO', 'We had no exit node to test, skipping to the next test.')
+      return TEST_SUCCESS
+
+    # now directly
+
+    ehlo1_reply_d = 0
+    has_starttls_d = 0
+    ehlo2_reply_d = 0
+
+    try:
+      s = smtplib.SMTP(address, port)
+      ehlo1_reply_d = s.ehlo()[0]
+      if ehlo1_reply != 250:
+        raise smtplib.SMTPException('First ehlo failed')
+      has_starttls_d = s.has_extn('starttls')
+      if not has_starttls_d:
+        raise smtplib.SMTPException('It seems that the server doesn\'t support starttls')
+      s.starttls()
+      ehlo2_reply_d = s.ehlo()[0]
+      if ehlo2_reply_d != 250:
+        raise smtplib.SMTPException('Second ehlo failed')
+    except socket.gaierror, e:
+      plog('WARN', 'A connection error occured while testing smtp at ' + address)
+      plog('WARN', e)
+      socket.socket = defaultsocket
+      return TEST_INCONCLUSIVE
+    except smtplib.SMTPException, e:
+      plog('WARN', 'An error occurred while testing smtp at ' + address)
+      plog('WARN', e)
+      return TEST_INCONCLUSIVE
+
+    print ehlo1_reply, ehlo1_reply_d, has_starttls, has_starttls_d, ehlo2_reply, ehlo2_reply_d
+
+    # compare
+    if ehlo1_reply != ehlo1_reply_d or has_starttls != has_starttls_d or ehlo2_reply != ehlo2_reply_d:
+      result = SMTPTestResult(exit_node, address, TEST_FAILURE)
+      self.datahandler.saveResult(result)
+      # XXX: Log?
+      return TEST_FAILURE
+
+    result = SMTPTestResult(exit_node, address, TEST_SUCCESS)
+    self.datahandler.saveResult(result)
+    return TEST_SUCCESS
+
+
+class IMAPSTest(Test):
+  def __init__(self, mt):
+    Test.__init__(self, mt, "IMAPS", 143)
+
+  def run_test(self):
+    self.tests_run += 1
+    return self.check_imap(random.choice(self.targets))
+
+  def get_targets(self):
+    return []
 
   def check_imap(self, address, port=''):
     ''' 
@@ -956,7 +1019,7 @@ class ExitNodeScanner:
     socket.socket = defaultsocket 
 
     # check whether the test was valid at all
-    exit_node = self.get_exit_node()
+    exit_node = self.mt.get_exit_node()
     if exit_node == 0 or exit_node == '0':
       plog('INFO', 'We had no exit node to test, skipping to the next test.')
       return TEST_SUCCESS
@@ -1026,23 +1089,26 @@ class ExitNodeScanner:
     if (capabilities_ok != capabilities_ok_d or starttls_present != starttls_present_d or 
       tls_started != tls_started_d or tls_succeeded != tls_succeeded_d):
       result = IMAPTestResult(exit_node, address, TEST_FAILURE)
-      self.__datahandler.saveResult(result)
+      self.datahandler.saveResult(result)
       # XXX: log?
       return TEST_FAILURE
 
     result = IMAPTestResult(exit_node, address, TEST_SUCCESS)
-    self.__datahandler.saveResult(result)
+    self.datahandler.saveResult(result)
     return TEST_SUCCESS
 
+class DNSTest(Test):
   def check_dns(self, address):
     ''' A basic comparison DNS test. Rather unreliable. '''
     # TODO Spawns a lot of false positives (for ex. doesn't work for google.com). 
+    # XXX: This should be done passive like the DNSRebind test (possibly as
+    # part of it)
     plog('INFO', 'Conducting a basic dns test for destination ' + address)
 
     ip = tor_resolve(address)
 
     # check whether the test was valid at all
-    exit_node = self.get_exit_node()
+    exit_node = self.mt.get_exit_node()
     if exit_node == 0 or exit_node == '0':
       plog('INFO', 'We had no exit node to test, skipping to the next test.')
       return TEST_SUCCESS
@@ -1065,6 +1131,203 @@ class ExitNodeScanner:
       result = DNSTestResult(exit_node, address, TEST_FAILURE)
       return TEST_FAILURE
 
+class SSHTest(Test):
+  def check_openssh(self, address):
+    ''' check whether an openssh connection to a given address is molested '''
+    # TODO
+    #ssh = pyssh.Ssh('username', 'host', 22)
+    #ssh.set_sshpath(pyssh.SSH_PATH)
+    #response = self.ssh.sendcmd('ls')
+    #print response
+
+    return 0 
+
+
+# a simple interface to handle a socket connection
+class Client:
+  def __init__(self, host, port):
+    self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    self.sock.connect((host, port))
+    self.buffer = self.sock.makefile('rb')
+
+  def writeline(self, line):
+    self.sock.send(line + linebreak)
+
+  def readline(self):
+    response = self.buffer.readline()
+    if not response:
+      raise EOFError
+    elif response[-2:] == linebreak:
+      response = response[:-2]
+    elif response[-1:] in linebreak:
+      response = response[:-1]
+    return response 
+
+class DNSRebindScanner(EventHandler):
+  ''' 
+  A tor control event handler extending TorCtl.EventHandler 
+  Monitors for REMAP events (see check_dns_rebind())
+  '''
+  def __init__(self, mt):
+    EventHandler.__init__(self)
+    self.__mt = mt
+
+  def stream_status_event(self, event):
+    if event.status == 'REMAP':
+      octets = map(lambda x: int2bin(x).zfill(8), event.target_host.split('.'))
+      ipbin = ''.join(octets)
+      for network in ipv4_nonpublic:
+        if ipbin[:len(network)] == network:
+          handler = DataHandler()
+          node = self.__mt.get_exit_node()
+          plog("ERROR", "DNS Rebeind failure via "+node)
+          result = DNSRebindTestResult(node, '', TEST_FAILURE)
+          handler.saveResult(result)
+
+class Metatroller:
+  ''' Abstracts operations with the Metatroller '''
+  def __init__(self):
+    ''' 
+    Establish a connection to metatroller & control port, 
+    configure metatroller, load the number of previously tested nodes 
+    '''
+    # establish a metatroller connection
+    try:
+      self.__meta = Client(meta_host, meta_port)
+    except socket.error:
+      plog('ERROR', 'Couldn\'t connect to metatroller. Is it on?')
+      exit()
+  
+    # skip two lines of metatroller introduction
+    data = self.__meta.readline()
+    data = self.__meta.readline()
+    
+    # configure metatroller
+    commands = [
+      'PATHLEN 2',
+      'PERCENTFAST 10', # Cheat to win!
+      'USEALLEXITS 1',
+      'UNIFORM 0',
+      'BWCUTOFF 1',
+      'ORDEREXITS 1',
+      'GUARDNODES 0',
+      'RESETSTATS']
+
+    for c in commands:
+      self.__meta.writeline(c)
+      reply = self.__meta.readline()
+      if reply[:3] != '250': # first three chars indicate the reply code
+        reply += self.__meta.readline()
+        plog('ERROR', 'Error configuring metatroller (' + c + ' failed)')
+        plog('ERROR', reply)
+        exit()
+
+    # establish a control port connection
+    try:
+      s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+      s.connect((control_host, control_port))
+      c = Connection(s)
+      c.authenticate()
+      self.__control = c
+    except socket.error, e:
+      plog('ERROR', 'Couldn\'t connect to the control port')
+      plog('ERROR', e)
+      exit()
+    except AttributeError, e:
+      plog('ERROR', 'A service other that the Tor control port is listening on ' + control_host + ':' + control_port)
+      plog('ERROR', e)
+      exit()
+
+  def get_exit_node(self):
+    ''' ask metatroller for the last exit used '''
+    self.__meta.writeline("GETLASTEXIT")
+    reply = self.__meta.readline()
+    
+    if reply[:3] != '250':
+      reply += self.__meta.readline()
+      plog('ERROR', reply)
+      return 0
+    
+    p = re.compile('250 LASTEXIT=[\S]+')
+    m = p.match(reply)
+    self.__exit = m.group()[13:] # drop the irrelevant characters  
+    plog('INFO','Current node: ' + self.__exit)
+    return self.__exit
+
+  def get_new_circuit(self):
+    ''' tell metatroller to close the current circuit and open a new one '''
+    plog('DEBUG', 'Trying to construct a new circuit')
+    self.__meta.writeline("NEWEXIT")
+    reply = self.__meta.readline()
+
+    if reply[:3] != '250':
+      plog('ERROR', 'Choosing a new exit failed')
+      plog('ERROR', reply)
+
+  def set_new_exit(self, exit):
+    ''' 
+    tell metatroller to set the given node as the exit in the next circuit 
+    '''
+    plog('DEBUG', 'Trying to set ' + `exit` + ' as the exit for the next circuit')
+    self.__meta.writeline("SETEXIT $"+exit)
+    reply = self.__meta.readline()
+
+    if reply[:3] != '250':
+      plog('ERROR', 'Setting ' + exit + ' as the new exit failed')
+      plog('ERROR', reply)
+
+  def report_bad_exit(self, exit):
+    ''' 
+    report an evil exit to the control port using AuthDirBadExit 
+    Note: currently not used  
+    '''
+    # self.__contol.set_option('AuthDirBadExit', exit) ?
+    pass
+
+  def get_nodes_for_port(self, port):
+    ''' ask control port for a list of nodes that allow exiting to a given port '''
+    routers = self.__control.read_routers(self.__control.get_network_status())
+    restriction = NodeRestrictionList([FlagsRestriction(["Running", "Valid"]), ExitPolicyRestriction('255.255.255.255', port)])
+    return [x for x in routers if restriction.r_is_ok(x)]
+
+  # XXX: Hrmm is this in the right place?
+  def check_all_exits_port_consistency(self):
+    ''' 
+    an independent test that finds nodes that allow connections over a common protocol
+    while disallowing connections over its secure version (for instance http/https)
+    '''
+
+    # get the structure
+    routers = self.__control.read_routers(self.__control.get_network_status())
+    bad_exits = Set([])
+    specific_bad_exits = [None]*len(ports_to_check)
+    for i in range(len(ports_to_check)):
+      specific_bad_exits[i] = []
+
+    # check exit policies
+    for router in routers:
+      for i in range(len(ports_to_check)):
+        [common_protocol, common_restriction, secure_protocol, secure_restriction] = ports_to_check[i]
+        if common_restriction.r_is_ok(router) and not secure_restriction.r_is_ok(router):
+          bad_exits.add(router)
+          specific_bad_exits[i].append(router)
+          #plog('INFO', 'Router ' + router.nickname + ' allows ' + common_protocol + ' but not ' + secure_protocol)
+  
+
+    for i,exits in enumerate(specific_bad_exits):
+      [common_protocol, common_restriction, secure_protocol, secure_restriction] = ports_to_check[i]
+      plog("NOTICE", "Nodes allowing "+common_protocol+" but not "+secure_protocol+":\n\t"+"\n\t".join(map(lambda r: r.nickname+"="+r.idhex, exits)))
+      #plog('INFO', 'Router ' + router.nickname + ' allows ' + common_protocol + ' but not ' + secure_protocol)
+     
+
+    # report results
+    plog('INFO', 'Total nodes: ' + `len(routers)`)
+    for i in range(len(ports_to_check)):
+      [common_protocol, _, secure_protocol, _] = ports_to_check[i]
+      plog('INFO', 'Exits with ' + common_protocol + ' / ' + secure_protocol + ' problem: ' + `len(specific_bad_exits[i])` + ' (~' + `(len(specific_bad_exits[i]) * 100 / len(routers))` + '%)')
+    plog('INFO', 'Total bad exits: ' + `len(bad_exits)` + ' (~' + `(len(bad_exits) * 100 / len(routers))` + '%)')
+
+  # XXX: Hrmm is this in the right place?
   def check_dns_rebind(self):
     ''' 
     A DNS-rebind attack test that runs in the background and monitors REMAP events
@@ -1075,45 +1338,6 @@ class ExitNodeScanner:
     self.__control.set_event_handler(self.__dnshandler)
     self.__control.set_events([TorCtl.EVENT_TYPE.STREAM], True)
 
-
-  def ssh_request(self):
-    pass
-
-  def ssl_request(self, address):
-    ''' initiate an ssl connection and return the server certificate '''
-    address=str(address) # Unicode hostnames not supported..
-     
-    # specify the context
-    ctx = SSL.Context(SSL.SSLv23_METHOD)
-    ctx.set_verify_depth(1)
-
-    # ready the certificate request
-    request = crypto.X509Req()
-
-    # open an ssl connection
-    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    c = SSL.Connection(ctx, s)
-    c.set_connect_state()
-     
-    try:
-      c.connect((address, 443))
-      c.send(crypto.dump_certificate_request(crypto.FILETYPE_PEM,request))
-    except socket.error, e:
-      plog('WARN','An error occured while opening an ssl connection to ' + address)
-      plog('WARN', e)
-      return 0
-    except (IndexError, TypeError):
-      plog('WARN', 'An error occured while negotiating socks5 with Tor (timeout?)')
-      return 0
-    except KeyboardInterrupt:
-      raise KeyboardInterrupt
-    except:
-      plog('WARN', 'An unknown SSL error occured for '+address)
-      traceback.print_exc()
-      return 0
-    
-    # return the cert
-    return c.get_peer_certificate()
 
 # some helpful methods
 
@@ -1156,77 +1380,6 @@ def decompress_response_data(response):
     return response.read()
 
 
-def get_urls(wordlist, host_only=False, filetypes=['any'], results_per_type=5, protocol='any', g_results_per_page=10):
-  ''' 
-  construct a list of urls based on the wordlist, filetypes and protocol. 
-  
-  Note: since we currently use google, which doesn't index by protocol,
-  searches for anything but 'any' could be rather slow
-  '''
-  plog('INFO', 'Searching google for relevant sites...')
-
-  urllist = []
-  for filetype in filetypes:
-    type_urls = []
-
-    while len(type_urls) < results_per_type:
-      query = random.choice(wordlist)
-      if filetype != 'any':
-        query += ' filetype:' + filetype
-      if protocol != 'any':
-        query += ' inurl:' + protocol # this isn't too reliable, but we'll re-filter results later
-      #query += '&num=' + `g_results_per_page` 
-
-      # search google for relevant pages
-      # note: google only accepts requests from idenitified browsers
-      # TODO gracefully handle the case when google doesn't want to give us result anymore
-      host = 'www.google.com'
-      params = urllib.urlencode({'q' : query})
-      search_path = '/search' + '?' + params
-      search_url = "http://"+host+search_path
-      connection = None
-      response = None
-
-      try:
-        # XXX: This does not handle http error codes.. (like 302!)
-        content = http_request(search_url, google_cookies)
-      except socket.gaierror, e:
-        plog('ERROR', 'Scraping of http://'+host+search_path+" failed")
-        traceback.print_exc()
-        return list(Set(urllist))
-      except:
-        plog('ERROR', 'Scraping of http://'+host+search_path+" failed")
-        traceback.print_exc()
-        # Bloody hack just to run some tests overnight
-        return [protocol+"://www.eff.org", protocol+"://www.fastmail.fm", protocol+"://www.torproject.org", protocol+"://secure.wikileaks.org/"]
-
-      links = SoupStrainer('a')
-      try:
-        soup = BeautifulSoup(content, parseOnlyThese=links)
-      except Exception, e:
-        plog('ERROR', 'Soup-scraping of http://'+host+search_path+" failed")
-        traceback.print_exc()
-        print "Content is: "+str(content)
-        return [protocol+"://www.eff.org", protocol+"://www.fastmail.fm", protocol+"://www.torproject.org", protocol+"://secure.wikileaks.org/"]
-      
-      # get the links and do some additional filtering
-      for link in soup.findAll('a', {'class' : 'l'}):
-        url = link['href']
-        if (protocol != 'any' and url[:len(protocol)] != protocol or 
-            filetype != 'any' and url[-len(filetype):] != filetype):
-          pass
-        else:
-          if host_only:
-            host = urlparse.urlparse(link['href'])[1]
-            type_urls.append(host)
-          else:
-            type_urls.append(link['href'])
-    
-    if type_urls > results_per_type:
-      type_urls = random.sample(type_urls, results_per_type) # make sure we don't get more urls than needed
-    urllist.extend(type_urls)
-     
-  return list(Set(urllist))
 
 def tor_resolve(address):
   ''' performs a DNS query explicitly via tor '''
@@ -1251,46 +1404,6 @@ def int2bin(n):
 
 class NoURLsFound(Exception):
   pass
-
-class Test:
-  def __init__(self, scanner, proto, port, url_fcn, test_fcn):
-    self.proto = proto
-    self.port = port
-    self.scanner = scanner
-    self.url_fcn = url_fcn
-    self.test_fcn = test_fcn
-    self.rewind()
-
-  def run_test(self):
-    self.tests_run += 1
-    return self.test_fcn(random.choice(self.urls))
-
-  def get_node(self):
-    return random.choice(self.nodes)
- 
-  def mark_chosen(self, node):
-    self.nodes_marked += 1
-    self.nodes.remove(node)
-     
-  def finished(self):
-    return not self.nodes
-
-  def percent_complete(self):
-    return round(100.0*self.nodes_marked/self.total_nodes, 1)
- 
-  def rewind(self):
-    self.tests_run = 0
-    self.nodes_marked = 0
-    self.urls = self.url_fcn()
-    if not self.urls:
-      raise NoURLsFound("No URLS found for protocol "+self.proto)
-    urls = "\n\t".join(self.urls)
-    plog("INFO", "Using the following urls for "+self.proto+" scan:\n\t"+urls) 
-    self.nodes = self.scanner.get_nodes_for_port(self.port)
-    self.node_map = {}
-    for n in self.nodes: 
-      self.node_map[n.idhex] = n
-    self.total_nodes = len(self.nodes)
 
 #
 # main logic
@@ -1327,16 +1440,16 @@ def main(argv):
   # load the wordlist to search for sites lates on
   wordlist = load_wordlist(wordlist_file)
 
-  # initiate the scanner
-  scanner = ExitNodeScanner()
+  # initiate the connection to the metatroller
+  mt = Metatroller()
 
   # initiate the passive dns rebind attack monitor
   if do_dns_rebind:
-    scanner.check_dns_rebind()
+    mt.check_dns_rebind()
 
   # check for sketchy exit policies
   if do_consistency:
-    scanner.check_all_exits_port_consistency()
+    mt.check_all_exits_port_consistency()
 
   # maybe only the consistency test was required
   if not (do_ssl or do_http or do_ssh or do_smtp or do_pop or do_imap):
@@ -1350,57 +1463,36 @@ def main(argv):
     google_cookies.load(google_cookie_file)
   google_cookies.__filename = google_cookie_file
 
-  # declare some variables and assign values if neccessary
-  http_fail = 0
-
   tests = {}
 
   # FIXME: Create an event handler that updates these lists
   if do_ssl:
     try:
-      tests["SSL"] = Test(scanner, "SSL", 443, 
-        lambda:
-          get_urls(wordlist, protocol='https', host_only=True, results_per_type=10,
-g_results_per_page=20), lambda u: scanner.check_openssl(u))
+      tests["SSL"] = SSLTest(mt, wordlist)
     except NoURLsFound, e:
       plog('ERROR', e.message)
-
 
   if do_http:
-    http_fail = len(scanner.http_fail)
     try:
-      tests["HTTP"] = Test(scanner, "HTTP", 80, 
-        lambda:
-          get_urls(wordlist, protocol='http', results_per_type=10, g_results_per_page=20), lambda u: scanner.check_http(u)) 
-    except NoURLsFound, e:
-      plog('ERROR', e.message)
-
-  if do_ssh:
-    try:
-      tests["SSH"] = Test(scanner, "SSH", 22, lambda: [], 
-                lambda u: scanner.check_openssh(u))
+      tests["HTTP"] = HTTPTest(mt, wordlist)
     except NoURLsFound, e:
       plog('ERROR', e.message)
 
   if do_smtp:
     try:
-      tests["SMTP"] = Test(scanner, "SMTP", 587, 
-         lambda: [('smtp.gmail.com','587')], 
-         lambda u: scanner.check_smtp(*u))
+      tests["SMTPS"] = SMTPSTest(mt)
     except NoURLsFound, e:
       plog('ERROR', e.message)
     
   if do_pop:
     try:
-      tests["POP"] = Test(scanner, "POP", 110, lambda: [],
-         lambda u: scanner.check_pop(*u))
+      tests["POPS"] = POP3STest(mt) 
     except NoURLsFound, e:
       plog('ERROR', e.message)
 
   if do_imap:
     try:
-      tests["IMAP"] = Test(scanner, "IMAP", 143, lambda: [],
-         lambda u: scanner.check_imap(*u))
+      tests["IMAPS"] = IMAPSTest(mt)
     except NoURLsFound, e:
       plog('ERROR', e.message)
 
@@ -1426,10 +1518,10 @@ g_results_per_page=20), lambda u: scanner.check_openssl(u))
 
     if common_nodes:
       current_exit_idhex = random.choice(list(common_nodes))
-      plog("DEBUG", "Chose to run "+str(n_tests)+" tests via "+current_exit_idhex+" (tests share "+str(len(common_nodes))+" exit nodes")
+      plog("DEBUG", "Chose to run "+str(n_tests)+" tests via "+current_exit_idhex+" (tests share "+str(len(common_nodes))+" exit nodes)")
 
-      scanner.set_new_exit(current_exit_idhex)
-      scanner.get_new_circuit()
+      mt.set_new_exit(current_exit_idhex)
+      mt.get_new_circuit()
       for test in to_run:
         # Keep testing failures and inconclusives
         result = test.run_test()
@@ -1441,8 +1533,8 @@ g_results_per_page=20), lambda u: scanner.check_openssl(u))
       plog("NOTICE", "No nodes in common between "+", ".join(map(lambda t: t.proto, to_run)))
       for test in to_run:
         current_exit = test.get_node()
-        scanner.set_new_exit(current_exit.idhex)
-        scanner.get_new_circuit()
+        mt.set_new_exit(current_exit.idhex)
+        mt.get_new_circuit()
         # Keep testing failures and inconclusives
         result = test.run_test()
         plog("INFO", test.proto+" test via "+current_exit.idhex+" has result "+str(result))
@@ -1456,17 +1548,8 @@ g_results_per_page=20), lambda u: scanner.check_openssl(u))
       if test.finished():
         plog("NOTICE", test.proto+" test has finished all nodes.  Rewinding")
         test.rewind() 
-     
-    #
-    # managing url lists
-    # if we've been having too many false positives lately, get a new target list
-    # XXX: Do this on a per-url basis
-
-    #if do_http and len(scanner.http_fail) - http_fail >= len(http_urls):
-    #  http_urls = get_urls(wordlist, protocol='http', results_per_type=10, g_results_per_page=20)
-    #  http_fail = len(scanner.http_fail)
     
-#
+
 # initiate the program
 #
 if __name__ == '__main__':
