@@ -1660,7 +1660,7 @@ class Metatroller:
   def get_nodes_for_port(self, port):
     ''' ask control port for a list of nodes that allow exiting to a given port '''
     routers = self.__control.read_routers(self.__control.get_network_status())
-    restriction = NodeRestrictionList([FlagsRestriction(["Running", "Valid"]), ExitPolicyRestriction('255.255.255.255', port)])
+    restriction = NodeRestrictionList([FlagsRestriction(["Running", "Valid", "Fast"]), ExitPolicyRestriction('255.255.255.255', port)])
     return [x for x in routers if restriction.r_is_ok(x)]
 
   # XXX: Hrmm is this in the right place?
