@@ -74,6 +74,7 @@ class HttpTestResult(TestResult):
     self.content_exit = content_exit
     self.content_old = content_old
 
+  # XXX: Instead of removing these, move them to a 'falsepositives' dir
   def remove_files(self):
     try: os.unlink(self.content)
     except: pass

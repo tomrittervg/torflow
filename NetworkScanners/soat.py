@@ -43,6 +43,7 @@ import urlparse
 import cookielib
 import sha
 import Queue
+import difflib
 
 from libsoat import *
 
@@ -179,6 +180,8 @@ attrs_to_check =  ['background', 'cite', 'classid', 'codebase', 'data',
                    'onkeypress', 'onkeyup','onload', 'onmousedown', 'onmousemove', 
                    'onmouseout', 'onmouseover','onmouseup', 'onreset', 'onselect', 
                    'onsubmit', 'onunload', 'profile', 'src', 'usemap']
+attrs_to_prune = ['alt', 'label', 'prompt' 'standby', 'summary', 'title',
+                  'abbr']
 
 
 tags_to_recurse = ['a', 'applet', 'embed', 'frame', 'iframe', #'img',
@@ -559,6 +562,8 @@ class HTTPTest(SearchBasedTest):
         sha1sum.update(buf)
         buf = content_file.read(4096)
       content_file.close()
+      
+      self.cookie_jar.load(content_prefix+'.cookies', 'w')
 
     except IOError:
       (code, content) = http_request(address, self.cookie_jar, self.headers)
@@ -570,6 +575,8 @@ class HTTPTest(SearchBasedTest):
       content_file = open(content_prefix+'.content', 'w')
       content_file.write(content)
       content_file.close()
+      
+      self.cookie_jar.save(content_prefix+'.cookies', 'w')
 
     except TypeError, e:
       plog('ERROR', 'Failed obtaining the shasum for ' + address)
@@ -621,6 +628,9 @@ class HTTPTest(SearchBasedTest):
     new_content_file = open(content_prefix+'.content', 'w')
     new_content_file.write(content_new)
     new_content_file.close()
+      
+    os.rename(content_prefix+'.cookies', content_prefix+'.cookies-old')
+    self.cookie_jar.save(content_prefix+'.cookies', 'w')
 
     # compare the node content and the new content
     # if it matches, everything is ok
@@ -730,6 +740,12 @@ class HTMLTest(HTTPTest):
     """ Remove all tags that are of no interest. Also remove content """
     to_extract = []
     for tag in soup.findAll():
+      to_prune = []
+      for attr in tag.attrs:
+        if attr[0] in attrs_to_prune:
+          to_prune.append(attr)
+      for attr in to_prune:
+        tag.attrs.remove(attr)
       if self._tag_not_worthy(tag):
         to_extract.append(tag)
       if tag.name not in tags_preserve_inner:
@@ -804,6 +820,8 @@ class HTMLTest(HTTPTest):
       soup = BeautifulSoup(tag_file.read())
       tag_file.close()
       
+      self.cookie_jar.load(content_prefix+'.cookies', 'w')
+
     except IOError:
       (code, content) = http_request(address, self.cookie_jar, self.headers)
       content = content.decode('ascii','ignore')
@@ -815,6 +833,8 @@ class HTMLTest(HTTPTest):
       tag_file = open(content_prefix+'.tags', 'w')
       tag_file.write(string_soup) 
       tag_file.close()
+
+      self.cookie_jar.save(content_prefix+'.cookies', 'w')
 
       content_file = open(content_prefix+'.content', 'w')
       content_file.write(content)
@@ -881,6 +901,9 @@ class HTMLTest(HTTPTest):
     tag_file = open(content_prefix+'.tags', 'w')
     tag_file.write(string_soup_new) 
     tag_file.close()
+      
+    os.rename(content_prefix+'.cookies', content_prefix+'.cookies-old')
+    self.cookie_jar.save(content_prefix+'.cookies', 'w')
     
     os.rename(content_prefix+'.content', content_prefix+'.content-old')
     new_content_file = open(content_prefix+'.content', 'w')
@@ -903,10 +926,30 @@ class HTMLTest(HTTPTest):
     # http://bramcohen.livejournal.com/37690.html
     #  -> patiencediff.py vs difflib
     #     "For small files difflib wins". And it's standard. Yay!
+    tor_v_new = difflib.SequenceMatcher(lambda x: x == " ", str(psoup), str(soup_new))
+    tor_v_orig = difflib.SequenceMatcher(lambda x: x == " ", str(psoup), str(soup))
+    orig_v_new = difflib.SequenceMatcher(lambda x: x == " ", str(soup), str(soup_new))
+
+    # The key property is that the differences between the two non-tor fetches
+    # match the differences between the Tor and the regular fetches 
+
+    plog("NOTICE", "Diffing charcateristics: "+str((orig_v_new.get_opcodes()==tor_v_orig.get_opcodes(),
+             orig_v_new.get_matching_blocks()==tor_v_orig.get_matching_blocks(),
+             orig_v_new.get_opcodes()==tor_v_new.get_opcodes(),
+             orig_v_new.get_matching_blocks()==tor_v_new.get_matching_blocks())))
+
+    diff_file = open(failed_prefix+'.diffs.'+exit_node[1:],'w')
+    diff_file.write("orig_v_new.get_matching_blocks() =\n\t"+str(orig_v_new.get_matching_blocks())+"\n")
+    diff_file.write("orig_v_new.get_opcodes() =\n\t"+str(orig_v_new.get_opcodes())+"\n\n")
+    diff_file.write("tor_v_new.get_matching_blocks() =\n\t"+str(tor_v_new.get_matching_blocks())+"\n")
+    diff_file.write("tor_v_new.get_opcodes() =\n\t"+str(tor_v_new.get_opcodes())+"\n\n")
+    diff_file.write("tor_v_orig.get_matching_blocks() =\n\t"+str(tor_v_orig.get_matching_blocks())+"\n")
+    diff_file.write("tor_v_orig.get_opcodes() =\n\t"+str(tor_v_orig.get_opcodes())+"\n\n")
+    diff_file.close()
 
     # XXX: Check for existence of this file before overwriting
     exit_tag_file = open(failed_prefix+'.dyn-tags.'+exit_node[1:],'w')
-    exit_tag_file.write(psoup.__str__())
+    exit_tag_file.write(str(psoup))
     exit_tag_file.close()
 
     exit_content_file = open(failed_prefix+'.dyn-content.'+exit_node[1:], 'w')
