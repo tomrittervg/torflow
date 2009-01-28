@@ -58,7 +58,7 @@ import OpenSSL
 from OpenSSL import *
 
 sys.path.append("./libs/")
-from BeautifulSoup.BeautifulSoup import BeautifulSoup, SoupStrainer
+from BeautifulSoup.BeautifulSoup import BeautifulSoup, SoupStrainer, Tag
 from SocksiPy import socks
 import Pyssh.pyssh
 
@@ -73,7 +73,12 @@ scan_filetypes = ['exe','pdf','doc','msi']#,'rpm','dmg','pkg','dpkg']
 
 # Avoid vmware images+isos plz. Nobody could possibly have the patience
 # to download anything much larger than 30MB over Tor anyways ;)
-max_content_size = 30*1024*1024 
+# XXX: 30MB?? Who the hell am I kidding. For testing this needs to be like 1MB
+max_content_size = 1024*1024 # 30*1024*1024
+
+# Kill fetches if they drop below 1kbyte/sec
+min_rate=1024
+
 
 firefox_headers = {
   'User-Agent':'Mozilla/5.0 (Windows; U; Windows NT 5.1; de; rv:1.8.1) Gecko/20061010 Firefox/2.0',
@@ -150,29 +155,32 @@ ipv4_nonpublic = [
   '111'         # multicast & experimental 224.0.0.0/3
 ]
 
-# tags and attributes to check in the http test: XXX these should be reviewed
-# See also: http://ha.ckers.org/xss.html
+# Tags and attributes to check in the http test.
+# The general idea is to grab tags with attributes known
+# to either hold script, or cause automatic network actvitity
+# See: http://www.w3.org/TR/REC-html40/index/attributes.html
+# http://www.w3.org/TR/REC-html40/index/elements.html  
+# and http://ha.ckers.org/xss.html
 # Note: the more we add, the greater the potential for false positives...  
 # We also only care about the ones that work for FF2/FF3. 
-tags_to_check = ['a', 'area', 'base', 'applet', 'embed', 'form', 'frame',
-                 'input', 'iframe', 'img', 'link', 'object', 'script', 'meta', 
-                 'body', 'style']
 
+tags_to_check = ['a', 'applet', 'area', 'base', 'body', 'embed', 'form',
+                 'frame', 'iframe', 'img', 'input', 'link', 'meta', 
+                 'object', 'script', 'style']
 tags_preserve_inner = ['script','style'] 
+attrs_to_check =  ['background', 'cite', 'classid', 'codebase', 'data', 
+                   'longdesc', 'onblur', 
+                   'onchange', 'onclick', 'ondblclick', 'onfocus', 'onkeydown', 
+                   'onkeypress', 'onkeyup','onload', 'onmousedown', 'onmousemove', 
+                   'onmouseout', 'onmouseover','onmouseup', 'onreset', 'onselect', 
+                   'onsubmit', 'onunload', 'profile', 'src', 'usemap']
 
-attrs_to_check = ['onblur', 'onchange', 'onclick', 'ondblclick', 'onfocus', 
-                  'onkeydown', 'onkeypress', 'onkeyup', 'onload','onmousedown', 
-                  'onmouseup', 'onmouseover', 'onmousemove', 'onmouseout', 
-                  'onreset', 'onselect', 'onsubmit', 'onunload', 'profile', 
-                  'src', 'usemap', 'background', 'data', 'classid',
-                  'codebase', 'profile']
 
-tags_to_recurse = ['applet', 'embed', 'object', 'script', 'frame', 'iframe', 
-                   'img', 'link', 'a']
-
+tags_to_recurse = ['a', 'applet', 'embed', 'frame', 'iframe', #'img',
+                   'link', 'object', 'script'] 
 recurse_html = ['frame', 'iframe']
-attrs_to_recurse = ['src', 'pluginurl', 'data', 'classid', 'codebase', 'href',
-                    'background']
+attrs_to_recurse = ['background', 'classid', 'codebase', 'data', 'href',
+                    'pluginurl', 'src']
 
 #
 # constants
@@ -206,8 +214,8 @@ def http_request(address, cookie_jar=None, headers=firefox_headers):
     plog('WARN', 'The http-request address ' + address + ' is malformed')
     traceback.print_exc()
     return ""
-  except (IndexError, TypeError):
-    plog('WARN', 'An error occured while negotiating socks5 with Tor')
+  except (IndexError, TypeError, socks.Socks5Error), e:
+    plog('WARN', 'An error occured while negotiating socks5 with Tor: '+str(e))
     traceback.print_exc()
     return ""
   except KeyboardInterrupt:
@@ -369,6 +377,7 @@ class HTTPTest(SearchBasedTest):
 
   def run_test(self):
     # A single test should have a single cookie jar
+    # XXX: Compare these elements at the end of the test
     self.tor_cookie_jar = cookielib.LWPCookieJar()
     self.cookie_jar = cookielib.LWPCookieJar()
     self.headers = copy.copy(firefox_headers)
@@ -597,6 +606,7 @@ class HTMLTest(HTTPTest):
  
   def run_test(self):
     # A single test should have a single cookie jar
+    # XXX: Compare these elements at the end of the test
     self.tor_cookie_jar = cookielib.LWPCookieJar()
     self.cookie_jar = cookielib.LWPCookieJar()
     self.headers = copy.copy(firefox_headers)
@@ -622,7 +632,7 @@ class HTMLTest(HTTPTest):
   def get_targets(self):
     return self.get_search_urls('http', self.fetch_targets) 
 
-  def add_recursive_targets(self, soup, orig_addr):
+  def _add_recursive_targets(self, soup, orig_addr):
     # XXX: Watch for spider-traps! (ie mutually sourcing iframes)
     # Only pull at most one filetype from the list of 'a' links
     targets = []
@@ -652,17 +662,26 @@ class HTMLTest(HTTPTest):
     for i in sets.Set(targets):
       self.fetch_queue.put_nowait(i)
 
-  def recursive_strain(self, soup):
+  def _tag_not_worthy(self, tag):
+    if str(tag.name) in tags_to_check:
+      return False
+    for attr in tag.attrs:
+      if attr[0] in attrs_to_check:
+        return False
+    return True
+ 
+  def _recursive_strain(self, soup):
     """ Remove all tags that are of no interest. Also remove content """
     to_extract = []
     for tag in soup.findAll():
-      if not tag.name in tags_to_check or not tag.attr in attrs_to_check:
+      if self._tag_not_worthy(tag):
         to_extract.append(tag)
       if tag.name not in tags_preserve_inner:
         for child in tag.childGenerator():
-          to_extract.append(child)
+          if not isinstance(child, Tag) or self._tag_not_worthy(child):
+            to_extract.append(child)
     for tag in to_extract:
-      tag.extract()    
+      tag.extract()
     return soup      
  
   def check_html(self, address):
@@ -701,13 +720,13 @@ class HTMLTest(HTTPTest):
     elements = SoupStrainer(lambda name, attrs: name in tags_to_check or 
         len(Set(map(lambda a: a[0], attrs)).intersection(Set(attrs_to_check))) > 0)
     pcontent = pcontent.decode('ascii', 'ignore')
-    psoup = self.recursive_strain(BeautifulSoup(pcontent, parseOnlyThese=elements))
+    psoup = self._recursive_strain(BeautifulSoup(pcontent, parseOnlyThese=elements))
 
     # Also find recursive urls
     recurse_elements = SoupStrainer(lambda name, attrs: 
          name in tags_to_recurse and 
             len(Set(map(lambda a: a[0], attrs)).intersection(Set(attrs_to_recurse))) > 0)
-    self.add_recursive_targets(BeautifulSoup(pcontent, recurse_elements), 
+    self._add_recursive_targets(BeautifulSoup(pcontent, recurse_elements), 
                                address) 
 
     # load the original tag structure
@@ -721,7 +740,7 @@ class HTMLTest(HTTPTest):
     except IOError:
       content = http_request(address, self.cookie_jar, self.headers)
       content = content.decode('ascii','ignore')
-      soup = BeautifulSoup(content, parseOnlyThese=elements)
+      soup = self._recursive_strain(BeautifulSoup(content, parseOnlyThese=elements))
 
       tag_file = open(content_prefix+'.tags', 'w')
       # the space is needed in case we have some page with no matching tags at all
@@ -761,7 +780,7 @@ class HTMLTest(HTTPTest):
       self.datahandler.saveResult(result)
       return TEST_INCONCLUSIVE
 
-    soup_new = self.recursive_strain(BeautifulSoup(content_new,
+    soup_new = self._recursive_strain(BeautifulSoup(content_new,
                                      parseOnlyThese=elements))
     # compare the new and old content
     # if they match, means the node has been changing the content
@@ -1726,10 +1745,29 @@ def decompress_response_data(response):
   elif (response.__class__.__name__ == "addinfourl"):
     encoding = response.info().get("Content-Encoding")
 
+  start = time.time()
+  data = ""
+  while True:
+    data_read = response.read(450) # Cells are 500 bytes
+    # XXX: if this doesn't work, check stream observer for 
+    # lack of progress.. or for a sign we should read..
+
+    len_read = len(data)
+    now = time.time()
+
+    # Wait 5 seconds before counting data
+    if (now-start) > 5 and len_read/(now-start) < min_rate:
+      plog("WARN", "Minimum xfer rate not maintained. Aborting xfer")
+      return ""
+      
+    if not data_read:
+      break
+    data += data_read 
+ 
   if encoding == 'gzip' or encoding == 'x-gzip':
-    return gzip.GzipFile('', 'rb', 9, StringIO.StringIO(response.read())).read()
+    return gzip.GzipFile('', 'rb', 9, StringIO.StringIO(data)).read()
   elif encoding == 'deflate':
-    return StringIO.StringIO(zlib.decompress(response.read())).read()
+    return StringIO.StringIO(zlib.decompress(data)).read()
   else:
     return response.read()
 

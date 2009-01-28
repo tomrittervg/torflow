@@ -22,7 +22,7 @@ data_dir = './data/soat/'
 ssl_certs_dir = data_dir + 'ssl/certs/'
 
 http_data_dir = data_dir + 'http/'
-http_content_dir = data_dir + 'http/content'
+http_content_dir = data_dir + 'http/content/'
 http_failed_dir = data_dir + 'http/failed/'
 http_inconclusive_dir = data_dir + 'http/inconclusive/'
 
