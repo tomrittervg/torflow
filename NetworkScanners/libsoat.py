@@ -39,7 +39,7 @@ INCONCLUSIVE_NOLOCALCONTENT = "InconclusiveNoLocalContent"
 # Failed reasons
 FAILURE_EXITONLY = "FailureExitOnly"
 FAILURE_DYNAMICTAGS = "FailureDynamicTags" 
-
+FAILURE_COOKIEMISMATCH = "FailureCookieMismatch"
 
 # classes to use with pickle to dump test results into files
 
@@ -81,6 +81,14 @@ class HttpTestResult(TestResult):
     try: os.unlink(self.content_exit)
     except: pass
 
+class CookieTestResult(TestResult):
+  def __init__(self, exit_node, status, reason, plain_cookies, 
+               tor_cookies):
+    super(CookieTestResult, self).__init__(exit_node, "cookies", status)
+    self.proto = "http"
+    self.reason = reason
+    self.tor_cookies = tor_cookies
+    self.plain_cookies = plain_cookies
 
 class HtmlTestResult(TestResult):
   ''' Represents the result of a http test '''

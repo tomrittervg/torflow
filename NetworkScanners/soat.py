@@ -97,10 +97,9 @@ search_cookies=None
 yahoo_search_mode = {"host" : "search.yahoo.com", "query":"p", "filetype": "originurlextension:", "inurl":None, "class":"yschttl", "useragent":False}
 google_search_mode = {"host" : "www.google.com", "query":"q", "filetype":"filetype:", "inurl":"inurl:", "class" : "l", "useragent":True}
  
-# XXX: This does not affect the ssl search.. no other search engines have
-# a working inurl that allows you to pick the scheme to be https like google...
+# FIXME: This does not affect the ssl search.. no other search engines have
+# a working "inurl:" that allows you to pick the scheme to be https like google...
 default_search_mode = yahoo_search_mode
-
 
 # ports to test in the consistency test
 
@@ -375,9 +374,26 @@ class HTTPTest(SearchBasedTest):
     self.scan_filetypes = filetypes
     self.results = []
 
+  def check_cookies(self):
+    tor_cookies = "\n"
+    plain_cookies = "\n"
+    for cookie in self.tor_cookie_jar:
+      tor_cookies += "\t"+cookie.name+":"+cookie.domain+cookie.path+" discard="+str(cookie.discard)+"\n"
+    for cookie in self.cookie_jar:
+      plain_cookies += "\t"+cookie.name+":"+cookie.domain+cookie.path+" discard="+str(cookie.discard)+"\n"
+    if tor_cookies != plain_cookies:
+      exit_node = self.mt.get_exit_node()
+      plog("ERROR", "Cookie mismatch at "+exit_node+":\nTor Cookies:"+tor_cookies+"\nPlain Cookies:\n"+plain_cookies)
+      result = CookieTestResult(exit_node, TEST_FAILURE, 
+                              FAILURE_COOKIEMISMATCH, plain_cookies, 
+                              tor_cookies)
+      self.results.append(result)
+      self.datahandler.saveResult(result)
+      return TEST_FAILURE
+    return TEST_SUCCESS
+
   def run_test(self):
     # A single test should have a single cookie jar
-    # XXX: Compare these elements at the end of the test
     self.tor_cookie_jar = cookielib.LWPCookieJar()
     self.cookie_jar = cookielib.LWPCookieJar()
     self.headers = copy.copy(firefox_headers)
@@ -395,7 +411,10 @@ class HTTPTest(SearchBasedTest):
       address = random.choice(self.targets[ftype])
       result = self.check_http(address)
       if result > ret_result:
-		ret_result = result
+        ret_result = result
+    result = self.check_cookies()
+    if result > ret_result:
+      ret_result = result
     return ret_result
 
   def get_targets(self):
@@ -606,7 +625,6 @@ class HTMLTest(HTTPTest):
  
   def run_test(self):
     # A single test should have a single cookie jar
-    # XXX: Compare these elements at the end of the test
     self.tor_cookie_jar = cookielib.LWPCookieJar()
     self.cookie_jar = cookielib.LWPCookieJar()
     self.headers = copy.copy(firefox_headers)
@@ -627,6 +645,9 @@ class HTMLTest(HTTPTest):
         result = TEST_SUCCESS
       if result > ret_result:
 		ret_result = result
+    result = self.check_cookies()
+    if result > ret_result:
+      ret_result = result
     return ret_result
 
   def get_targets(self):
@@ -716,7 +737,6 @@ class HTMLTest(HTTPTest):
       self.datahandler.saveResult(result)
       return TEST_INCONCLUSIVE
 
-    # XXX: We need to remove the content between some of these tags..
     elements = SoupStrainer(lambda name, attrs: name in tags_to_check or 
         len(Set(map(lambda a: a[0], attrs)).intersection(Set(attrs_to_check))) > 0)
     pcontent = pcontent.decode('ascii', 'ignore')
@@ -807,7 +827,7 @@ class HTMLTest(HTTPTest):
     # if content has changed outside of tor, update the saved file
     os.rename(content_prefix+'.tags', content_prefix+'.tags-old')
     tag_file = open(content_prefix+'.tags', 'w')
-    tag_file.write(soup_new.__str__())
+    tag_file.write(soup_new.__str__()+' ')
     tag_file.close()
 
     os.rename(content_prefix+'.content', content_prefix+'.content-old')
@@ -1745,16 +1765,20 @@ def decompress_response_data(response):
   elif (response.__class__.__name__ == "addinfourl"):
     encoding = response.info().get("Content-Encoding")
 
+  tot_len = response.info().get("Content-Length")
+  if not tot_len:
+    tot_len = "0"
+
   start = time.time()
   data = ""
   while True:
-    data_read = response.read(450) # Cells are 500 bytes
+    data_read = response.read(500) # Cells are 495 bytes..
     # XXX: if this doesn't work, check stream observer for 
     # lack of progress.. or for a sign we should read..
-
     len_read = len(data)
     now = time.time()
 
+    plog("DEBUG", "Read "+str(len_read)+"/"+str(tot_len))
     # Wait 5 seconds before counting data
     if (now-start) > 5 and len_read/(now-start) < min_rate:
       plog("WARN", "Minimum xfer rate not maintained. Aborting xfer")
@@ -1769,9 +1793,7 @@ def decompress_response_data(response):
   elif encoding == 'deflate':
     return StringIO.StringIO(zlib.decompress(data)).read()
   else:
-    return response.read()
-
-
+    return data
 
 def tor_resolve(address):
   ''' performs a DNS query explicitly via tor '''
