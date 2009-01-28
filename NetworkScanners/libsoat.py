@@ -35,6 +35,7 @@ TEST_FAILURE = 2
 # Inconclusive reasons
 INCONCLUSIVE_NOEXITCONTENT = "InconclusiveNoExitContent"
 INCONCLUSIVE_NOLOCALCONTENT = "InconclusiveNoLocalContent"
+INCONCLUSIVE_BADHTTPCODE = "InconclusiveBadHTTPCode"
 
 # Failed reasons
 FAILURE_EXITONLY = "FailureExitOnly"

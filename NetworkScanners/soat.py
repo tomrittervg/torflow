@@ -99,7 +99,7 @@ google_search_mode = {"host" : "www.google.com", "query":"q", "filetype":"filety
  
 # FIXME: This does not affect the ssl search.. no other search engines have
 # a working "inurl:" that allows you to pick the scheme to be https like google...
-default_search_mode = yahoo_search_mode
+default_search_mode = google_search_mode
 
 # ports to test in the consistency test
 
@@ -207,24 +207,28 @@ def http_request(address, cookie_jar=None, headers=firefox_headers):
     length = reply.info().get("Content-Length")
     if length and int(length) > max_content_size:
       plog("WARN", "Max content size exceeded for "+address+": "+length)
-      return ""
+      return (reply.code, "")
     content = decompress_response_data(reply)
+  except urllib2.HTTPError, e:
+    plog('WARN', "HTTP Error during request of "+address)
+    traceback.print_exc()
+    return (e.code, "") 
   except (ValueError, urllib2.URLError):
     plog('WARN', 'The http-request address ' + address + ' is malformed')
     traceback.print_exc()
-    return ""
+    return (0, "")
   except (IndexError, TypeError, socks.Socks5Error), e:
     plog('WARN', 'An error occured while negotiating socks5 with Tor: '+str(e))
     traceback.print_exc()
-    return ""
+    return (0, "")
   except KeyboardInterrupt:
     raise KeyboardInterrupt
   except:
     plog('WARN', 'An unknown HTTP error occured for '+address)
     traceback.print_exc()
-    return ""
+    return (0, "")
 
-  return content
+  return (reply.code, content)
 
 class Test:
   """ Base class for our tests """
@@ -316,11 +320,11 @@ class SearchBasedTest(Test):
         try:
           # XXX: This does not handle http error codes.. (like 302!)
           if search_mode["useragent"]:
-            content = http_request(search_url, search_cookies)
+            (code, content) = http_request(search_url, search_cookies)
           else:
             headers = copy.copy(firefox_headers)
             del headers["User-Agent"]
-            content = http_request(search_url, search_cookies, headers)
+            (code, content) = http_request(search_url, search_cookies, headers)[1]
         except socket.gaierror:
           plog('ERROR', 'Scraping of http://'+host+search_path+" failed")
           traceback.print_exc()
@@ -367,10 +371,12 @@ class HTTPTest(SearchBasedTest):
     SearchBasedTest.__init__(self, mt, "HTTP", 80, wordlist)
     self.fetch_targets = 5
     self.three_way_fails = {}
+    self.httpcode_fails = {}
     self.two_way_fails = {}
     self.successes = {}
     self.three_way_limit = 10
-    self.two_way_limit = 250 
+    self.two_way_limit = 100
+    self.httpcode_limit = 100
     self.scan_filetypes = filetypes
     self.results = []
 
@@ -428,7 +434,21 @@ class HTTPTest(SearchBasedTest):
         if url[-len(ftype):] == ftype:
           urls[ftype].append(url)
     return urls     
-  
+ 
+  def remove_target(self, address):
+    SearchBasedTest.remove_target(self, address)
+    del self.httpcode_limit[address]
+    del self.three_way_limit[address]
+    del self.successes[address]
+    del self.two_way_limit[address]
+    kill_results = []
+    for r in self.results:
+      if r.site == address:
+        kill_results.append(r)
+    for r in kill_results:
+      #r.remove_files()
+      self.results.remove(r)
+    
   def register_exit_failure(self, address, exit_node):
     if address in self.two_way_fails:
       self.two_way_fails[address].add(exit_node)
@@ -443,18 +463,27 @@ class HTTPTest(SearchBasedTest):
       plog("NOTICE", "Excessive HTTP 2-way failure ("+str(err_cnt)+" vs "+str(self.successes[address])+") for "+address+". Removing.")
   
       self.remove_target(address)
-      del self.three_way_limit[address]
-      del self.successes[address]
-      del self.two_way_limit[address]
-      kill_results = []
-      for r in self.results:
-        kill_results.append(r)
-      for r in kill_results:
-        #r.remove_files()
-        self.results.remove(r)
     else:
       plog("ERROR", self.proto+" 2-way failure at "+exit_node+". This makes "+str(err_cnt)+" node failures for "+address)
 
+  def register_httpcode_failure(self, address, exit_node):
+    if address in self.httpcode_fails:
+      self.httpcode_fails[address].add(exit_node)
+    else:
+      self.httpcode_fails[address] = sets.Set([exit_node])
+    
+    err_cnt = len(self.httpcode_fails[address])
+    if err_cnt > self.httpcode_limit:
+      # Remove all associated data for this url.
+      # (Note, this also seems to imply we should report BadExit in bulk,
+      # after we've had a chance for these false positives to be weeded out)
+      if address not in self.successes: self.successes[address] = 0
+      plog("NOTICE", "Excessive HTTP error code failure ("+str(err_cnt)+" vs "+str(self.successes[address])+") for "+address+". Removing.")
+
+      self.remove_target(address)
+    else:
+      plog("ERROR", self.proto+" 3-way failure at "+exit_node+". This makes "+str(err_cnt)+" node failures for "+address)
+    
   def register_dynamic_failure(self, address, exit_node):
     if address in self.three_way_fails:
       self.three_way_fails[address].add(exit_node)
@@ -470,15 +499,6 @@ class HTTPTest(SearchBasedTest):
       plog("NOTICE", "Excessive HTTP 3-way failure ("+str(err_cnt)+" vs "+str(self.successes[address])+") for "+address+". Removing.")
 
       self.remove_target(address)
-      del self.three_way_limit[address]
-      del self.successes[address]
-      del self.two_way_limit[address]
-      kill_results = []
-      for r in self.results:
-        kill_results.append(r)
-      for r in kill_results:
-        #r.remove_files()
-        self.results.remove(r)
     else:
       plog("ERROR", self.proto+" 3-way failure at "+exit_node+". This makes "+str(err_cnt)+" node failures for "+address)
  
@@ -490,7 +510,7 @@ class HTTPTest(SearchBasedTest):
     socks.setdefaultproxy(socks.PROXY_TYPE_SOCKS5, tor_host, tor_port)
     socket.socket = socks.socksocket
 
-    pcontent = http_request(address, self.tor_cookie_jar, self.headers)
+    (pcode, pcontent) = http_request(address, self.tor_cookie_jar, self.headers)
     psha1sum = sha.sha(pcontent)
 
     # reset the connection to direct
@@ -500,6 +520,15 @@ class HTTPTest(SearchBasedTest):
     if exit_node == 0 or exit_node == '0' or not exit_node:
       plog('WARN', 'We had no exit node to test, skipping to the next test.')
       return TEST_SUCCESS
+
+    if pcode - (pcode % 100) != 200:
+      plog("NOTICE", exit_node+" had error "+str(pcode)+" fetching content for "+address)
+      result = HttpTestResult(exit_node, address, TEST_INCONCLUSIVE,
+                              INCONCLUSIVE_BADHTTPCODE+str(pcode))
+      self.results.append(result)
+      self.datahandler.saveResult(result)
+      self.register_httpcode_failure(address, exit_node)
+      return TEST_INCONCLUSIVE
 
     # an address representation acceptable for a filename 
     address_file = self.datahandler.safeFilename(address[7:])
@@ -526,7 +555,7 @@ class HTTPTest(SearchBasedTest):
       content_file.close()
 
     except IOError:
-      content = http_request(address, self.cookie_jar, self.headers)
+      (code, content) = http_request(address, self.cookie_jar, self.headers)
       if not content:
         plog("WARN", "Failed to direct load "+address)
         return TEST_INCONCLUSIVE 
@@ -552,7 +581,7 @@ class HTTPTest(SearchBasedTest):
       return TEST_SUCCESS
 
     # if content doesnt match, update the direct content
-    content_new = http_request(address, self.cookie_jar, self.headers)
+    (code_new, content_new) = http_request(address, self.cookie_jar, self.headers)
     if not content_new:
       plog("WARN", "Failed to re-frech "+address+" outside of Tor. Did our network fail?")
       result = HttpTestResult(exit_node, address, TEST_INCONCLUSIVE, 
@@ -713,7 +742,10 @@ class HTMLTest(HTTPTest):
     socks.setdefaultproxy(socks.PROXY_TYPE_SOCKS5, tor_host, tor_port)
     socket.socket = socks.socksocket
 
-    pcontent = http_request(address, self.tor_cookie_jar, self.headers)
+    # XXX: Wikipedia and others can give us 403.. So what do we do about that?
+    # Probably should count the number of occurrances vs successful runs
+    # then remove the url
+    (pcode, pcontent) = http_request(address, self.tor_cookie_jar, self.headers)
 
     # reset the connection to direct
     socket.socket = defaultsocket
@@ -722,6 +754,15 @@ class HTMLTest(HTTPTest):
     if exit_node == 0 or exit_node == '0' or not exit_node:
       plog('WARN', 'We had no exit node to test, skipping to the next test.')
       return TEST_SUCCESS
+
+    if pcode - (pcode % 100) != 200:
+      plog("NOTICE", exit_node+" had error "+str(pcode)+" fetching content for "+address)
+      result = HttpTestResult(exit_node, address, TEST_INCONCLUSIVE,
+                              INCONCLUSIVE_BADHTTPCODE+str(pcode))
+      self.results.append(result)
+      self.datahandler.saveResult(result)
+      self.register_httpcode_failure(address, exit_node)
+      return TEST_INCONCLUSIVE
 
     # an address representation acceptable for a filename 
     address_file = self.datahandler.safeFilename(address[7:])
@@ -758,13 +799,15 @@ class HTMLTest(HTTPTest):
       tag_file.close()
       
     except IOError:
-      content = http_request(address, self.cookie_jar, self.headers)
+      (code, content) = http_request(address, self.cookie_jar, self.headers)
       content = content.decode('ascii','ignore')
       soup = self._recursive_strain(BeautifulSoup(content, parseOnlyThese=elements))
 
+      string_soup = str(soup)
+      if not string_soup:
+        plog("WARN", "Empty soup for "+address)
       tag_file = open(content_prefix+'.tags', 'w')
-      # the space is needed in case we have some page with no matching tags at all
-      tag_file.write(soup.__str__() +  ' ') 
+      tag_file.write(string_soup) 
       tag_file.close()
 
       content_file = open(content_prefix+'.content', 'w')
@@ -790,7 +833,7 @@ class HTMLTest(HTTPTest):
       return TEST_SUCCESS
 
     # if content doesnt match, update the direct content
-    content_new = http_request(address, self.cookie_jar, self.headers)
+    (code_new, content_new) = http_request(address, self.cookie_jar, self.headers)
     content_new = content_new.decode('ascii', 'ignore')
     if not content_new:
       plog("WARN", "Failed to re-frech "+address+" outside of Tor. Did our network fail?")
@@ -807,7 +850,7 @@ class HTMLTest(HTTPTest):
     if soup == soup_new:
       # XXX: Check for existence of this file before overwriting
       exit_tag_file = open(failed_prefix+'.tags.'+exit_node[1:],'w')
-      exit_tag_file.write(psoup.__str__())
+      exit_tag_file.write(str(psoup))
       exit_tag_file.close()
 
       exit_content_file = open(failed_prefix+'.content.'+exit_node[1:], 'w')
@@ -826,10 +869,13 @@ class HTMLTest(HTTPTest):
 
     # if content has changed outside of tor, update the saved file
     os.rename(content_prefix+'.tags', content_prefix+'.tags-old')
+    string_soup_new = str(soup_new)
+    if not string_soup_new:
+      plog("WARN", "Empty soup for "+address)
     tag_file = open(content_prefix+'.tags', 'w')
-    tag_file.write(soup_new.__str__()+' ')
+    tag_file.write(string_soup_new) 
     tag_file.close()
-
+    
     os.rename(content_prefix+'.content', content_prefix+'.content-old')
     new_content_file = open(content_prefix+'.content', 'w')
     new_content_file.write(content_new)
