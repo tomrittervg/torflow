@@ -707,7 +707,7 @@ class HTMLTest(HTTPTest):
     for tag in tags_to_recurse:
       tags = soup.findAll(tag)
       for t in tags:
-        plog("DEBUG", "Got tag: "+str(t))
+        #plog("DEBUG", "Got tag: "+str(t))
         for a in t.attrs:
           attr_name = str(a[0])
           attr_tgt = str(a[1])
@@ -752,6 +752,11 @@ class HTMLTest(HTTPTest):
         for child in tag.childGenerator():
           if not isinstance(child, Tag) or self._tag_not_worthy(child):
             to_extract.append(child)
+    for tag in to_extract:
+      if isinstance(tag, Tag):
+        parent = tag.findParent()
+        for child in tag.findChildren():
+          parent.append(child)
     for tag in to_extract:
       tag.extract()
     return soup      
@@ -850,7 +855,7 @@ class HTMLTest(HTTPTest):
 
     # compare the content
     # if content matches, everything is ok
-    if psoup == soup:
+    if str(psoup) == str(soup):
       result = HtmlTestResult(exit_node, address, TEST_SUCCESS)
       self.results.append(result)
       #self.datahandler.saveResult(result)
@@ -873,7 +878,7 @@ class HTMLTest(HTTPTest):
                                      parseOnlyThese=elements))
     # compare the new and old content
     # if they match, means the node has been changing the content
-    if soup == soup_new:
+    if str(soup) == str(soup_new):
       # XXX: Check for existence of this file before overwriting
       exit_tag_file = open(failed_prefix+'.tags.'+exit_node[1:],'w')
       exit_tag_file.write(str(psoup))
@@ -912,7 +917,7 @@ class HTMLTest(HTTPTest):
 
     # compare the node content and the new content
     # if it matches, everything is ok
-    if psoup == soup_new:
+    if str(psoup) == str(soup_new):
       result = HtmlTestResult(exit_node, address, TEST_SUCCESS)
       self.results.append(result)
       #self.datahandler.saveResult(result)
