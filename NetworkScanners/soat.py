@@ -163,6 +163,12 @@ ipv4_nonpublic = [
 # Note: the more we add, the greater the potential for false positives...  
 # We also only care about the ones that work for FF2/FF3. 
 
+# TODO: If we cut down on these tags, we can cut down on false 
+# positives. The ultimate acid test would be to have two different Google 
+# queries come back with the same tag structure after filtering them.
+# Unfortunately, Google munges its javascript, so we have to do
+# some more advanced processing to reach that goal..
+# Also, I'm somewhat torn on dropping 'a' tags..
 tags_to_check = ['a', 'applet', 'area', 'base', 'body', 'embed', 'form',
                  'frame', 'iframe', 'img', 'input', 'link', 'meta', 
                  'object', 'script', 'style']
@@ -482,7 +488,7 @@ class HTTPTest(SearchBasedTest):
 
       self.remove_target(address)
     else:
-      plog("ERROR", self.proto+" 3-way failure at "+exit_node+". This makes "+str(err_cnt)+" node failures for "+address)
+      plog("ERROR", self.proto+" http error code failure at "+exit_node+". This makes "+str(err_cnt)+" node failures for "+address)
     
   def register_dynamic_failure(self, address, exit_node):
     if address in self.three_way_fails:
@@ -890,6 +896,13 @@ class HTMLTest(HTTPTest):
       if address in self.successes: self.successes[address]+=1
       else: self.successes[address]=1
       return TEST_SUCCESS
+
+    # TODO: Can we create some kind of diff/masking filter
+    # between the two non-Tor soups, and apply it to the
+    # Tor soup, to see if anything additional has changed?
+    # http://bramcohen.livejournal.com/37690.html
+    #  -> patiencediff.py vs difflib
+    #     "For small files difflib wins". And it's standard. Yay!
 
     # XXX: Check for existence of this file before overwriting
     exit_tag_file = open(failed_prefix+'.dyn-tags.'+exit_node[1:],'w')
