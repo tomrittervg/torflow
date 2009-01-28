@@ -20,13 +20,26 @@ from sets import Set
 
 data_dir = './data/soat/'
 ssl_certs_dir = data_dir + 'ssl/certs/'
-http_tags_dir = data_dir + 'http/tags/'
+
+http_data_dir = data_dir + 'http/'
+http_content_dir = data_dir + 'http/content'
+http_failed_dir = data_dir + 'http/failed/'
+http_inconclusive_dir = data_dir + 'http/inconclusive/'
 
 # constants
 
 TEST_SUCCESS = 0
 TEST_INCONCLUSIVE = 1
 TEST_FAILURE = 2
+
+# Inconclusive reasons
+INCONCLUSIVE_NOEXITCONTENT = "InconclusiveNoExitContent"
+INCONCLUSIVE_NOLOCALCONTENT = "InconclusiveNoLocalContent"
+
+# Failed reasons
+FAILURE_EXITONLY = "FailureExitOnly"
+FAILURE_DYNAMICTAGS = "FailureDynamicTags" 
+
 
 # classes to use with pickle to dump test results into files
 
@@ -43,42 +56,96 @@ class SSLTestResult(TestResult):
   def __init__(self, exit_node, ssl_site, cert_file, status):
     super(SSLTestResult, self).__init__(exit_node, ssl_site, status)
     self.cert = cert_file
+    self.proto = "ssl"
 
 class HttpTestResult(TestResult):
   ''' Represents the result of a http test '''
-  def __init__(self, exit_node, website, tag_prints, status):
+  def __init__(self, exit_node, website, status, reason=None, 
+               sha1sum=None, exit_sha1sum=None, content=None, 
+               content_exit=None, content_old=None, sha1sum_old=None):
     super(HttpTestResult, self).__init__(exit_node, website, status)
-    self.tag_prints = tag_prints
+    self.proto = "http"
+    self.reason = reason
+    self.sha1sum = sha1sum
+    self.sha1sum_old = sha1sum_old
+    self.exit_sha1sum = exit_sha1sum
+    self.content = content
+    self.content_exit = content_exit
+    self.content_old = content_old
+
+  def remove_files(self):
+    try: os.unlink(self.content)
+    except: pass
+    try: os.unlink(self.content_old)
+    except: pass
+    try: os.unlink(self.content_exit)
+    except: pass
+
+
+class HtmlTestResult(TestResult):
+  ''' Represents the result of a http test '''
+  def __init__(self, exit_node, website, status, reason=None, 
+               tags=None, exit_tags=None, content=None, 
+               content_exit=None, content_old=None, tags_old=None):
+    super(HtmlTestResult, self).__init__(exit_node, website, status)
+    self.proto = "http"
+    self.reason = reason
+    self.tags = tags
+    self.tags_old = tags_old
+    self.exit_tags = exit_tags
+    self.content = content
+    self.content_exit = content_exit
+    self.content_old = content_old
+
+  def remove_files(self):
+    try: os.unlink(self.tags)
+    except: pass
+    try: os.unlink(self.tags_old)
+    except: pass
+    try: os.unlink(self.exit_tags)
+    except: pass
+    try: os.unlink(self.content)
+    except: pass
+    try: os.unlink(self.content_old)
+    except: pass
+    try: os.unlink(self.content_exit)
+    except: pass
 
 class SSHTestResult(TestResult):
   ''' Represents the result of an ssh test '''
   def __init__(self, exit_node, ssh_site, status):
     super(SSHTestResult, self).__init__(exit_node, ssh_site, status)
+    self.proto = "ssh"
 
 class DNSTestResult(TestResult):
   ''' Represents the result of a dns test '''
   def __init__(self, exit_node, dns_site, status):
     super(DNSTestResult, self).__init__(exit_node, dns_site, status)
+    self.proto = "dns"
 
 class DNSRebindTestResult(TestResult):
   ''' Represents the result of a dns rebind test '''
   def __init__(self, exit_node, dns_rebind_site, status):
     super(DNSRebindTestResult, self).__init__(exit_node, dns_rebind_site, status)
+    self.proto = "dns"
 
 class SMTPTestResult(TestResult):
   ''' Represents the result of an smtp test '''
   def __init__(self, exit_node, smtp_site, status):
     super(SMTPTestResult, self).__init__(exit_node, smtp_site, status)
+    self.proto = "smtp"
 
 class IMAPTestResult(TestResult):
   ''' Represents the result of an imap test '''
   def __init__(self, exit_node, imap_site, status):
     super(IMAPTestResult, self).__init__(exit_node, imap_site, status)
+    self.proto = "imap"
 
 class POPTestResult(TestResult):
   ''' Represents the result of a pop test '''
   def __init__(self, exit_node, pop_site, status):
     super(POPTestResult, self).__init__(exit_node, pop_site, status)
+    self.proto = "pop"
 
 class DataHandler:
   ''' Class for saving and managing test result data '''
@@ -174,7 +241,7 @@ class DataHandler:
   def saveResult(self, result):
     ''' generic method for saving test results '''
     address = ''
-    if result.__class__.__name__ == 'HttpTestResult':
+    if result.__class__.__name__ == 'HtmlTestResult' or result.__class__.__name__ == 'HttpTestResult':
       address = self.safeFilename(result.site[7:])
     elif result.__class__.__name__ == 'SSLTestResult':
       address = self.safeFilename(result.site[8:])
@@ -183,7 +250,7 @@ class DataHandler:
     else:
       raise Exception, 'This doesn\'t seems to be a result instance.'
 
-    dir = data_dir + result.__class__.__name__[:-10].lower() + '/'
+    dir = data_dir+result.proto.lower()+'/'
     if result.status == TEST_SUCCESS:
       dir += 'successful/'
     if result.status == TEST_INCONCLUSIVE:
@@ -191,7 +258,7 @@ class DataHandler:
     if result.status == TEST_FAILURE:
       dir += 'failed/'
     
-    result_file = open(dir + result.exit_node[1:] + "-" + address + '.result', 'w')
+    result_file = open(dir+address+'.result.'+result.exit_node[1:], 'w')
     pickle.dump(result, result_file)
     result_file.close()
 

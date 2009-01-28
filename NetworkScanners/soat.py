@@ -41,6 +41,8 @@ import StringIO
 import zlib,gzip
 import urlparse
 import cookielib
+import sha
+import Queue
 
 from libsoat import *
 
@@ -66,8 +68,12 @@ import Pyssh.pyssh
 
 # these are used when searching for 'random' urls for testing
 wordlist_file = './wordlist.txt';
-allowed_filetypes = ['all','pdf']
-result_per_type = 5 
+# Hrmm.. Too many of these and Google really h8s us..
+scan_filetypes = ['exe','pdf','doc','msi']#,'rpm','dmg','pkg','dpkg']
+
+# Avoid vmware images+isos plz. Nobody could possibly have the patience
+# to download anything much larger than 30MB over Tor anyways ;)
+max_content_size = 30*1024*1024 
 
 firefox_headers = {
   'User-Agent':'Mozilla/5.0 (Windows; U; Windows NT 5.1; de; rv:1.8.1) Gecko/20061010 Firefox/2.0',
@@ -80,12 +86,18 @@ firefox_headers = {
 }
 
 # http://www.voidspace.org.uk/python/articles/cookielib.shtml
-google_cookie_file="google_cookies.lwp"
-google_cookies=None
+search_cookie_file="search_cookies.lwp"
+search_cookies=None
 
-#
+yahoo_search_mode = {"host" : "search.yahoo.com", "query":"p", "filetype": "originurlextension:", "inurl":None, "class":"yschttl", "useragent":False}
+google_search_mode = {"host" : "www.google.com", "query":"q", "filetype":"filetype:", "inurl":"inurl:", "class" : "l", "useragent":True}
+ 
+# XXX: This does not affect the ssl search.. no other search engines have
+# a working inurl that allows you to pick the scheme to be https like google...
+default_search_mode = yahoo_search_mode
+
+
 # ports to test in the consistency test
-#
 
 ports_to_check = [
   ["pop", ExitPolicyRestriction('255.255.255.255', 110), "pops", ExitPolicyRestriction('255.255.255.255', 995)],
@@ -143,9 +155,25 @@ ipv4_nonpublic = [
 # Note: the more we add, the greater the potential for false positives...  
 # We also only care about the ones that work for FF2/FF3. 
 tags_to_check = ['a', 'area', 'base', 'applet', 'embed', 'form', 'frame',
-                 'iframe', 'img', 'link', 'object', 'script', 'meta', 'body']
-attrs_to_check = ['onclick', 'ondblclick', 'onmousedown', 'onmouseup', 'onmouseover',
-                  'onmousemove', 'onmouseout', 'onkeypress','onkeydown','onkeyup']
+                 'input', 'iframe', 'img', 'link', 'object', 'script', 'meta', 
+                 'body', 'style']
+
+tags_preserve_inner = ['script','style'] 
+
+attrs_to_check = ['onblur', 'onchange', 'onclick', 'ondblclick', 'onfocus', 
+                  'onkeydown', 'onkeypress', 'onkeyup', 'onload','onmousedown', 
+                  'onmouseup', 'onmouseover', 'onmousemove', 'onmouseout', 
+                  'onreset', 'onselect', 'onsubmit', 'onunload', 'profile', 
+                  'src', 'usemap', 'background', 'data', 'classid',
+                  'codebase', 'profile']
+
+tags_to_recurse = ['applet', 'embed', 'object', 'script', 'frame', 'iframe', 
+                   'img', 'link', 'a']
+
+recurse_html = ['frame', 'iframe']
+attrs_to_recurse = ['src', 'pluginurl', 'data', 'classid', 'codebase', 'href',
+                    'background']
+
 #
 # constants
 #
@@ -153,11 +181,11 @@ attrs_to_check = ['onclick', 'ondblclick', 'onmousedown', 'onmouseup', 'onmouseo
 linebreak = '\r\n'
 
 # Http request handling
-def http_request(address, cookie_jar=None):
+def http_request(address, cookie_jar=None, headers=firefox_headers):
   ''' perform a http GET-request and return the content received '''
   request = urllib2.Request(address)
-  for h in firefox_headers.iterkeys():
-    request.add_header(h, firefox_headers[h])
+  for h in headers.iterkeys():
+    request.add_header(h, headers[h])
 
   content = ""
   try:
@@ -168,12 +196,19 @@ def http_request(address, cookie_jar=None):
         cookie_jar.save(cookie_jar.__filename)
     else:
       reply = urllib2.urlopen(request)
+
+    length = reply.info().get("Content-Length")
+    if length and int(length) > max_content_size:
+      plog("WARN", "Max content size exceeded for "+address+": "+length)
+      return ""
     content = decompress_response_data(reply)
   except (ValueError, urllib2.URLError):
     plog('WARN', 'The http-request address ' + address + ' is malformed')
+    traceback.print_exc()
     return ""
   except (IndexError, TypeError):
     plog('WARN', 'An error occured while negotiating socks5 with Tor')
+    traceback.print_exc()
     return ""
   except KeyboardInterrupt:
     raise KeyboardInterrupt
@@ -192,7 +227,6 @@ class Test:
     self.mt = mt
     self.datahandler = DataHandler()
     self.min_targets = 10
-    self.rewind()
 
   def run_test(self): 
     raise NotImplemented()
@@ -223,8 +257,14 @@ class Test:
     self.targets = self.get_targets()
     if not self.targets:
       raise NoURLsFound("No URLS found for protocol "+self.proto)
-    targets = "\n\t".join(self.targets)
-    plog("INFO", "Using the following urls for "+self.proto+" scan:\n\t"+targets) 
+    if type(self.targets) == dict:
+      for subtype in self.targets.iterkeys():
+        targets = "\n\t".join(self.targets[subtype])
+        plog("INFO", "Using the following urls for "+self.proto+"/"+subtype+" scan:\n\t"+targets) 
+        
+    else:
+      targets = "\n\t".join(self.targets)
+      plog("INFO", "Using the following urls for "+self.proto+" scan:\n\t"+targets) 
     self.tests_run = 0
     self.nodes_marked = 0
     self.nodes = self.mt.get_nodes_for_port(self.port)
@@ -234,17 +274,14 @@ class Test:
     self.total_nodes = len(self.nodes)
 
 
-class GoogleBasedTest(Test):
+class SearchBasedTest(Test):
   def __init__(self, mt, proto, port, wordlist):
     self.wordlist = wordlist
     Test.__init__(self, mt, proto, port)
 
-  def get_google_urls(self, protocol='any', results_per_type=10, host_only=False, filetypes=['any']):
+  def get_search_urls(self, protocol='any', results_per_type=10, host_only=False, filetypes=['any'], search_mode=default_search_mode):
     ''' 
     construct a list of urls based on the wordlist, filetypes and protocol. 
-    
-    Note: since we currently use google, which doesn't index by protocol,
-    searches for anything but 'any' could be rather slow
     '''
     plog('INFO', 'Searching google for relevant sites...')
   
@@ -255,22 +292,28 @@ class GoogleBasedTest(Test):
       while len(type_urls) < results_per_type:
         query = random.choice(self.wordlist)
         if filetype != 'any':
-          query += ' filetype:' + filetype
-        if protocol != 'any':
-          query += ' inurl:' + protocol # this isn't too reliable, but we'll re-filter results later
+          query += " "+search_mode["filetype"]+filetype
+        if protocol != 'any' and search_mode["inurl"]:
+          query += " "+search_mode["inurl"]+protocol # this isn't too reliable, but we'll re-filter results later
         #query += '&num=' + `g_results_per_page` 
   
         # search google for relevant pages
         # note: google only accepts requests from idenitified browsers
         # TODO gracefully handle the case when google doesn't want to give us result anymore
-        host = 'www.google.com'
-        params = urllib.urlencode({'q' : query})
+        host = search_mode["host"]
+        params = urllib.urlencode({search_mode["query"] : query})
         search_path = '/search' + '?' + params
         search_url = "http://"+host+search_path
-  
+         
+        plog("INFO", "Search url: "+search_url)
         try:
           # XXX: This does not handle http error codes.. (like 302!)
-          content = http_request(search_url, google_cookies)
+          if search_mode["useragent"]:
+            content = http_request(search_url, search_cookies)
+          else:
+            headers = copy.copy(firefox_headers)
+            del headers["User-Agent"]
+            content = http_request(search_url, search_cookies, headers)
         except socket.gaierror:
           plog('ERROR', 'Scraping of http://'+host+search_path+" failed")
           traceback.print_exc()
@@ -291,7 +334,7 @@ class GoogleBasedTest(Test):
           return [protocol+"://www.eff.org", protocol+"://www.fastmail.fm", protocol+"://www.torproject.org", protocol+"://secure.wikileaks.org/"]
         
         # get the links and do some additional filtering
-        for link in soup.findAll('a', {'class' : 'l'}):
+        for link in soup.findAll('a', {'class' : search_mode["class"]}):
           url = link['href']
           if (protocol != 'any' and url[:len(protocol)] != protocol or 
               filetype != 'any' and url[-len(filetype):] != filetype):
@@ -302,34 +345,115 @@ class GoogleBasedTest(Test):
               type_urls.append(host)
             else:
               type_urls.append(link['href'])
-      
-      if type_urls > results_per_type:
-        type_urls = random.sample(type_urls, results_per_type) # make sure we don't get more urls than needed
+        plog("INFO", "Have "+str(len(type_urls))+"/"+str(results_per_type)+" google urls so far..") 
+
+      # make sure we don't get more urls than needed
+      # hrmm...
+      #if type_urls > results_per_type:
+      #  type_urls = random.sample(type_urls, results_per_type) 
       urllist.extend(type_urls)
        
     return list(Set(urllist))
 
-class HTTPTest(GoogleBasedTest):
-  # TODO: Create an MD5HTTPTest for filetype scans, and also have this
-  # test spawn instances of it for script, image, and object tags
-  # Also, spawn copies of ourself for frame and iframe tags
-  def __init__(self, mt, wordlist):
-    # XXX: Change these to 10 and 20 once we exercise the fetch logic
-    self.fetch_targets = 10
-    GoogleBasedTest.__init__(self, mt, "HTTP", 80, wordlist)
-    self.min_targets = 9 
+class HTTPTest(SearchBasedTest):
+  def __init__(self, mt, wordlist, filetypes=scan_filetypes):
+    SearchBasedTest.__init__(self, mt, "HTTP", 80, wordlist)
+    self.fetch_targets = 5
     self.three_way_fails = {}
     self.two_way_fails = {}
+    self.successes = {}
     self.three_way_limit = 10
     self.two_way_limit = 250 
-  
+    self.scan_filetypes = filetypes
+    self.results = []
+
   def run_test(self):
+    # A single test should have a single cookie jar
+    self.tor_cookie_jar = cookielib.LWPCookieJar()
+    self.cookie_jar = cookielib.LWPCookieJar()
+    self.headers = copy.copy(firefox_headers)
+    
+    ret_result = TEST_SUCCESS
     self.tests_run += 1
-    return self.check_http(random.choice(self.targets))
+
+    n_tests = random.choice(xrange(1,len(self.scan_filetypes)+1))
+    filetypes = random.sample(self.scan_filetypes, n_tests)
+    
+    plog("INFO", "HTTPTest decided to fetch "+str(n_tests)+" urls of types: "+str(filetypes))
+
+    for ftype in filetypes:
+      # XXX: Set referrer to random or none for each of these
+      address = random.choice(self.targets[ftype])
+      result = self.check_http(address)
+      if result > ret_result:
+		ret_result = result
+    return ret_result
 
   def get_targets(self):
-    return self.get_google_urls('http', self.fetch_targets) 
+    raw_urls = self.get_search_urls('http', self.fetch_targets, filetypes=self.scan_filetypes)
 
+    urls = {} 
+    # Slow, but meh..
+    for ftype in self.scan_filetypes: urls[ftype] = []
+    for url in raw_urls:
+      for ftype in self.scan_filetypes:
+        if url[-len(ftype):] == ftype:
+          urls[ftype].append(url)
+    return urls     
+  
+  def register_exit_failure(self, address, exit_node):
+    if address in self.two_way_fails:
+      self.two_way_fails[address].add(exit_node)
+    else:
+      self.two_way_fails[address] = sets.Set([exit_node])
+
+    # TODO: Do something if abundance of succesful tests?
+    # Problem is this can still trigger for localized content
+    err_cnt = len(self.two_way_fails[address])
+    if err_cnt > self.two_way_limit:
+      if address not in self.successes: self.successes[address] = 0
+      plog("NOTICE", "Excessive HTTP 2-way failure ("+str(err_cnt)+" vs "+str(self.successes[address])+") for "+address+". Removing.")
+  
+      self.remove_target(address)
+      del self.three_way_limit[address]
+      del self.successes[address]
+      del self.two_way_limit[address]
+      kill_results = []
+      for r in self.results:
+        kill_results.append(r)
+      for r in kill_results:
+        #r.remove_files()
+        self.results.remove(r)
+    else:
+      plog("ERROR", self.proto+" 2-way failure at "+exit_node+". This makes "+str(err_cnt)+" node failures for "+address)
+
+  def register_dynamic_failure(self, address, exit_node):
+    if address in self.three_way_fails:
+      self.three_way_fails[address].add(exit_node)
+    else:
+      self.three_way_fails[address] = sets.Set([exit_node])
+    
+    err_cnt = len(self.three_way_fails[address])
+    if err_cnt > self.three_way_limit:
+      # Remove all associated data for this url.
+      # (Note, this also seems to imply we should report BadExit in bulk,
+      # after we've had a chance for these false positives to be weeded out)
+      if address not in self.successes: self.successes[address] = 0
+      plog("NOTICE", "Excessive HTTP 3-way failure ("+str(err_cnt)+" vs "+str(self.successes[address])+") for "+address+". Removing.")
+
+      self.remove_target(address)
+      del self.three_way_limit[address]
+      del self.successes[address]
+      del self.two_way_limit[address]
+      kill_results = []
+      for r in self.results:
+        kill_results.append(r)
+      for r in kill_results:
+        #r.remove_files()
+        self.results.remove(r)
+    else:
+      plog("ERROR", self.proto+" 3-way failure at "+exit_node+". This makes "+str(err_cnt)+" node failures for "+address)
+ 
   def check_http(self, address):
     ''' check whether a http connection to a given address is molested '''
     plog('INFO', 'Conducting an http test with destination ' + address)
@@ -338,48 +462,276 @@ class HTTPTest(GoogleBasedTest):
     socks.setdefaultproxy(socks.PROXY_TYPE_SOCKS5, tor_host, tor_port)
     socket.socket = socks.socksocket
 
-    pcontent = http_request(address)
+    pcontent = http_request(address, self.tor_cookie_jar, self.headers)
+    psha1sum = sha.sha(pcontent)
 
     # reset the connection to direct
     socket.socket = defaultsocket
 
     exit_node = self.mt.get_exit_node()
     if exit_node == 0 or exit_node == '0' or not exit_node:
-      plog('INFO', 'We had no exit node to test, skipping to the next test.')
+      plog('WARN', 'We had no exit node to test, skipping to the next test.')
       return TEST_SUCCESS
 
     # an address representation acceptable for a filename 
     address_file = self.datahandler.safeFilename(address[7:])
+    content_prefix = http_content_dir+address_file
+    failed_prefix = http_failed_dir+address_file
 
     # if we have no content, we had a connection error
     if pcontent == "":
-      result = HttpTestResult(exit_node, address, 0, TEST_INCONCLUSIVE)
+      plog("NOTICE", exit_node+" failed to fetch content for "+address)
+      result = HttpTestResult(exit_node, address, TEST_INCONCLUSIVE,
+                              INCONCLUSIVE_NOEXITCONTENT)
+      self.results.append(result)
       self.datahandler.saveResult(result)
       return TEST_INCONCLUSIVE
 
-    elements = SoupStrainer(lambda name, attrs : name in tags_to_check or 
-        len(Set(attrs).intersection(Set(attrs_to_check))) > 0)
+    try:
+      # Load content from disk, md5
+      content_file = open(content_prefix+'.content', 'r')
+      sha1sum = sha.sha()
+      buf = content_file.read(4096)
+      while buf:
+        sha1sum.update(buf)
+        buf = content_file.read(4096)
+      content_file.close()
+
+    except IOError:
+      content = http_request(address, self.cookie_jar, self.headers)
+      if not content:
+        plog("WARN", "Failed to direct load "+address)
+        return TEST_INCONCLUSIVE 
+      sha1sum = sha.sha(content)
+
+      content_file = open(content_prefix+'.content', 'w')
+      content_file.write(content)
+      content_file.close()
+
+    except TypeError, e:
+      plog('ERROR', 'Failed obtaining the shasum for ' + address)
+      plog('ERROR', e)
+      return TEST_INCONCLUSIVE
+
+    # compare the content
+    # if content matches, everything is ok
+    if psha1sum.hexdigest() == sha1sum.hexdigest():
+      result = HttpTestResult(exit_node, address, TEST_SUCCESS)
+      self.results.append(result)
+      #self.datahandler.saveResult(result)
+      if address in self.successes: self.successes[address]+=1
+      else: self.successes[address]=1
+      return TEST_SUCCESS
+
+    # if content doesnt match, update the direct content
+    content_new = http_request(address, self.cookie_jar, self.headers)
+    if not content_new:
+      plog("WARN", "Failed to re-frech "+address+" outside of Tor. Did our network fail?")
+      result = HttpTestResult(exit_node, address, TEST_INCONCLUSIVE, 
+                              INCONCLUSIVE_NOLOCALCONTENT)
+      self.results.append(result)
+      self.datahandler.saveResult(result)
+      return TEST_INCONCLUSIVE
+
+    sha1sum_new = sha.sha(content_new)
+
+    # compare the new and old content
+    # if they match, means the node has been changing the content
+    if sha1sum.hexdigest() == sha1sum_new.hexdigest():
+      # XXX: Check for existence of this file before overwriting
+      exit_content_file = open(failed_prefix+'.content.'+exit_node[1:], 'w')
+      exit_content_file.write(pcontent)
+      exit_content_file.close()
+
+      result = HttpTestResult(exit_node, address, TEST_FAILURE, 
+                              FAILURE_EXITONLY, sha1sum.hexdigest(), 
+                              psha1sum.hexdigest(), content_prefix+".content",
+                              exit_content_file.name)
+      self.results.append(result)
+      self.datahandler.saveResult(result)
+
+      self.register_exit_failure(address, exit_node)
+      return TEST_FAILURE
+
+    # if content has changed outside of tor, update the saved file
+    os.rename(content_prefix+'.content', content_prefix+'.content-old')
+    new_content_file = open(content_prefix+'.content', 'w')
+    new_content_file.write(content_new)
+    new_content_file.close()
+
+    # compare the node content and the new content
+    # if it matches, everything is ok
+    if psha1sum.hexdigest() == sha1sum_new.hexdigest():
+      result = HttpTestResult(exit_node, address, TEST_SUCCESS)
+      self.results.append(result)
+      #self.datahandler.saveResult(result)
+      if address in self.successes: self.successes[address]+=1
+      else: self.successes[address]=1
+      return TEST_SUCCESS
+
+    # XXX: Check for existence of this file before overwriting
+    exit_content_file = open(failed_prefix+'.dyn-content.'+exit_node[1:], 'w')
+    exit_content_file.write(pcontent)
+    exit_content_file.close()
+
+    result = HttpTestResult(exit_node, address, TEST_FAILURE, 
+                            FAILURE_DYNAMICTAGS, sha1sum_new.hexdigest(), 
+                            psha1sum.hexdigest(), new_content_file.name,
+                            exit_content_file.name, 
+                            content_prefix+'.content-old',
+                            sha1sum.hexdigest())
+    self.results.append(result)
+    self.datahandler.saveResult(result)
+
+    self.register_dynamic_failure(address, exit_node)
+    return TEST_FAILURE
+
+class HTMLTest(HTTPTest):
+  def __init__(self, mt, wordlist, recurse_filetypes=scan_filetypes):
+    # XXX: Change these to 10 and 20 once we exercise the fetch logic
+    HTTPTest.__init__(self, mt, wordlist, recurse_filetypes)
+    self.proto = "HTML"
+    self.min_targets = 9
+    self.recurse_filetypes = recurse_filetypes
+    self.fetch_queue = Queue.Queue()
+ 
+  def run_test(self):
+    # A single test should have a single cookie jar
+    self.tor_cookie_jar = cookielib.LWPCookieJar()
+    self.cookie_jar = cookielib.LWPCookieJar()
+    self.headers = copy.copy(firefox_headers)
+    
+    ret_result = TEST_SUCCESS
+    self.tests_run += 1
+    # XXX: Set referrer to address for subsequent fetches
+    # XXX: Set referrer to random or none for initial fetch
+    address = random.choice(self.targets)
+    
+    self.fetch_queue.put_nowait(("html", address))
+    while not self.fetch_queue.empty():
+      (test, url) = self.fetch_queue.get_nowait()
+      if test == "html": result = self.check_html(url)
+      elif test == "http": result = self.check_http(url)
+      else: 
+        plog("WARN", "Unknown test type: "+test+" for "+url)
+        result = TEST_SUCCESS
+      if result > ret_result:
+		ret_result = result
+    return ret_result
+
+  def get_targets(self):
+    return self.get_search_urls('http', self.fetch_targets) 
+
+  def add_recursive_targets(self, soup, orig_addr):
+    # XXX: Watch for spider-traps! (ie mutually sourcing iframes)
+    # Only pull at most one filetype from the list of 'a' links
+    targets = []
+    got_type = {}
+    # Hrmm, if we recursively strained only these tags, this might be faster
+    for tag in tags_to_recurse:
+      tags = soup.findAll(tag)
+      for t in tags:
+        plog("DEBUG", "Got tag: "+str(t))
+        for a in t.attrs:
+          attr_name = str(a[0])
+          attr_tgt = str(a[1])
+          if attr_name in attrs_to_recurse:
+            if str(t.name) in recurse_html:
+              plog("NOTICE", "Adding html "+str(t.name)+" target: "+attr_tgt)
+              targets.append(("html", urlparse.urljoin(orig_addr, attr_tgt)))
+            elif str(t.name) == 'a':
+              if attr_name == "href":
+                for f in self.recurse_filetypes:
+                  if f not in got_type and attr_tgt[-len(f):] == f:
+                    got_type[f] = 1
+                    plog("NOTICE", "Adding http a target: "+attr_tgt)
+                    targets.append(("http", urlparse.urljoin(orig_addr, attr_tgt)))
+            else:
+              plog("NOTICE", "Adding http "+str(t.name)+" target: "+attr_tgt)
+              targets.append(("http", urlparse.urljoin(orig_addr, attr_tgt)))
+    for i in sets.Set(targets):
+      self.fetch_queue.put_nowait(i)
+
+  def recursive_strain(self, soup):
+    """ Remove all tags that are of no interest. Also remove content """
+    to_extract = []
+    for tag in soup.findAll():
+      if not tag.name in tags_to_check or not tag.attr in attrs_to_check:
+        to_extract.append(tag)
+      if tag.name not in tags_preserve_inner:
+        for child in tag.childGenerator():
+          to_extract.append(child)
+    for tag in to_extract:
+      tag.extract()    
+    return soup      
+ 
+  def check_html(self, address):
+    ''' check whether a http connection to a given address is molested '''
+    plog('INFO', 'Conducting an html test with destination ' + address)
+
+    defaultsocket = socket.socket
+    socks.setdefaultproxy(socks.PROXY_TYPE_SOCKS5, tor_host, tor_port)
+    socket.socket = socks.socksocket
+
+    pcontent = http_request(address, self.tor_cookie_jar, self.headers)
+
+    # reset the connection to direct
+    socket.socket = defaultsocket
+
+    exit_node = self.mt.get_exit_node()
+    if exit_node == 0 or exit_node == '0' or not exit_node:
+      plog('WARN', 'We had no exit node to test, skipping to the next test.')
+      return TEST_SUCCESS
+
+    # an address representation acceptable for a filename 
+    address_file = self.datahandler.safeFilename(address[7:])
+    content_prefix = http_content_dir+address_file
+    failed_prefix = http_failed_dir+address_file
+
+    # if we have no content, we had a connection error
+    if pcontent == "":
+      plog("NOTICE", exit_node+" failed to fetch content for "+address)
+      result = HtmlTestResult(exit_node, address, TEST_INCONCLUSIVE,
+                              INCONCLUSIVE_NOEXITCONTENT)
+      self.results.append(result)
+      self.datahandler.saveResult(result)
+      return TEST_INCONCLUSIVE
+
+    # XXX: We need to remove the content between some of these tags..
+    elements = SoupStrainer(lambda name, attrs: name in tags_to_check or 
+        len(Set(map(lambda a: a[0], attrs)).intersection(Set(attrs_to_check))) > 0)
     pcontent = pcontent.decode('ascii', 'ignore')
-    psoup = BeautifulSoup(pcontent, parseOnlyThese=elements)
+    psoup = self.recursive_strain(BeautifulSoup(pcontent, parseOnlyThese=elements))
+
+    # Also find recursive urls
+    recurse_elements = SoupStrainer(lambda name, attrs: 
+         name in tags_to_recurse and 
+            len(Set(map(lambda a: a[0], attrs)).intersection(Set(attrs_to_recurse))) > 0)
+    self.add_recursive_targets(BeautifulSoup(pcontent, recurse_elements), 
+                               address) 
 
     # load the original tag structure
     # if we don't have any yet, get it
     soup = 0
     try:
-      tag_file = open(http_tags_dir + address_file + '.tags', 'r')
+      tag_file = open(content_prefix+'.tags', 'r')
       soup = BeautifulSoup(tag_file.read())
       tag_file.close()
+      
     except IOError:
-      content = http_request(address)
+      content = http_request(address, self.cookie_jar, self.headers)
       content = content.decode('ascii','ignore')
       soup = BeautifulSoup(content, parseOnlyThese=elements)
-      tag_file = open(http_tags_dir + address_file + '.tags', 'w')
-      tag_file.write(soup.__str__() +  ' ') # the space is needed in case we have some page with no matching tags at all
+
+      tag_file = open(content_prefix+'.tags', 'w')
+      # the space is needed in case we have some page with no matching tags at all
+      tag_file.write(soup.__str__() +  ' ') 
       tag_file.close()
 
-      content_file = open(http_tags_dir+address_file+'.content-orig', 'w')
+      content_file = open(content_prefix+'.content', 'w')
       content_file.write(content)
       content_file.close()
+
     except TypeError, e:
       plog('ERROR', 'Failed parsing the tag tree for ' + address)
       plog('ERROR', e)
@@ -391,100 +743,102 @@ class HTTPTest(GoogleBasedTest):
     # compare the content
     # if content matches, everything is ok
     if psoup == soup:
-      result = HttpTestResult(exit_node, address, 0, TEST_SUCCESS)
-      self.datahandler.saveResult(result)
+      result = HtmlTestResult(exit_node, address, TEST_SUCCESS)
+      self.results.append(result)
+      #self.datahandler.saveResult(result)
+      if address in self.successes: self.successes[address]+=1
+      else: self.successes[address]=1
       return TEST_SUCCESS
 
     # if content doesnt match, update the direct content
-    content_new = http_request(address)
+    content_new = http_request(address, self.cookie_jar, self.headers)
     content_new = content_new.decode('ascii', 'ignore')
     if not content_new:
-      result = HttpTestResult(exit_node, address, 0, TEST_INCONCLUSIVE)
+      plog("WARN", "Failed to re-frech "+address+" outside of Tor. Did our network fail?")
+      result = HtmlTestResult(exit_node, address, TEST_INCONCLUSIVE, 
+                              INCONCLUSIVE_NOLOCALCONTENT)
+      self.results.append(result)
       self.datahandler.saveResult(result)
       return TEST_INCONCLUSIVE
 
-    soup_new = BeautifulSoup(content_new, parseOnlyThese=elements)
+    soup_new = self.recursive_strain(BeautifulSoup(content_new,
+                                     parseOnlyThese=elements))
     # compare the new and old content
     # if they match, means the node has been changing the content
     if soup == soup_new:
-      result = HttpTestResult(exit_node, address, 0, TEST_FAILURE)
+      # XXX: Check for existence of this file before overwriting
+      exit_tag_file = open(failed_prefix+'.tags.'+exit_node[1:],'w')
+      exit_tag_file.write(psoup.__str__())
+      exit_tag_file.close()
+
+      exit_content_file = open(failed_prefix+'.content.'+exit_node[1:], 'w')
+      exit_content_file.write(pcontent)
+      exit_content_file.close()
+
+      result = HtmlTestResult(exit_node, address, TEST_FAILURE, 
+                              FAILURE_EXITONLY, tag_file.name, 
+                              exit_tag_file.name, content_prefix+".content",
+                              exit_content_file.name)
+      self.results.append(result)
       self.datahandler.saveResult(result)
-      tag_file = open(http_tags_dir + exit_node[1:] + '_' + address_file + '.tags', 'w')
-      tag_file.write(psoup.__str__())
-      tag_file.close()
-
-      content_file = open(http_tags_dir+exit_node[1:]+'_'+address_file+'.content-exit', 'w')
-      content_file.write(pcontent)
-      content_file.close()
  
-      if address in self.two_way_fails:
-        self.two_way_fails[address].add(exit_node.idhex)
-      else:
-        self.two_way_fails[address] = sets.Set([exit_node.idhex])
-
-      err_cnt = len(self.two_way_fails[address])
-      if err_cnt > self.two_way_limit:
-        plog("NOTICE", "Excessive HTTP 2-way failure for "+address+". Removing.")
-        self.remove_target(address)
-      else:
-        plog("ERROR", "HTTP 2-way failure at "+exit_node+". This makes "+str(err_cnt)+" node failures for "+address)
+      self.register_exit_failure(address, exit_node)
       return TEST_FAILURE
 
     # if content has changed outside of tor, update the saved file
-    tag_file = open(http_tags_dir + address_file + '.tags', 'w')
+    os.rename(content_prefix+'.tags', content_prefix+'.tags-old')
+    tag_file = open(content_prefix+'.tags', 'w')
     tag_file.write(soup_new.__str__())
     tag_file.close()
+
+    os.rename(content_prefix+'.content', content_prefix+'.content-old')
+    new_content_file = open(content_prefix+'.content', 'w')
+    new_content_file.write(content_new)
+    new_content_file.close()
 
     # compare the node content and the new content
     # if it matches, everything is ok
     if psoup == soup_new:
-      result = HttpTestResult(exit_node, address, 0, TEST_SUCCESS)
-      self.datahandler.saveResult(result)
+      result = HtmlTestResult(exit_node, address, TEST_SUCCESS)
+      self.results.append(result)
+      #self.datahandler.saveResult(result)
+      if address in self.successes: self.successes[address]+=1
+      else: self.successes[address]=1
       return TEST_SUCCESS
 
-    # if it doesn't match, means the node has been changing the content
-    result = HttpTestResult(exit_node, address, 0, TEST_FAILURE)
+    # XXX: Check for existence of this file before overwriting
+    exit_tag_file = open(failed_prefix+'.dyn-tags.'+exit_node[1:],'w')
+    exit_tag_file.write(psoup.__str__())
+    exit_tag_file.close()
+
+    exit_content_file = open(failed_prefix+'.dyn-content.'+exit_node[1:], 'w')
+    exit_content_file.write(pcontent)
+    exit_content_file.close()
+
+    result = HtmlTestResult(exit_node, address, TEST_FAILURE, 
+                            FAILURE_DYNAMICTAGS, tag_file.name, 
+                            exit_tag_file.name, new_content_file.name,
+                            exit_content_file.name, 
+                            content_prefix+'.content-old',
+                            content_prefix+'.tags-old')
+    self.results.append(result)
     self.datahandler.saveResult(result)
-    tag_file = open(http_tags_dir + exit_node[1:] + '_' + address_file + '.tags', 'w')
-    tag_file.write(psoup.__str__())
-    tag_file.close()
 
-    content_file = open(http_tags_dir+exit_node[1:]+'_'+address_file+'.content-exit', 'w')
-    content_file.write(pcontent)
-    content_file.close()
-
-    content_file = open(http_tags_dir+exit_node[1:]+'_'+address_file+'.content-new', 'w')
-    content_file.write(content_new)
-    content_file.close()
-
-    if address in self.three_way_fails:
-      self.three_way_fails[address].add(exit_node.idhex)
-    else:
-      self.three_way_fails[address] = sets.Set([exit_node.idhex])
-    
-    err_cnt = len(self.three_way_fails[address])
-    if err_cnt > self.three_way_limit:
-      # FIXME: Remove all associated data for this url.
-      # (Note, this also seems to imply we should report BadExit in bulk,
-      # after we've had a chance for these false positives to be weeded out)
-      plog("NOTICE", "Excessive HTTP 3-way failure for "+address+". Removing.")
-      self.remove_target(address)
-    else:
-      plog("ERROR", "HTTP 3-way failure at "+exit_node+". This makes "+str(err_cnt)+" node failures for "+address)
-    
+    self.register_dynamic_failure(address, exit_node)
     return TEST_FAILURE
+    
 
-class SSLTest(GoogleBasedTest):
+class SSLTest(SearchBasedTest):
   def __init__(self, mt, wordlist):
-    self.test_hosts = 15
-    GoogleBasedTest.__init__(self, mt, "SSL", 443, wordlist)
+    self.test_hosts = 10
+    SearchBasedTest.__init__(self, mt, "SSL", 443, wordlist)
 
   def run_test(self):
     self.tests_run += 1
     return self.check_openssl(random.choice(self.targets))
 
   def get_targets(self):
-    return self.get_google_urls('https', self.test_hosts, True) 
+    return self.get_search_urls('https', self.test_hosts, True, search_mode=google_search_mode) 
 
   def ssl_request(self, address):
     ''' initiate an ssl connection and return the server certificate '''
@@ -565,7 +919,7 @@ class SSLTest(GoogleBasedTest):
         plog('WARN', 'Error getting the correct cert for ' + address)
         return TEST_INCONCLUSIVE
       if original_cert.has_expired():
-        plog('WARN', 'The ssl cert for ' + address + 'seems to have expired. Skipping to the next test...')
+        plog('WARN', 'The ssl cert for '+address+' seems to have expired. Skipping to the next test...')
         return TEST_INCONCLUSIVE
       cert_file = open(ssl_certs_dir + address_file + '.pem', 'w')
       cert_file.write(crypto.dump_certificate(crypto.FILETYPE_PEM, original_cert))
@@ -1413,23 +1767,25 @@ def main(argv):
   if len(argv) < 2:
     print ''
     print 'Please provide at least one test option:'
-    print '--ssl (~works)'
-    print '--http (gives some false positives)'
-    print '--ssh (doesn\'t work yet)'
-    print '--smtp (~works)'
-    print '--pop (~works)'
-    print '--imap (~works)'
-    print '--dnsrebind (works with the ssl test)'
-    print '--policies (~works)'
+    print '--ssl'
+    print '--http'
+    print '--html'
+#    print '--ssh (doesn\'t work yet)'
+#    print '--smtp (~works)'
+#    print '--pop (~works)'
+#    print '--imap (~works)'
+    print '--dnsrebind (use with one or more of above tests)'
+    print '--policies'
     print ''
     return
 
-  opts = ['ssl','http','ssh','smtp','pop','imap','dns','dnsrebind','policies']
+  opts = ['ssl','html','http','ssh','smtp','pop','imap','dns','dnsrebind','policies']
   flags, trailer = getopt.getopt(argv[1:], [], opts)
   
   # get specific test types
   do_ssl = ('--ssl','') in flags
   do_http = ('--http','') in flags
+  do_html = ('--html','') in flags
   do_ssh = ('--ssh','') in flags
   do_smtp = ('--smtp','') in flags
   do_pop = ('--pop','') in flags
@@ -1452,16 +1808,16 @@ def main(argv):
     mt.check_all_exits_port_consistency()
 
   # maybe only the consistency test was required
-  if not (do_ssl or do_http or do_ssh or do_smtp or do_pop or do_imap):
+  if not (do_ssl or do_html or do_http or do_ssh or do_smtp or do_pop or do_imap):
     plog('INFO', 'Done.')
     return
 
   # Load the cookie jar
-  global google_cookies
-  google_cookies = cookielib.LWPCookieJar()
-  if os.path.isfile(google_cookie_file):
-    google_cookies.load(google_cookie_file)
-  google_cookies.__filename = google_cookie_file
+  global search_cookies
+  search_cookies = cookielib.LWPCookieJar()
+  if os.path.isfile(search_cookie_file):
+    search_cookies.load(search_cookie_file)
+  search_cookies.__filename = search_cookie_file
 
   tests = {}
 
@@ -1475,6 +1831,12 @@ def main(argv):
   if do_http:
     try:
       tests["HTTP"] = HTTPTest(mt, wordlist)
+    except NoURLsFound, e:
+      plog('ERROR', e.message)
+
+  if do_html:
+    try:
+      tests["HTML"] = HTMLTest(mt, wordlist)
     except NoURLsFound, e:
       plog('ERROR', e.message)
 
@@ -1497,10 +1859,13 @@ def main(argv):
       plog('ERROR', e.message)
 
   # maybe no tests could be initialized
-  if not (do_ssl or do_http or do_ssh or do_smtp or do_pop or do_imap):
+  if not (do_ssl or do_html or do_http or do_ssh or do_smtp or do_pop or do_imap):
     plog('INFO', 'Done.')
     sys.exit(0)
-    
+  
+  for test in tests.itervalues():
+    test.rewind()
+  
   # start testing
   while 1:
     # Get as much milage out of each exit as we safely can:

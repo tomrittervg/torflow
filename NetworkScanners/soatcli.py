@@ -65,7 +65,7 @@ class StatsConsole:
       if result.__class__.__name__ == 'SSHTestResult':
         sshSet.add(result.exit_node)
         ssh += 1
-      elif result.__class__.__name__ == 'HttpTestResult':
+      elif result.__class__.__name__ == 'HttpTestResult' or result.__class__.__name__ == 'HtmlTestResult':
         httpSet.add(result.exit_node)
         http += 1
       elif result.__class__.__name__ == 'SSLTestResult':
