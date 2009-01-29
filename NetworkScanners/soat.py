@@ -288,7 +288,7 @@ class Test:
     return random.choice(self.nodes)
 
   def remove_target(self, target):
-    self.targets.remove(target)
+    if target in self.targets: self.targets.remove(target)
     if len(self.targets) < self.min_targets:
       plog("NOTICE", self.proto+" scanner short on targets. Adding more")
       self.targets.extend(self.get_targets())
@@ -439,6 +439,8 @@ class HTTPTest(SearchBasedTest):
     # A single test should have a single cookie jar
     self.tor_cookie_jar = cookielib.LWPCookieJar()
     self.cookie_jar = cookielib.LWPCookieJar()
+    # XXX: Change these headers (esp accept) based on 
+    # url type
     self.headers = copy.copy(firefox_headers)
     
     ret_result = TEST_SUCCESS
@@ -687,6 +689,8 @@ class HTMLTest(HTTPTest):
     # A single test should have a single cookie jar
     self.tor_cookie_jar = cookielib.LWPCookieJar()
     self.cookie_jar = cookielib.LWPCookieJar()
+    # XXX: Change these headers (esp accept) based on 
+    # url type
     self.headers = copy.copy(firefox_headers)
     
     ret_result = TEST_SUCCESS
@@ -974,6 +978,8 @@ class HTMLTest(HTTPTest):
 
     # TODO: Consider storing these changing attributes
     # for more than just this run..
+    # FIXME: Also consider refactoring this into SoupDiffer.
+    # It's kind of a mess..
     changed_tags = {}
     changed_attributes = {}
     # I'm an evil man and I'm going to CPU hell..
