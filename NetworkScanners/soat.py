@@ -83,7 +83,7 @@ min_rate=1024
 
 
 firefox_headers = {
-  'User-Agent':'Mozilla/5.0 (Windows; U; Windows NT 5.1; de; rv:1.9.0.5) Gecko/2008120122 Firefox/3.0.5'
+  'User-Agent':'Mozilla/5.0 (Windows; U; Windows NT 5.1; de; rv:1.9.0.5) Gecko/2008120122 Firefox/3.0.5',
   'Accept':'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
   'Accept-Language':"en-us,en;q=0.5",
   'Accept-Encoding':"gzip,deflate",
@@ -208,7 +208,7 @@ attrs_to_check = ['background', 'cite', 'classid', 'codebase', 'data',
 'ontext', 'onunderflow', 'onunload', 'overflow', 'profile', 'src', 'style',
 'usemap']
 attrs_to_check_map = {}
-for a in attrs_to_check: attrs_to_check_map[a]=1
+for __a in attrs_to_check: attrs_to_check_map[__a]=1
 attrs_to_prune = ['alt', 'label', 'prompt' 'standby', 'summary', 'title',
                   'abbr']
 
@@ -972,7 +972,10 @@ class HTMLTest(HTTPTest):
     new_vs_old = SoupDiffer(soup_new, soup)
     new_vs_tor = SoupDiffer(soup_new, psoup)
 
+    # TODO: Consider storing these changing attributes
+    # for more than just this run..
     changed_tags = {}
+    changed_attributes = {}
     # I'm an evil man and I'm going to CPU hell..
     for tags in map(BeautifulSoup, old_vs_new.changed_tags()):
       for t in tags.findAll():
@@ -986,6 +989,10 @@ class HTMLTest(HTTPTest):
           changed_tags[t.name] = sets.Set([])
         for attr in t.attrs:
           changed_tags[t.name].add(attr[0])
+    for attr in old_vs_new.changed_attributes():
+      changed_attributes[attr[0]] = 1 
+    for attr in new_vs_old.changed_attributes():
+      changed_attributes[attr[0]] = 1 
     
     changed_content = bool(old_vs_new.changed_content() or old_vs_new.changed_content())
 
@@ -998,6 +1005,9 @@ class HTMLTest(HTTPTest):
            for attr in t.attrs:
              if attr[0] not in changed_tags[t.name]:
                false_positive = False
+    for attr in new_vs_tor.changed_attributes():
+      if attr[0] not in changed_attributes:
+        false_positive=False
 
     if new_vs_tor.changed_content() and not changed_content:
       false_positive = False

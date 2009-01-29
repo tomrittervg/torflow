@@ -112,7 +112,9 @@ def main(argv):
       new_vs_tor = SoupDiffer(BeautifulSoup(open(result.tags, "r").read()), 
                 BeautifulSoup(open(result.exit_tags, 
                                "r").read()))
+
       changed_tags = {}
+      changed_attributes = {}
       # I'm an evil man and I'm going to CPU hell..
       for tags in map(BeautifulSoup, old_vs_new.changed_tags()):
         for t in tags.findAll():
@@ -126,6 +128,10 @@ def main(argv):
             changed_tags[t.name] = sets.Set([])
           for attr in t.attrs:
             changed_tags[t.name].add(attr[0])
+      for attr in old_vs_new.changed_attributes():
+        changed_attributes[attr[0]] = 1 
+      for attr in new_vs_old.changed_attributes():
+        changed_attributes[attr[0]] = 1 
       
       changed_content = bool(old_vs_new.changed_content() or old_vs_new.changed_content())
   
@@ -138,10 +144,13 @@ def main(argv):
              for attr in t.attrs:
                if attr[0] not in changed_tags[t.name]:
                  false_positive = False
+      for attr in new_vs_tor.changed_attributes():
+        if attr[0] not in changed_attributes:
+          false_positive=False
   
       if new_vs_tor.changed_content() and not changed_content:
         false_positive = False
-
+  
       print false_positive      
 
   print ""
