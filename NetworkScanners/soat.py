@@ -59,6 +59,7 @@ import OpenSSL
 from OpenSSL import *
 
 sys.path.append("./libs/")
+# XXX: Try to determine if we should be using MinimalSoup
 from BeautifulSoup.BeautifulSoup import BeautifulSoup, SoupStrainer, Tag
 from SocksiPy import socks
 import Pyssh.pyssh
@@ -82,7 +83,7 @@ min_rate=1024
 
 
 firefox_headers = {
-  'User-Agent':'Mozilla/5.0 (Windows; U; Windows NT 5.1; de; rv:1.8.1) Gecko/20061010 Firefox/2.0',
+  'User-Agent':'Mozilla/5.0 (Windows; U; Windows NT 5.1; de; rv:1.9.0.5) Gecko/2008120122 Firefox/3.0.5'
   'Accept':'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
   'Accept-Language':"en-us,en;q=0.5",
   'Accept-Encoding':"gzip,deflate",
@@ -158,9 +159,6 @@ ipv4_nonpublic = [
 # Tags and attributes to check in the http test.
 # The general idea is to grab tags with attributes known
 # to either hold script, or cause automatic network actvitity
-# See: http://www.w3.org/TR/REC-html40/index/attributes.html
-# http://www.w3.org/TR/REC-html40/index/elements.html  
-# and http://ha.ckers.org/xss.html
 # Note: the more we add, the greater the potential for false positives...  
 # We also only care about the ones that work for FF2/FF3. 
 
@@ -170,24 +168,55 @@ ipv4_nonpublic = [
 # Unfortunately, Google munges its javascript, so we have to do
 # some more advanced processing to reach that goal..
 # Also, I'm somewhat torn on dropping 'a' tags..
-tags_to_check = ['a', 'applet', 'area', 'base', 'body', 'embed', 'form',
+tags_to_check = ['a', 'applet', 'area', 'base', 'embed', 'form',
                  'frame', 'iframe', 'img', 'input', 'link', 'meta', 
-                 'object', 'script', 'style']
+                 'object', 'script', 'style', 'layer', 'ilayer']
 tags_preserve_inner = ['script','style'] 
-attrs_to_check =  ['background', 'cite', 'classid', 'codebase', 'data', 
-                   'longdesc', 'onblur', 
-                   'onchange', 'onclick', 'ondblclick', 'onfocus', 'onkeydown', 
-                   'onkeypress', 'onkeyup','onload', 'onmousedown', 'onmousemove', 
-                   'onmouseout', 'onmouseover','onmouseup', 'onreset', 'onselect', 
-                   'onsubmit', 'onunload', 'profile', 'src', 'usemap']
+
+# Merged from:
+# http://www.w3.org/TR/REC-html40/index/attributes.html
+# http://www.w3.org/TR/REC-html40/index/elements.html  
+# http://web.archive.org/web/20060113072810/www.mozilla.org/docs/dom/domref/dom_event_ref33.html
+# http://scrivna.com/blog/2008/09/18/php-xss-filtering-function/
+# https://svn.typo3.org/TYPO3v4/Core/trunk/typo3/contrib/RemoveXSS/RemoveXSS.php
+# http://www.expertzzz.com/Downloadz/view/3424
+# http://kallahar.com/smallprojects/php_xss_filter_function.php
+# and http://ha.ckers.org/xss.html
+attrs_to_check = ['background', 'cite', 'classid', 'codebase', 'data',
+'longdesc', 'onabort', 'onactivate', 'onafterprint', 'onafterupdate',
+'onattrmodified', 'onbeforeactivate', 'onbeforecopy', 'onbeforecut',
+'onbeforedeactivate', 'onbeforeeditfocus', 'onbeforepaste', 'onbeforeprint',
+'onbeforeunload', 'onbeforeupdate', 'onblur', 'onbounce', 'onbroadcast',
+'oncellchange', 'onchange', 'oncharacterdatamodified', 'onclick', 'onclose',
+'oncommand', 'oncommandupdate', 'oncontextmenu', 'oncontrolselect', 'oncopy',
+'oncut', 'ondataavaible', 'ondataavailable', 'ondatasetchanged',
+'ondatasetcomplete', 'ondblclick', 'ondeactivate', 'ondrag', 'ondragdrop',
+'ondragend', 'ondragenter', 'ondragexit', 'ondraggesture', 'ondragleave',
+'ondragover', 'ondragstart', 'ondrop', 'onerror', 'onerrorupdate',
+'onfilterchange', 'onfilterupdate', 'onfinish', 'onfocus', 'onfocusin',
+'onfocusout', 'onhelp', 'oninput', 'onkeydown', 'onkeypress', 'onkeyup',
+'onlayoutcomplete', 'onload', 'onlosecapture', 'onmousedown', 'onmouseenter',
+'onmouseleave', 'onmousemove', 'onmouseout', 'onmouseover', 'onmouseup',
+'onmousewheel', 'onmove', 'onmoveend', 'onmoveout', 'onmovestart',
+'onnodeinserted', 'onnodeinsertedintodocument', 'onnoderemoved',
+'onnoderemovedfromdocument', 'onoverflowchanged', 'onpaint', 'onpaste',
+'onpopupHidden', 'onpopupHiding', 'onpopupShowing', 'onpopupShown',
+'onpropertychange', 'onreadystatechange', 'onreset', 'onresize',
+'onresizeend', 'onresizestart', 'onrowenter', 'onrowexit', 'onrowsdelete',
+'onrowsinserted', 'onscroll', 'onselect', 'onselectionchange',
+'onselectstart', 'onstart', 'onstop', 'onsubmit', 'onsubtreemodified',
+'ontext', 'onunderflow', 'onunload', 'overflow', 'profile', 'src', 'style',
+'usemap']
+attrs_to_check_map = {}
+for a in attrs_to_check: attrs_to_check_map[a]=1
 attrs_to_prune = ['alt', 'label', 'prompt' 'standby', 'summary', 'title',
                   'abbr']
 
-
+# For recursive fetching of urls:
 tags_to_recurse = ['a', 'applet', 'embed', 'frame', 'iframe', #'img',
-                   'link', 'object', 'script'] 
-recurse_html = ['frame', 'iframe']
-attrs_to_recurse = ['background', 'classid', 'codebase', 'data', 'href',
+                   'link', 'object', 'script', 'layer', 'ilayer'] 
+recurse_html = ['frame', 'iframe', 'layer', 'ilayer']
+attrs_to_recurse = ['background', 'codebase', 'data', 'href',
                     'pluginurl', 'src']
 
 #
@@ -237,6 +266,7 @@ def http_request(address, cookie_jar=None, headers=firefox_headers):
     traceback.print_exc()
     return (0, "")
 
+  # TODO: Consider also returning mime type here
   return (reply.code, content)
 
 class Test:
@@ -379,12 +409,10 @@ class HTTPTest(SearchBasedTest):
   def __init__(self, mt, wordlist, filetypes=scan_filetypes):
     SearchBasedTest.__init__(self, mt, "HTTP", 80, wordlist)
     self.fetch_targets = 5
-    self.three_way_fails = {}
     self.httpcode_fails = {}
-    self.two_way_fails = {}
+    self.exit_fails = {}
     self.successes = {}
-    self.three_way_limit = 10
-    self.two_way_limit = 100
+    self.exit_limit = 100
     self.httpcode_limit = 100
     self.scan_filetypes = filetypes
     self.results = []
@@ -446,28 +474,28 @@ class HTTPTest(SearchBasedTest):
  
   def remove_target(self, address):
     SearchBasedTest.remove_target(self, address)
-    del self.httpcode_limit[address]
-    del self.three_way_limit[address]
-    del self.successes[address]
-    del self.two_way_limit[address]
+    if address in self.httpcode_fails: del self.httpcode_fails[address]
+    if address in self.successes: del self.successes[address]
+    if address in self.exit_fails: del self.exit_fails[address]
     kill_results = []
     for r in self.results:
       if r.site == address:
         kill_results.append(r)
     for r in kill_results:
+      # XXX: Move files instead of removing them..
       #r.remove_files()
       self.results.remove(r)
     
   def register_exit_failure(self, address, exit_node):
-    if address in self.two_way_fails:
-      self.two_way_fails[address].add(exit_node)
+    if address in self.exit_fails:
+      self.exit_fails[address].add(exit_node)
     else:
-      self.two_way_fails[address] = sets.Set([exit_node])
+      self.exit_fails[address] = sets.Set([exit_node])
 
     # TODO: Do something if abundance of succesful tests?
     # Problem is this can still trigger for localized content
-    err_cnt = len(self.two_way_fails[address])
-    if err_cnt > self.two_way_limit:
+    err_cnt = len(self.exit_fails[address])
+    if err_cnt > self.exit_limit:
       if address not in self.successes: self.successes[address] = 0
       plog("NOTICE", "Excessive HTTP 2-way failure ("+str(err_cnt)+" vs "+str(self.successes[address])+") for "+address+". Removing.")
   
@@ -493,23 +521,6 @@ class HTTPTest(SearchBasedTest):
     else:
       plog("ERROR", self.proto+" http error code failure at "+exit_node+". This makes "+str(err_cnt)+" node failures for "+address)
     
-  def register_dynamic_failure(self, address, exit_node):
-    if address in self.three_way_fails:
-      self.three_way_fails[address].add(exit_node)
-    else:
-      self.three_way_fails[address] = sets.Set([exit_node])
-    
-    err_cnt = len(self.three_way_fails[address])
-    if err_cnt > self.three_way_limit:
-      # Remove all associated data for this url.
-      # (Note, this also seems to imply we should report BadExit in bulk,
-      # after we've had a chance for these false positives to be weeded out)
-      if address not in self.successes: self.successes[address] = 0
-      plog("NOTICE", "Excessive HTTP 3-way failure ("+str(err_cnt)+" vs "+str(self.successes[address])+") for "+address+". Removing.")
-
-      self.remove_target(address)
-    else:
-      plog("ERROR", self.proto+" 3-way failure at "+exit_node+". This makes "+str(err_cnt)+" node failures for "+address)
  
   def check_http(self, address):
     ''' check whether a http connection to a given address is molested '''
@@ -648,7 +659,7 @@ class HTTPTest(SearchBasedTest):
     exit_content_file.close()
 
     result = HttpTestResult(exit_node, address, TEST_FAILURE, 
-                            FAILURE_DYNAMICTAGS, sha1sum_new.hexdigest(), 
+                            FAILURE_DYNAMICBINARY, sha1sum_new.hexdigest(), 
                             psha1sum.hexdigest(), new_content_file.name,
                             exit_content_file.name, 
                             content_prefix+'.content-old',
@@ -656,7 +667,9 @@ class HTTPTest(SearchBasedTest):
     self.results.append(result)
     self.datahandler.saveResult(result)
 
-    self.register_dynamic_failure(address, exit_node)
+    # The HTTP Test should remove address immediately.
+    plog("NOTICE", "HTTP Test is removing dynamic URL "+address)
+    self.remove_target(address)
     return TEST_FAILURE
 
 class HTMLTest(HTTPTest):
@@ -667,6 +680,8 @@ class HTMLTest(HTTPTest):
     self.min_targets = 9
     self.recurse_filetypes = recurse_filetypes
     self.fetch_queue = Queue.Queue()
+    self.dynamic_fails = {}
+    self.dynamic_limit = 10
  
   def run_test(self):
     # A single test should have a single cookie jar
@@ -697,6 +712,28 @@ class HTMLTest(HTTPTest):
 
   def get_targets(self):
     return self.get_search_urls('http', self.fetch_targets) 
+
+  def remove_target(self, address):
+    HTTPTest.remove_target(self, address)
+    if address in self.dynamic_fails: del self.dynamic_fails[address]
+
+  def register_dynamic_failure(self, address, exit_node):
+    if address in self.dynamic_fails:
+      self.dynamic_fails[address].add(exit_node)
+    else:
+      self.dynamic_fails[address] = sets.Set([exit_node])
+    
+    err_cnt = len(self.dynamic_fails[address])
+    if err_cnt > self.dynamic_limit:
+      # Remove all associated data for this url.
+      # (Note, this also seems to imply we should report BadExit in bulk,
+      # after we've had a chance for these false positives to be weeded out)
+      if address not in self.successes: self.successes[address] = 0
+      plog("NOTICE", "Excessive HTTP 3-way failure ("+str(err_cnt)+" vs "+str(self.successes[address])+") for "+address+". Removing.")
+
+      self.remove_target(address)
+    else:
+      plog("ERROR", self.proto+" 3-way failure at "+exit_node+". This makes "+str(err_cnt)+" node failures for "+address)
 
   def _add_recursive_targets(self, soup, orig_addr):
     # XXX: Watch for spider-traps! (ie mutually sourcing iframes)
@@ -732,7 +769,7 @@ class HTMLTest(HTTPTest):
     if str(tag.name) in tags_to_check:
       return False
     for attr in tag.attrs:
-      if attr[0] in attrs_to_check:
+      if attr[0] in attrs_to_check_map:
         return False
     return True
  
@@ -760,7 +797,7 @@ class HTMLTest(HTTPTest):
     for tag in to_extract:
       tag.extract()
     return soup      
- 
+
   def check_html(self, address):
     ''' check whether a http connection to a given address is molested '''
     plog('INFO', 'Conducting an html test with destination ' + address)
@@ -925,32 +962,54 @@ class HTMLTest(HTTPTest):
       else: self.successes[address]=1
       return TEST_SUCCESS
 
-    # TODO: Can we create some kind of diff/masking filter
-    # between the two non-Tor soups, and apply it to the
-    # Tor soup, to see if anything additional has changed?
-    # http://bramcohen.livejournal.com/37690.html
-    #  -> patiencediff.py vs difflib
-    #     "For small files difflib wins". And it's standard. Yay!
-    tor_v_new = difflib.SequenceMatcher(lambda x: x == " ", str(psoup), str(soup_new))
-    tor_v_orig = difflib.SequenceMatcher(lambda x: x == " ", str(psoup), str(soup))
-    orig_v_new = difflib.SequenceMatcher(lambda x: x == " ", str(soup), str(soup_new))
+    # Lets try getting just the tag differences
+    # 1. Take difference between old and new tags both ways
+    # 2. Make map of tags that change to their attributes
+    # 3. Compare list of changed tags for tor vs new and
+    #    see if any extra tags changed or if new attributes
+    #    were added to additional tags
+    old_vs_new = SoupDiffer(soup, soup_new)
+    new_vs_old = SoupDiffer(soup_new, soup)
+    new_vs_tor = SoupDiffer(soup_new, psoup)
 
-    # The key property is that the differences between the two non-tor fetches
-    # match the differences between the Tor and the regular fetches 
+    changed_tags = {}
+    # I'm an evil man and I'm going to CPU hell..
+    for tags in map(BeautifulSoup, old_vs_new.changed_tags()):
+      for t in tags.findAll():
+        if t.name not in changed_tags:
+          changed_tags[t.name] = sets.Set([])
+        for attr in t.attrs:
+          changed_tags[t.name].add(attr[0])
+    for tags in map(BeautifulSoup, new_vs_old.changed_tags()):
+      for t in tags.findAll():
+        if t.name not in changed_tags:
+          changed_tags[t.name] = sets.Set([])
+        for attr in t.attrs:
+          changed_tags[t.name].add(attr[0])
+    
+    changed_content = bool(old_vs_new.changed_content() or old_vs_new.changed_content())
 
-    plog("NOTICE", "Diffing charcateristics: "+str((orig_v_new.get_opcodes()==tor_v_orig.get_opcodes(),
-             orig_v_new.get_matching_blocks()==tor_v_orig.get_matching_blocks(),
-             orig_v_new.get_opcodes()==tor_v_new.get_opcodes(),
-             orig_v_new.get_matching_blocks()==tor_v_new.get_matching_blocks())))
+    false_positive = True 
+    for tags in map(BeautifulSoup, new_vs_tor.changed_tags()):
+      for t in tags.findAll():
+        if t.name not in changed_tags:
+          false_positive = False
+        else:
+           for attr in t.attrs:
+             if attr[0] not in changed_tags[t.name]:
+               false_positive = False
 
-    diff_file = open(failed_prefix+'.diffs.'+exit_node[1:],'w')
-    diff_file.write("orig_v_new.get_matching_blocks() =\n\t"+str(orig_v_new.get_matching_blocks())+"\n")
-    diff_file.write("orig_v_new.get_opcodes() =\n\t"+str(orig_v_new.get_opcodes())+"\n\n")
-    diff_file.write("tor_v_new.get_matching_blocks() =\n\t"+str(tor_v_new.get_matching_blocks())+"\n")
-    diff_file.write("tor_v_new.get_opcodes() =\n\t"+str(tor_v_new.get_opcodes())+"\n\n")
-    diff_file.write("tor_v_orig.get_matching_blocks() =\n\t"+str(tor_v_orig.get_matching_blocks())+"\n")
-    diff_file.write("tor_v_orig.get_opcodes() =\n\t"+str(tor_v_orig.get_opcodes())+"\n\n")
-    diff_file.close()
+    if new_vs_tor.changed_content() and not changed_content:
+      false_positive = False
+
+    if false_positive:
+      plog("NOTICE", "False positive detected for dynamic change at "+address+" via "+exit_node)
+      result = HtmlTestResult(exit_node, address, TEST_SUCCESS)
+      self.results.append(result)
+      #self.datahandler.saveResult(result)
+      if address in self.successes: self.successes[address]+=1
+      else: self.successes[address]=1
+      return TEST_SUCCESS
 
     # XXX: Check for existence of this file before overwriting
     exit_tag_file = open(failed_prefix+'.dyn-tags.'+exit_node[1:],'w')

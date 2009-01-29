@@ -96,6 +96,54 @@ def main(argv):
       if node.counts[test].inconclusive != 0:
         print `node.idhex` + "\t" + `node.counts[test].inconclusive`
 
+
+  # False positive test left in for verifcation and tweaking
+  # TODO: Remove this bit eventually
+  for result in data:
+    if result.__class__.__name__ == "HtmlTestResult":
+      if not result.tags_old or not result.tags or not result.exit_tags:
+        continue
+      new_vs_old = SoupDiffer(BeautifulSoup(open(result.tags, "r").read()), 
+                BeautifulSoup(open(result.tags_old, 
+                               "r").read()))
+      old_vs_new = SoupDiffer(BeautifulSoup(open(result.tags_old, "r").read()), 
+                BeautifulSoup(open(result.tags, 
+                               "r").read()))
+      new_vs_tor = SoupDiffer(BeautifulSoup(open(result.tags, "r").read()), 
+                BeautifulSoup(open(result.exit_tags, 
+                               "r").read()))
+      changed_tags = {}
+      # I'm an evil man and I'm going to CPU hell..
+      for tags in map(BeautifulSoup, old_vs_new.changed_tags()):
+        for t in tags.findAll():
+          if t.name not in changed_tags:
+            changed_tags[t.name] = sets.Set([])
+          for attr in t.attrs:
+            changed_tags[t.name].add(attr[0])
+      for tags in map(BeautifulSoup, new_vs_old.changed_tags()):
+        for t in tags.findAll():
+          if t.name not in changed_tags:
+            changed_tags[t.name] = sets.Set([])
+          for attr in t.attrs:
+            changed_tags[t.name].add(attr[0])
+      
+      changed_content = bool(old_vs_new.changed_content() or old_vs_new.changed_content())
+  
+      false_positive = True 
+      for tags in map(BeautifulSoup, new_vs_tor.changed_tags()):
+        for t in tags.findAll():
+          if t.name not in changed_tags:
+            false_positive = False
+          else:
+             for attr in t.attrs:
+               if attr[0] not in changed_tags[t.name]:
+                 false_positive = False
+  
+      if new_vs_tor.changed_content() and not changed_content:
+        false_positive = False
+
+      print false_positive      
+
   print ""
 
 if __name__ == "__main__":

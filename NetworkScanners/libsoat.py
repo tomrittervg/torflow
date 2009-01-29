@@ -8,6 +8,9 @@ import os
 import pickle
 import sys
 import time
+import difflib
+sys.path.append("./libs")
+from BeautifulSoup.BeautifulSoup import BeautifulSoup, Tag
 
 import sets
 from sets import Set
@@ -40,6 +43,7 @@ INCONCLUSIVE_BADHTTPCODE = "InconclusiveBadHTTPCode"
 # Failed reasons
 FAILURE_EXITONLY = "FailureExitOnly"
 FAILURE_DYNAMICTAGS = "FailureDynamicTags" 
+FAILURE_DYNAMICBINARY = "FailureDynamicBinary" 
 FAILURE_COOKIEMISMATCH = "FailureCookieMismatch"
 
 # classes to use with pickle to dump test results into files
@@ -232,11 +236,10 @@ class DataHandler:
 
     for root, dirs, files in os.walk(dir):
       for file in files:
-        if file.endswith('result'):
+        if file[:-41].endswith('result'):
           fh = open(os.path.join(root, file))
           result = pickle.load(fh)
           results.append(result)
-
     return results
 
   def safeFilename(self, str):
@@ -272,3 +275,86 @@ class DataHandler:
     pickle.dump(result, result_file)
     result_file.close()
 
+class SoupDiffer:
+  """ Diff two soup tag sets, optionally writing diffs to outfile. """
+  def __init__(self, soup_old, soup_new):
+    self.soup_old = soup_old
+    self.soup_new = soup_new
+
+  def changed_tags(self):
+    """ Return a list of tags changed or added to soup_new as strings """
+    tags_old = sets.Set(map(str, 
+           [tag for tag in self.soup_old.findAll() if isinstance(tag, Tag)]))
+    tags_new = sets.Set(map(str, 
+           [tag for tag in self.soup_new.findAll() if isinstance(tag, Tag)]))
+    ret = list(tags_new - tags_old)
+    ret.sort()
+    return ret
+
+  def _get_attributes(self):
+    attrs_old = [tag.attrs for tag in self.soup_old.findAll()]
+    attrs_new = [tag.attrs for tag in self.soup_new.findAll()]
+    attr_old = []
+    for attr_list in attrs_old:
+      attr_old.extend(attr_list) 
+    attr_new = []
+    for attr_list in attrs_new:
+      attr_new.extend(attr_list)
+    return (attr_old, attr_new)
+    
+  def changed_attributes(self):
+    """ Return a list of attributes added to soup_new """
+    (attr_old, attr_new) = self._get_attributes()
+    ret = list(sets.Set(attr_new) - sets.Set(attr_old))
+    ret.sort()
+    return ret
+
+  def changed_content(self):
+    """ Return a list of tag contents changed in soup_new """
+    tags_old = sets.Set(map(str, 
+      [tag for tag in self.soup_old.findAll() if not isinstance(tag, Tag)]))
+    tags_new = sets.Set(map(str, 
+      [tag for tag in self.soup_new.findAll() if not isinstance(tag, Tag)]))
+    ret = list(tags_new - tags_old)
+    ret.sort()
+    return ret
+
+  def diff_tags(self):
+    tags_old = map(str, [tag for tag in self.soup_old.findAll() if isinstance(tag, Tag)])
+    tags_new = map(str, [tag for tag in self.soup_new.findAll() if isinstance(tag, Tag)])
+    tags_old.sort()
+    tags_new.sort()
+    diff = difflib.SequenceMatcher(None, tags_old, tags_new)
+    return diff
+
+  def diff_attributes(self):
+    (attr_old, attr_new) = self._get_attributes()
+    attr_old.sort()
+    attr_new.sort()
+    diff = difflib.SequenceMatcher(None, attr_old, attr_new)
+    return diff
+
+  def diff_content(self):
+    tags_old = sets.Set(map(str, 
+      [tag for tag in self.soup_old.findAll() if not isinstance(tag, Tag)]))
+    tags_new = sets.Set(map(str, 
+      [tag for tag in self.soup_new.findAll() if not isinstance(tag, Tag)]))
+    diff = difflib.SequenceMatcher(None, tags_old, tags_new)
+    return diff
+
+  def __str__(self):
+    tags = self.changed_tags()
+    out = "Tags:\n"+"\n".join(tags)
+    attrs = self.changed_attributes()
+    out += "\n\nAttrs:\n"
+    for a in attrs:
+      out += a[0]+"="+a[1]+"\n"
+    content = self.changed_content()
+    out += "\n\nContent:\n"+"\n".join(map(str, content))
+    return out
+
+  def write_diff(self, outfile):
+    f = open(outfile, "w")
+    f.write(str(self))
+    f.close()
+ 
