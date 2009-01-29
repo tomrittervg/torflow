@@ -292,14 +292,16 @@ class SoupDiffer:
     return ret
 
   def _get_attributes(self):
-    attrs_old = [tag.attrs for tag in self.soup_old.findAll()]
-    attrs_new = [tag.attrs for tag in self.soup_new.findAll()]
+    attrs_old = [(tag.name, tag.attrs) for tag in self.soup_old.findAll()]
+    attrs_new = [(tag.name, tag.attrs) for tag in self.soup_new.findAll()]
     attr_old = []
-    for attr_list in attrs_old:
-      attr_old.extend(attr_list) 
+    for (tag, attr_list) in attrs_old:
+      for attr in attr_list:
+        attr_old.append((tag, attr)) 
     attr_new = []
-    for attr_list in attrs_new:
-      attr_new.extend(attr_list)
+    for (tag, attr_list) in attrs_new:
+      for attr in attr_list:
+        attr_old.append((tag, attr)) 
     return (attr_old, attr_new)
     
   def changed_attributes(self):
@@ -347,7 +349,7 @@ class SoupDiffer:
     out = "Tags:\n"+"\n".join(tags)
     attrs = self.changed_attributes()
     out += "\n\nAttrs:\n"
-    for a in attrs:
+    for (tag, a) in attrs:
       out += a[0]+"="+a[1]+"\n"
     content = self.changed_content()
     out += "\n\nContent:\n"+"\n".join(map(str, content))
