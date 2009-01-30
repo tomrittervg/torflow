@@ -39,6 +39,7 @@ INCONCLUSIVE_BADHTTPCODE = "InconclusiveBadHTTPCode"
 # Failed reasons
 FAILURE_EXITONLY = "FailureExitOnly"
 FAILURE_DYNAMICTAGS = "FailureDynamicTags" 
+FAILURE_DYNAMICJS = "FailureDynamicJS" 
 FAILURE_DYNAMICBINARY = "FailureDynamicBinary" 
 FAILURE_COOKIEMISMATCH = "FailureCookieMismatch"
 
@@ -91,6 +92,25 @@ class CookieTestResult(TestResult):
     self.reason = reason
     self.tor_cookies = tor_cookies
     self.plain_cookies = plain_cookies
+
+class JsTestResult(TestResult):
+  ''' Represents the result of a JS test '''
+  def __init__(self, exit_node, website, status, reason=None, 
+               content=None, content_exit=None, content_old=None):
+    super(JsTestResult, self).__init__(exit_node, website, status)
+    self.proto = "http"
+    self.reason = reason
+    self.content = content
+    self.content_exit = content_exit
+    self.content_old = content_old
+
+  def remove_files(self):
+    try: os.unlink(self.content)
+    except: pass
+    try: os.unlink(self.content_old)
+    except: pass
+    try: os.unlink(self.content_exit)
+    except: pass
 
 class HtmlTestResult(TestResult):
   ''' Represents the result of a http test '''

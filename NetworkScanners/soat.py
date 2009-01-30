@@ -374,8 +374,9 @@ class HTTPTest(SearchBasedTest):
     else:
       plog("ERROR", self.proto+" http error code failure at "+exit_node+". This makes "+str(err_cnt)+" node failures for "+address)
     
+
  
-  def check_http(self, address):
+  def check_http_nodynamic(self, address):
     ''' check whether a http connection to a given address is molested '''
     plog('INFO', 'Conducting an http test with destination ' + address)
 
@@ -426,8 +427,8 @@ class HTTPTest(SearchBasedTest):
         sha1sum.update(buf)
         buf = content_file.read(4096)
       content_file.close()
-      
       self.cookie_jar.load(content_prefix+'.cookies', 'w')
+      content = None 
 
     except IOError:
       (code, content) = http_request(address, self.cookie_jar, self.headers)
@@ -505,6 +506,26 @@ class HTTPTest(SearchBasedTest):
       if address in self.successes: self.successes[address]+=1
       else: self.successes[address]=1
       return TEST_SUCCESS
+ 
+    if not content:
+      content_file = open(content_prefix+'.content', 'r')
+      content = content_file.read()
+      content_file.close()
+
+    # Dirty dirty dirty...
+    return (pcontent, psha1sum, content, sha1sum, content_new, sha1sum_new,
+            exit_node)
+
+  def check_http(self, address):
+    ret = self.check_http_nodynamic(address)
+    if type(ret) == int:
+      return ret
+   
+    (pcontent, psha1sum, content, sha1sum, content_new, sha1sum_new, exit_node) = ret
+     
+    address_file = self.datahandler.safeFilename(address[7:])
+    content_prefix = http_content_dir+address_file
+    failed_prefix = http_failed_dir+address_file
 
     # XXX: Check for existence of this file before overwriting
     exit_content_file = open(failed_prefix+'.dyn-content.'+exit_node[1:], 'w')
@@ -513,7 +534,7 @@ class HTTPTest(SearchBasedTest):
 
     result = HttpTestResult(exit_node, address, TEST_FAILURE, 
                             FAILURE_DYNAMICBINARY, sha1sum_new.hexdigest(), 
-                            psha1sum.hexdigest(), new_content_file.name,
+                            psha1sum.hexdigest(), content_prefix+".content",
                             exit_content_file.name, 
                             content_prefix+'.content-old',
                             sha1sum.hexdigest())
@@ -521,7 +542,7 @@ class HTTPTest(SearchBasedTest):
     self.datahandler.saveResult(result)
 
     # The HTTP Test should remove address immediately.
-    plog("NOTICE", "HTTP Test is removing dynamic URL "+address)
+    plog("WARN", "HTTP Test is removing dynamic URL "+address)
     self.remove_target(address)
     return TEST_FAILURE
 
@@ -555,6 +576,7 @@ class HTMLTest(HTTPTest):
       (test, url) = self.fetch_queue.get_nowait()
       if test == "html": result = self.check_html(url)
       elif test == "http": result = self.check_http(url)
+      elif test == "js": result = self.check_js(url)
       else: 
         plog("WARN", "Unknown test type: "+test+" for "+url)
         result = TEST_SUCCESS
@@ -608,6 +630,15 @@ class HTMLTest(HTTPTest):
             if str(t.name) in recurse_html:
               plog("NOTICE", "Adding html "+str(t.name)+" target: "+attr_tgt)
               targets.append(("html", urlparse.urljoin(orig_addr, attr_tgt)))
+            elif str(t.name) in recurse_script:
+              if str(t.name) == "link":
+                for a in t.attrs:
+                  if str(a[0]) == "type" and str(a[1]) in link_script_types:
+                    targets.append(("js", urlparse.urljoin(orig_addr, attr_tgt)))
+              else:
+                targets.append(("js", urlparse.urljoin(orig_addr, attr_tgt)))
+              plog("NOTICE", "Adding js "+str(t.name)+" target: "+attr_tgt)
+              targets.append(("html", urlparse.urljoin(orig_addr, attr_tgt)))
             elif str(t.name) == 'a':
               if attr_name == "href":
                 for f in self.recurse_filetypes:
@@ -653,6 +684,45 @@ class HTMLTest(HTTPTest):
     for tag in to_extract:
       tag.extract()
     return soup      
+
+  def check_js(self, address):
+    plog('INFO', 'Conducting a js test with destination ' + address)
+    ret = self.check_http_nodynamic(address)
+    
+    if type(ret) == int:
+      return ret
+    (tor_js, tsha, orig_js, osha, new_js, nsha, exit_node) = ret
+
+    jsdiff = JSDiffer(orig_js)
+    jsdiff.prune_differences(new_js)
+    false_positive = not jsdiff.contains_differences(tor_js)
+
+    if false_positive:
+      result = JsTestResult(exit_node, address, TEST_SUCCESS)
+      self.results.append(result)
+      #self.datahandler.saveResult(result)
+      if address in self.successes: self.successes[address]+=1
+      else: self.successes[address]=1
+      return TEST_SUCCESS
+    else:
+      address_file = self.datahandler.safeFilename(address[7:])
+      content_prefix = http_content_dir+address_file
+      failed_prefix = http_failed_dir+address_file
+
+      # XXX: Check for existence of this file before overwriting
+      exit_content_file = open(failed_prefix+'.dyn-content.'+exit_node[1:], 'w')
+      exit_content_file.write(tor_js)
+      exit_content_file.close()
+
+      result = JsTestResult(exit_node, address, TEST_FAILURE, 
+                              FAILURE_DYNAMICJS, content_prefix+".content",
+                              exit_content_file.name, 
+                              content_prefix+'.content-old')
+      self.results.append(result)
+      self.datahandler.saveResult(result)
+      plog("ERROR", "Javascript 3-way failure at "+exit_node+" for "+address)
+
+      return TEST_FAILURE
 
   def check_html(self, address):
     # XXX: Check mimetype to decide what to do..
