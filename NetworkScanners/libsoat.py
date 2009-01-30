@@ -8,26 +8,22 @@ import os
 import pickle
 import sys
 import time
-import difflib
+import traceback
 sys.path.append("./libs")
 from BeautifulSoup.BeautifulSoup import BeautifulSoup, Tag
+
 
 import sets
 from sets import Set
 
-#
-# Data storage
-#
+from soat_config import *
+sys.path.append("../")
+from TorCtl.TorUtil import *
 
-# data locations
+sys.path.append("./libs/pypy-svn/")
+import pypy.rlib.parsing.parsing
+import pypy.lang.js.jsparser
 
-data_dir = './data/soat/'
-ssl_certs_dir = data_dir + 'ssl/certs/'
-
-http_data_dir = data_dir + 'http/'
-http_content_dir = data_dir + 'http/content/'
-http_failed_dir = data_dir + 'http/failed/'
-http_inconclusive_dir = data_dir + 'http/inconclusive/'
 
 # constants
 
@@ -291,6 +287,32 @@ class SoupDiffer:
     ret.sort()
     return ret
 
+  def changed_tags_with_attrs(self):
+    """ Create a map of changed tags to ALL attributes that tag
+        has ever had (changed or not) """
+    changed_tags = {}
+    for tags in map(BeautifulSoup, self.changed_tags()):
+      for t in tags.findAll():
+        if t.name not in changed_tags:
+          changed_tags[t.name] = sets.Set([])
+        for attr in t.attrs:
+          changed_tags[t.name].add(attr[0])
+    return changed_tags
+
+  def has_more_changed_tags(self, tag_attr_map):
+    """ Returns true if we have additional tags with additional
+        attributes that were not present in tag_attr_map 
+        (returned from changed_tags_with_attrs) """
+    for tags in map(BeautifulSoup, self.changed_tags()):
+      for t in tags.findAll():
+        if t.name not in tag_attr_map:
+          return True
+        else:
+          for attr in t.attrs:
+            if attr[0] not in tag_attr_map[t.name]:
+              return True
+    return False
+
   def _get_attributes(self):
     attrs_old = [(tag.name, tag.attrs) for tag in self.soup_old.findAll()]
     attrs_new = [(tag.name, tag.attrs) for tag in self.soup_new.findAll()]
@@ -311,6 +333,29 @@ class SoupDiffer:
     ret.sort()
     return ret
 
+  def changed_attributes_by_tag(self):
+    """ Transform the list of (tag, attribute) pairings for new/changed
+        attributes into a map. This allows us to quickly see
+        if any attributes changed for a specific tag. """
+    changed_attributes = {}
+    for (tag, attr) in self.changed_attributes():
+      if tag not in changed_attributes:
+        changed_attributes[tag] = sets.Set([])
+      changed_attributes[tag].add(attr[0])
+    return changed_attributes 
+
+  def has_more_changed_attrs(self, attrs_by_tag):
+    """ Returns true if we have any tags with additional
+        changed attributes that were not present in attrs_by_tag
+        (returned from changed_attributes_by_tag) """
+    for (tag, attr) in self.changed_attributes():
+      if tag in attrs_by_tag:
+        if attr[0] not in attrs_by_tag[tag]:
+          return True
+      else:
+        return True
+    return False
+
   def changed_content(self):
     """ Return a list of tag contents changed in soup_new """
     tags_old = sets.Set(map(str, 
@@ -320,29 +365,6 @@ class SoupDiffer:
     ret = list(tags_new - tags_old)
     ret.sort()
     return ret
-
-  def diff_tags(self):
-    tags_old = map(str, [tag for tag in self.soup_old.findAll() if isinstance(tag, Tag)])
-    tags_new = map(str, [tag for tag in self.soup_new.findAll() if isinstance(tag, Tag)])
-    tags_old.sort()
-    tags_new.sort()
-    diff = difflib.SequenceMatcher(None, tags_old, tags_new)
-    return diff
-
-  def diff_attributes(self):
-    (attr_old, attr_new) = self._get_attributes()
-    attr_old.sort()
-    attr_new.sort()
-    diff = difflib.SequenceMatcher(None, attr_old, attr_new)
-    return diff
-
-  def diff_content(self):
-    tags_old = sets.Set(map(str, 
-      [tag for tag in self.soup_old.findAll() if not isinstance(tag, Tag)]))
-    tags_new = sets.Set(map(str, 
-      [tag for tag in self.soup_new.findAll() if not isinstance(tag, Tag)]))
-    diff = difflib.SequenceMatcher(None, tags_old, tags_new)
-    return diff
 
   def __str__(self):
     tags = self.changed_tags()
@@ -359,4 +381,109 @@ class SoupDiffer:
     f = open(outfile, "w")
     f.write(str(self))
     f.close()
+
+
+class JSDiffer:
+  def __init__(self, js_string):
+    self.ast_cnts = self.count_ast_elements(js_string)
+
+  def _ast_recursive_worker(ast, ast_cnts):
+    if not ast.symbol in ast_cnts:
+      ast_cnts[ast.symbol] = 1
+    else: ast_cnts[ast.symbol] += 1
+    if isinstance(ast, pypy.rlib.parsing.tree.Nonterminal):
+      for child in ast.children:
+        JSDiffer._ast_recursive_worker(child, ast_cnts)
+  _ast_recursive_worker = Callable(_ast_recursive_worker)
  
+  def count_ast_elements(self, js_string, name="global"):
+    ast_cnts = {}
+    try:
+      ast = pypy.lang.js.jsparser.parse(js_string)
+      JSDiffer._ast_recursive_worker(ast, ast_cnts)
+    except (pypy.rlib.parsing.deterministic.LexerError, UnicodeDecodeError, pypy.rlib.parsing.parsing.ParseError), e:
+      # Store info about the name and type of parse error
+      # so we can match that up too.
+      name+=":"+e.__class__.__name__
+      if "source_pos" in e.__dict__:
+        name+=":"+str(e.source_pos)
+      plog("INFO", "Parse error "+name+" on "+js_string)
+      if not "ParseError:"+name in ast_cnts:
+        ast_cnts["ParseError:"+name] = 1
+      else: ast_cnts["ParseError:"+name] +=1
+    return ast_cnts
+
+  def _difference_pruner(self, other_cnts):
+    for node in self.ast_cnts.iterkeys():
+      if node not in other_cnts:
+        self.ast_cnts[node] = 0
+      elif self.ast_cnts[node] != other_cnts[node]:
+        self.ast_cnts[node] = 0
+    for node in other_cnts.iterkeys():
+      if node not in self.ast_cnts:
+        self.ast_cnts[node] = 0
+
+  def _difference_checker(self, other_cnts):
+    for node in self.ast_cnts.iterkeys():
+      if not self.ast_cnts[node]: continue # pruned difference
+      if node not in other_cnts:
+        return True
+      elif self.ast_cnts[node] != other_cnts[node]:
+        return True
+    for node in other_cnts.iterkeys():
+      if node not in self.ast_cnts:
+        return True
+    return False
+
+  def prune_differences(self, other_string):
+    other_cnts = self.count_ast_elements(other_string)
+    self._difference_pruner(other_cnts)
+
+  def contains_differences(self, other_string):
+    other_cnts = self.count_ast_elements(other_string)
+    return self._difference_checker(other_cnts) 
+
+class JSSoupDiffer(JSDiffer):
+  def _add_cnts(tag_cnts, ast_cnts):
+    ret_cnts = {}
+    for n in tag_cnts.iterkeys():
+      if n in ast_cnts:
+        ret_cnts[n] = tag_cnts[n]+ast_cnts[n]
+      else:
+        ret_cnts[n] = tag_cnts[n]
+    for n in ast_cnts.iterkeys():
+      if n not in tag_cnts:
+        ret_cnts[n] = ast_cnts[n]
+    return ret_cnts
+  _add_cnts = Callable(_add_cnts)
+
+  def count_ast_elements(self, soup, name="Soup"):
+    ast_cnts = {}
+    for tag in soup.findAll():
+      if tag.name == 'script':
+        for child in tag.childGenerator():
+          if isinstance(child, Tag):
+            plog("ERROR", "Script tag with subtag!")
+          else:
+            tag_cnts = JSDiffer.count_ast_elements(self, str(child), tag.name)
+            ast_cnts = JSSoupDiffer._add_cnts(tag_cnts, ast_cnts)
+      for attr in tag.attrs:
+        # hrmm.. %-encoding too? Firefox negs on it..
+        parse = ""
+        if attr[1].replace(" ","")[:11] == "javascript:":
+          split_at = attr[1].find(":")+1
+          parse = str(attr[1][split_at:])
+        elif attr[0] in attrs_with_raw_script_map:
+          parse = str(attr[1])
+        if not parse: continue
+        tag_cnts = JSDiffer.count_ast_elements(self,parse,tag.name+":"+attr[0])
+        ast_cnts = JSSoupDiffer._add_cnts(tag_cnts, ast_cnts)
+    return ast_cnts
+
+  def prune_differences(self, other_soup):
+    other_cnts = self.count_ast_elements(other_soup)
+    self._difference_pruner(other_cnts)
+
+  def contains_differences(self, other_soup):
+    other_cnts = self.count_ast_elements(other_soup)
+    return self._difference_checker(other_cnts) 

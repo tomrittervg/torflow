@@ -43,7 +43,6 @@ import urlparse
 import cookielib
 import sha
 import Queue
-import difflib
 
 from libsoat import *
 
@@ -64,160 +63,9 @@ from BeautifulSoup.BeautifulSoup import BeautifulSoup, SoupStrainer, Tag
 from SocksiPy import socks
 import Pyssh.pyssh
 
-#
-# config stuff
-#
+from soat_config import *
 
-# these are used when searching for 'random' urls for testing
-wordlist_file = './wordlist.txt';
-# Hrmm.. Too many of these and Google really h8s us..
-scan_filetypes = ['exe','pdf','doc','msi']#,'rpm','dmg','pkg','dpkg']
-
-# Avoid vmware images+isos plz. Nobody could possibly have the patience
-# to download anything much larger than 30MB over Tor anyways ;)
-# XXX: 30MB?? Who the hell am I kidding. For testing this needs to be like 1MB
-max_content_size = 1024*1024 # 30*1024*1024
-
-# Kill fetches if they drop below 1kbyte/sec
-min_rate=1024
-
-
-firefox_headers = {
-  'User-Agent':'Mozilla/5.0 (Windows; U; Windows NT 5.1; de; rv:1.9.0.5) Gecko/2008120122 Firefox/3.0.5',
-  'Accept':'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-  'Accept-Language':"en-us,en;q=0.5",
-  'Accept-Encoding':"gzip,deflate",
-  'Accept-Charset': "ISO-8859-1,utf-8;q=0.7,*;q=0.7",
-  'Keep-Alive':"300",
-  'Connection':"keep-alive"
-}
-
-# http://www.voidspace.org.uk/python/articles/cookielib.shtml
-search_cookie_file="search_cookies.lwp"
 search_cookies=None
-
-yahoo_search_mode = {"host" : "search.yahoo.com", "query":"p", "filetype": "originurlextension:", "inurl":None, "class":"yschttl", "useragent":False}
-google_search_mode = {"host" : "www.google.com", "query":"q", "filetype":"filetype:", "inurl":"inurl:", "class" : "l", "useragent":True}
- 
-# FIXME: This does not affect the ssl search.. no other search engines have
-# a working "inurl:" that allows you to pick the scheme to be https like google...
-default_search_mode = google_search_mode
-
-# ports to test in the consistency test
-
-ports_to_check = [
-  ["pop", ExitPolicyRestriction('255.255.255.255', 110), "pops", ExitPolicyRestriction('255.255.255.255', 995)],
-  ["imap", ExitPolicyRestriction('255.255.255.255', 143), "imaps", ExitPolicyRestriction('255.255.255.255', 993)],
-  ["telnet", ExitPolicyRestriction('255.255.255.255', 23), "ssh", ExitPolicyRestriction('255.255.255.255', 22)],
-  ["smtp", ExitPolicyRestriction('255.255.255.255', 25), "smtps", ExitPolicyRestriction('255.255.255.255', 465)],
-  ["http", ExitPolicyRestriction('255.255.255.255', 80), "https",
-ExitPolicyRestriction('255.255.255.255', 443)],
-  ["email", NodeRestrictionList([
-ExitPolicyRestriction('255.255.255.255',110),
-ExitPolicyRestriction('255.255.255.255',143)
-]),
-"secure email",
-OrNodeRestriction([
-ExitPolicyRestriction('255.255.255.255',995),
-ExitPolicyRestriction('255.255.255.255',993),
-ExitPolicyRestriction('255.255.255.255',465),
-ExitPolicyRestriction('255.255.255.255',587)
-])],
-  ["plaintext", AtLeastNNodeRestriction([
-ExitPolicyRestriction('255.255.255.255',110),
-ExitPolicyRestriction('255.255.255.255',143),
-ExitPolicyRestriction('255.255.255.255',23),
-ExitPolicyRestriction('255.255.255.255',21),
-ExitPolicyRestriction('255.255.255.255',80)
-#ExitPolicyRestriction('255.255.255.255',25),
-], 4),
-"secure",
-OrNodeRestriction([
-ExitPolicyRestriction('255.255.255.255',995),
-ExitPolicyRestriction('255.255.255.255',993),
-ExitPolicyRestriction('255.255.255.255',22),
-ExitPolicyRestriction('255.255.255.255',465),
-ExitPolicyRestriction('255.255.255.255',587),
-ExitPolicyRestriction('255.255.255.255',443)
-])]
-]
-
-#
-# non-public IPv4 address ranges network portions
-# refer to: www.iana.org/assignments/ipv4-address-space, www.iana.org/assignments/multicast-addresses
-# 
-ipv4_nonpublic = [
-  '00000000',     # default route and its network: 0.0.0.0/8
-  '00001010',     # private 10.0.0.0/8
-  '01111111',     # loopback 127.0.0.0/8
-  '1010100111111110', # link-local 169.254.0.0/16
-  '101011000001',   # private 172.16.0.0/12
-  '1100000010101000', # private 192.168.0.0/16
-  '111'         # multicast & experimental 224.0.0.0/3
-]
-
-# Tags and attributes to check in the http test.
-# The general idea is to grab tags with attributes known
-# to either hold script, or cause automatic network actvitity
-# Note: the more we add, the greater the potential for false positives...  
-# We also only care about the ones that work for FF2/FF3. 
-
-# TODO: If we cut down on these tags, we can cut down on false 
-# positives. The ultimate acid test would be to have two different Google 
-# queries come back with the same tag structure after filtering them.
-# Unfortunately, Google munges its javascript, so we have to do
-# some more advanced processing to reach that goal..
-# Also, I'm somewhat torn on dropping 'a' tags..
-tags_to_check = ['a', 'applet', 'area', 'base', 'embed', 'form',
-                 'frame', 'iframe', 'img', 'input', 'link', 'meta', 
-                 'object', 'script', 'style', 'layer', 'ilayer']
-tags_preserve_inner = ['script','style'] 
-
-# Merged from:
-# http://www.w3.org/TR/REC-html40/index/attributes.html
-# http://www.w3.org/TR/REC-html40/index/elements.html  
-# http://web.archive.org/web/20060113072810/www.mozilla.org/docs/dom/domref/dom_event_ref33.html
-# http://scrivna.com/blog/2008/09/18/php-xss-filtering-function/
-# https://svn.typo3.org/TYPO3v4/Core/trunk/typo3/contrib/RemoveXSS/RemoveXSS.php
-# http://www.expertzzz.com/Downloadz/view/3424
-# http://kallahar.com/smallprojects/php_xss_filter_function.php
-# and http://ha.ckers.org/xss.html
-attrs_to_check = ['background', 'cite', 'classid', 'codebase', 'data',
-'longdesc', 'onabort', 'onactivate', 'onafterprint', 'onafterupdate',
-'onattrmodified', 'onbeforeactivate', 'onbeforecopy', 'onbeforecut',
-'onbeforedeactivate', 'onbeforeeditfocus', 'onbeforepaste', 'onbeforeprint',
-'onbeforeunload', 'onbeforeupdate', 'onblur', 'onbounce', 'onbroadcast',
-'oncellchange', 'onchange', 'oncharacterdatamodified', 'onclick', 'onclose',
-'oncommand', 'oncommandupdate', 'oncontextmenu', 'oncontrolselect', 'oncopy',
-'oncut', 'ondataavaible', 'ondataavailable', 'ondatasetchanged',
-'ondatasetcomplete', 'ondblclick', 'ondeactivate', 'ondrag', 'ondragdrop',
-'ondragend', 'ondragenter', 'ondragexit', 'ondraggesture', 'ondragleave',
-'ondragover', 'ondragstart', 'ondrop', 'onerror', 'onerrorupdate',
-'onfilterchange', 'onfilterupdate', 'onfinish', 'onfocus', 'onfocusin',
-'onfocusout', 'onhelp', 'oninput', 'onkeydown', 'onkeypress', 'onkeyup',
-'onlayoutcomplete', 'onload', 'onlosecapture', 'onmousedown', 'onmouseenter',
-'onmouseleave', 'onmousemove', 'onmouseout', 'onmouseover', 'onmouseup',
-'onmousewheel', 'onmove', 'onmoveend', 'onmoveout', 'onmovestart',
-'onnodeinserted', 'onnodeinsertedintodocument', 'onnoderemoved',
-'onnoderemovedfromdocument', 'onoverflowchanged', 'onpaint', 'onpaste',
-'onpopupHidden', 'onpopupHiding', 'onpopupShowing', 'onpopupShown',
-'onpropertychange', 'onreadystatechange', 'onreset', 'onresize',
-'onresizeend', 'onresizestart', 'onrowenter', 'onrowexit', 'onrowsdelete',
-'onrowsinserted', 'onscroll', 'onselect', 'onselectionchange',
-'onselectstart', 'onstart', 'onstop', 'onsubmit', 'onsubtreemodified',
-'ontext', 'onunderflow', 'onunload', 'overflow', 'profile', 'src', 'style',
-'usemap']
-attrs_to_check_map = {}
-for __a in attrs_to_check: attrs_to_check_map[__a]=1
-attrs_to_prune = ['alt', 'label', 'prompt' 'standby', 'summary', 'title',
-                  'abbr']
-
-# For recursive fetching of urls:
-tags_to_recurse = ['a', 'applet', 'embed', 'frame', 'iframe', #'img',
-                   'link', 'object', 'script', 'layer', 'ilayer'] 
-recurse_html = ['frame', 'iframe', 'layer', 'ilayer']
-attrs_to_recurse = ['background', 'codebase', 'data', 'href',
-                    'pluginurl', 'src']
 
 #
 # constants
@@ -317,6 +165,9 @@ class Test:
       plog("INFO", "Using the following urls for "+self.proto+" scan:\n\t"+targets) 
     self.tests_run = 0
     self.nodes_marked = 0
+    # XXX: We really need to register an eventhandler
+    # and register a callback for it when this list 
+    # changes due to dropping either "Running" or "Fast"
     self.nodes = self.mt.get_nodes_for_port(self.port)
     self.node_map = {}
     for n in self.nodes: 
@@ -752,6 +603,7 @@ class HTMLTest(HTTPTest):
         for a in t.attrs:
           attr_name = str(a[0])
           attr_tgt = str(a[1])
+          # TODO: Split off javascript
           if attr_name in attrs_to_recurse:
             if str(t.name) in recurse_html:
               plog("NOTICE", "Adding html "+str(t.name)+" target: "+attr_tgt)
@@ -803,6 +655,7 @@ class HTMLTest(HTTPTest):
     return soup      
 
   def check_html(self, address):
+    # XXX: Check mimetype to decide what to do..
     ''' check whether a http connection to a given address is molested '''
     plog('INFO', 'Conducting an html test with destination ' + address)
 
@@ -976,57 +829,27 @@ class HTMLTest(HTTPTest):
     new_vs_old = SoupDiffer(soup_new, soup)
     new_vs_tor = SoupDiffer(soup_new, psoup)
 
-    # TODO: Consider storing these changing attributes
-    # for more than just this run..
-    # FIXME: Also consider refactoring this into SoupDiffer.
-    # It's kind of a mess..
-    changed_tags = {}
-    changed_attributes = {}
     # I'm an evil man and I'm going to CPU hell..
-    for tags in map(BeautifulSoup, old_vs_new.changed_tags()):
-      for t in tags.findAll():
-        if t.name not in changed_tags:
-          changed_tags[t.name] = sets.Set([])
-        for attr in t.attrs:
-          changed_tags[t.name].add(attr[0])
-    for tags in map(BeautifulSoup, new_vs_old.changed_tags()):
-      for t in tags.findAll():
-        if t.name not in changed_tags:
-          changed_tags[t.name] = sets.Set([])
-        for attr in t.attrs:
-          changed_tags[t.name].add(attr[0])
-    for (tag, attr) in old_vs_new.changed_attributes():
-      if tag not in changed_attributes:
-        changed_attributes[tag] = {}
-      changed_attributes[tag][attr[0]] = 1 
-    for (tag, attr) in new_vs_old.changed_attributes():
-      changed_attributes[attr[0]] = 1 
-      if tag not in changed_attributes:
-        changed_attributes[tag] = {}
-      changed_attributes[tag][attr[0]] = 1 
-    
+    changed_tags = old_vs_new.changed_tags_with_attrs()
+    changed_tags.update(new_vs_old.changed_tags_with_attrs())
+
+    changed_attributes = old_vs_new.changed_attributes_by_tag()
+    changed_attributes.update(new_vs_old.changed_attributes_by_tag())
+
     changed_content = bool(old_vs_new.changed_content() or old_vs_new.changed_content())
-
-    false_positive = True 
-    for tags in map(BeautifulSoup, new_vs_tor.changed_tags()):
-      for t in tags.findAll():
-        if t.name not in changed_tags:
-          false_positive = False
-        else:
-           for attr in t.attrs:
-             if attr[0] not in changed_tags[t.name]:
-               false_positive = False
-    for (tag, attr) in new_vs_tor.changed_attributes():
-      if tag in changed_attributes:
-        if attr[0] not in changed_attributes[tag]:
-          false_positive=False
-      else:
-        if not false_positive:
-          plog("ERROR", "False positive contradiction at "+exit_node+" for "+address)
-          false_positive = False
-
-    if new_vs_tor.changed_content() and not changed_content:
+ 
+    # Verify all of our changed tags are present here 
+    if new_vs_tor.has_more_changed_tags(changed_tags) or \
+      new_vs_tor.has_more_changed_attrs(changed_attributes) or \
+      new_vs_tor.changed_content() and not changed_content:
       false_positive = False
+    else:
+      false_positive = True
+
+    if false_positive:
+      jsdiff = JSSoupDiffer(soup)
+      jsdiff.prune_differences(soup_new)
+      false_positive = not jsdiff.contains_differences(psoup)
 
     if false_positive:
       plog("NOTICE", "False positive detected for dynamic change at "+address+" via "+exit_node)
