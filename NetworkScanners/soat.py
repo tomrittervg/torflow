@@ -569,8 +569,10 @@ class HTMLTest(HTTPTest):
     self.tests_run += 1
     # XXX: Set referrer to address for subsequent fetches
     # XXX: Set referrer to random or none for initial fetch
+    # XXX: Watch for spider-traps! (ie mutually sourcing iframes)
+    # Keep a trail log for this test and check for loops
     address = random.choice(self.targets)
-    
+
     self.fetch_queue.put_nowait(("html", address))
     while not self.fetch_queue.empty():
       (test, url) = self.fetch_queue.get_nowait()
@@ -613,7 +615,6 @@ class HTMLTest(HTTPTest):
       plog("ERROR", self.proto+" 3-way failure at "+exit_node+". This makes "+str(err_cnt)+" node failures for "+address)
 
   def _add_recursive_targets(self, soup, orig_addr):
-    # XXX: Watch for spider-traps! (ie mutually sourcing iframes)
     # Only pull at most one filetype from the list of 'a' links
     targets = []
     got_type = {}
@@ -635,9 +636,10 @@ class HTMLTest(HTTPTest):
                 for a in t.attrs:
                   if str(a[0]) == "type" and str(a[1]) in link_script_types:
                     targets.append(("js", urlparse.urljoin(orig_addr, attr_tgt)))
+                    plog("NOTICE", "Adding js "+str(t.name)+" target: "+attr_tgt)
               else:
                 targets.append(("js", urlparse.urljoin(orig_addr, attr_tgt)))
-              plog("NOTICE", "Adding js "+str(t.name)+" target: "+attr_tgt)
+                plog("NOTICE", "Adding js "+str(t.name)+" target: "+attr_tgt)
               targets.append(("html", urlparse.urljoin(orig_addr, attr_tgt)))
             elif str(t.name) == 'a':
               if attr_name == "href":
@@ -723,9 +725,12 @@ class HTMLTest(HTTPTest):
       plog("ERROR", "Javascript 3-way failure at "+exit_node+" for "+address)
 
       return TEST_FAILURE
+  
+  def check_html_notags(self, address):
+    pass
 
   def check_html(self, address):
-    # XXX: Check mimetype to decide what to do..
+    # TODO: Break this out into a check_html_notags that just does a sha check
     ''' check whether a http connection to a given address is molested '''
     plog('INFO', 'Conducting an html test with destination ' + address)
 
@@ -733,9 +738,8 @@ class HTMLTest(HTTPTest):
     socks.setdefaultproxy(socks.PROXY_TYPE_SOCKS5, tor_host, tor_port)
     socket.socket = socks.socksocket
 
-    # XXX: Wikipedia and others can give us 403.. So what do we do about that?
-    # Probably should count the number of occurrances vs successful runs
-    # then remove the url
+    # Wikipedia and others can give us 403.. So what do we do about that?
+    # Count the number of occurrances vs successful runs then remove the url
     (pcode, pcontent) = http_request(address, self.tor_cookie_jar, self.headers)
 
     # reset the connection to direct

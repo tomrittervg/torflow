@@ -20,10 +20,13 @@ from soat_config import *
 sys.path.append("../")
 from TorCtl.TorUtil import *
 
-sys.path.append("./libs/pypy-svn/")
-import pypy.rlib.parsing.parsing
-import pypy.lang.js.jsparser
-
+try:
+  sys.path.append("./libs/pypy-svn/")
+  import pypy.rlib.parsing.parsing
+  import pypy.lang.js.jsparser
+  HAVE_PYPY = True
+except ImportError:
+  HAVE_PYPY = False
 
 # constants
 
@@ -402,10 +405,10 @@ class SoupDiffer:
     f.write(str(self))
     f.close()
 
-
 class JSDiffer:
+  # XXX: Strip html comments from these strings
   def __init__(self, js_string):
-    self.ast_cnts = self.count_ast_elements(js_string)
+    if HAVE_PYPY: self.ast_cnts = self._count_ast_elements(js_string)
 
   def _ast_recursive_worker(ast, ast_cnts):
     if not ast.symbol in ast_cnts:
@@ -416,7 +419,7 @@ class JSDiffer:
         JSDiffer._ast_recursive_worker(child, ast_cnts)
   _ast_recursive_worker = Callable(_ast_recursive_worker)
  
-  def count_ast_elements(self, js_string, name="global"):
+  def _count_ast_elements(self, js_string, name="global"):
     ast_cnts = {}
     try:
       ast = pypy.lang.js.jsparser.parse(js_string)
@@ -456,11 +459,15 @@ class JSDiffer:
     return False
 
   def prune_differences(self, other_string):
-    other_cnts = self.count_ast_elements(other_string)
+    if not HAVE_PYPY: return
+    other_cnts = self._count_ast_elements(other_string)
     self._difference_pruner(other_cnts)
 
   def contains_differences(self, other_string):
-    other_cnts = self.count_ast_elements(other_string)
+    if not HAVE_PYPY:
+      plog("NOTICE", "PyPy import not present. Not diffing javascript")
+      return False
+    other_cnts = self._count_ast_elements(other_string)
     return self._difference_checker(other_cnts) 
 
 class JSSoupDiffer(JSDiffer):
@@ -477,7 +484,7 @@ class JSSoupDiffer(JSDiffer):
     return ret_cnts
   _add_cnts = Callable(_add_cnts)
 
-  def count_ast_elements(self, soup, name="Soup"):
+  def _count_ast_elements(self, soup, name="Soup"):
     ast_cnts = {}
     for tag in soup.findAll():
       if tag.name == 'script':
@@ -485,7 +492,7 @@ class JSSoupDiffer(JSDiffer):
           if isinstance(child, Tag):
             plog("ERROR", "Script tag with subtag!")
           else:
-            tag_cnts = JSDiffer.count_ast_elements(self, str(child), tag.name)
+            tag_cnts = JSDiffer._count_ast_elements(self, str(child), tag.name)
             ast_cnts = JSSoupDiffer._add_cnts(tag_cnts, ast_cnts)
       for attr in tag.attrs:
         # hrmm.. %-encoding too? Firefox negs on it..
@@ -496,14 +503,18 @@ class JSSoupDiffer(JSDiffer):
         elif attr[0] in attrs_with_raw_script_map:
           parse = str(attr[1])
         if not parse: continue
-        tag_cnts = JSDiffer.count_ast_elements(self,parse,tag.name+":"+attr[0])
+        tag_cnts = JSDiffer._count_ast_elements(self,parse,tag.name+":"+attr[0])
         ast_cnts = JSSoupDiffer._add_cnts(tag_cnts, ast_cnts)
     return ast_cnts
 
   def prune_differences(self, other_soup):
-    other_cnts = self.count_ast_elements(other_soup)
+    if not HAVE_PYPY: return
+    other_cnts = self._count_ast_elements(other_soup)
     self._difference_pruner(other_cnts)
 
   def contains_differences(self, other_soup):
-    other_cnts = self.count_ast_elements(other_soup)
+    if not HAVE_PYPY:
+      plog("NOTICE", "PyPy import not present. Not diffing javascript")
+      return False
+    other_cnts = self._count_ast_elements(other_soup)
     return self._difference_checker(other_cnts) 
