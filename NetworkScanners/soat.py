@@ -43,6 +43,7 @@ import urlparse
 import cookielib
 import sha
 import Queue
+import threading
 
 from libsoat import *
 
@@ -66,12 +67,22 @@ import Pyssh.pyssh
 from soat_config import *
 
 search_cookies=None
-
-#
-# constants
-#
-
 linebreak = '\r\n'
+
+
+
+# Oh yeah. so dirty. Blame this guy if you hate me:
+# http://mail.python.org/pipermail/python-bugs-list/2008-October/061202.html
+_origsocket = socket.socket
+class BindingSocket(_origsocket):
+  bind_to = None
+  def __init__(self, family=socket.AF_INET, type=socket.SOCK_STREAM, proto=0, _sock=None):
+    _origsocket.__init__(self, family, type, proto, _sock)
+    if BindingSocket.bind_to:
+      plog("DEBUG", "Binding socket to "+BindingSocket.bind_to)
+      self.bind((BindingSocket.bind_to, 0))
+socket.socket = BindingSocket 
+
 
 # Http request handling
 def http_request(address, cookie_jar=None, headers=firefox_headers):
@@ -125,6 +136,7 @@ class Test:
     self.mt = mt
     self.datahandler = DataHandler()
     self.min_targets = 10
+    self.marked_nodes = sets.Set([])
 
   def run_test(self): 
     raise NotImplemented()
@@ -140,13 +152,21 @@ class Test:
     if len(self.targets) < self.min_targets:
       plog("NOTICE", self.proto+" scanner short on targets. Adding more")
       self.targets.extend(self.get_targets())
- 
+
+  def update_nodes(self):
+    self.nodes = self.mt.node_manager.get_nodes_for_port(self.port)
+    self.node_map = {}
+    for n in self.nodes: 
+      self.node_map[n.idhex] = n
+    self.total_nodes = len(self.nodes)
+    self.all_nodes = sets.Set(self.nodes)
+
   def mark_chosen(self, node):
     self.nodes_marked += 1
-    self.nodes.remove(node)
+    self.marked_nodes.add(node)
      
   def finished(self):
-    return not self.nodes
+    return not self.marked_nodes ^ self.all_nodes
 
   def percent_complete(self):
     return round(100.0*self.nodes_marked/self.total_nodes, 1)
@@ -165,20 +185,33 @@ class Test:
       plog("INFO", "Using the following urls for "+self.proto+" scan:\n\t"+targets) 
     self.tests_run = 0
     self.nodes_marked = 0
-    # XXX: We really need to register an eventhandler
-    # and register a callback for it when this list 
-    # changes due to dropping either "Running" or "Fast"
-    self.nodes = self.mt.get_nodes_for_port(self.port)
-    self.node_map = {}
-    for n in self.nodes: 
-      self.node_map[n.idhex] = n
-    self.total_nodes = len(self.nodes)
-
+    self.marked_nodes = sets.Set([])
 
 class SearchBasedTest(Test):
   def __init__(self, mt, proto, port, wordlist):
     self.wordlist = wordlist
     Test.__init__(self, mt, proto, port)
+
+  def _is_useable_url(self, url, valid_schemes=None, filetypes=None):
+    (scheme, netloc, path, params, query, fragment) = urlparse.urlparse(url)
+    if netloc.rfind(":") != -1:
+      # XXX: %-encoding?
+      port = netloc[netloc.rfind(":")+1:]
+      try:
+        if int(port) != self.port:
+          return False
+      except:
+        traceback.print_exc()
+        plog("WARN", "Unparseable port "+port+" in "+url)
+        return False
+    if valid_schemes and scheme not in valid_schemes:
+      return False
+    if filetypes: # Must be checked last
+      for filetype in filetypes:
+        if url[-len(filetype):] == filetype:
+          return True
+      return False
+    return True
 
   def get_search_urls(self, protocol='any', results_per_type=10, host_only=False, filetypes=['any'], search_mode=default_search_mode):
     ''' 
@@ -237,15 +270,20 @@ class SearchBasedTest(Test):
         # get the links and do some additional filtering
         for link in soup.findAll('a', {'class' : search_mode["class"]}):
           url = link['href']
-          if (protocol != 'any' and url[:len(protocol)] != protocol or 
-              filetype != 'any' and url[-len(filetype):] != filetype):
-            pass
-          else:
+          if protocol == 'any': prot_list = None
+          else: prot_list = [protocol]
+          if filetype == 'any': file_list = None
+          else: file_list = filetypes
+
+          if self._is_useable_url(url, prot_list, file_list):
             if host_only:
-              host = urlparse.urlparse(link['href'])[1]
+              # XXX: %-encoding, @'s, etc?
+              host = urlparse.urlparse(url)[1]
               type_urls.append(host)
             else:
-              type_urls.append(link['href'])
+              type_urls.append(url)
+          else:
+            pass
         plog("INFO", "Have "+str(len(type_urls))+"/"+str(results_per_type)+" google urls so far..") 
 
       # make sure we don't get more urls than needed
@@ -258,6 +296,7 @@ class SearchBasedTest(Test):
 
 class HTTPTest(SearchBasedTest):
   def __init__(self, mt, wordlist, filetypes=scan_filetypes):
+    # FIXME: Handle http urls w/ non-80 ports..
     SearchBasedTest.__init__(self, mt, "HTTP", 80, wordlist)
     self.fetch_targets = 5
     self.httpcode_fails = {}
@@ -375,7 +414,6 @@ class HTTPTest(SearchBasedTest):
       plog("ERROR", self.proto+" http error code failure at "+exit_node+". This makes "+str(err_cnt)+" node failures for "+address)
     
 
- 
   def check_http_nodynamic(self, address):
     ''' check whether a http connection to a given address is molested '''
     plog('INFO', 'Conducting an http test with destination ' + address)
@@ -427,7 +465,7 @@ class HTTPTest(SearchBasedTest):
         sha1sum.update(buf)
         buf = content_file.read(4096)
       content_file.close()
-      self.cookie_jar.load(content_prefix+'.cookies', 'w')
+      self.cookie_jar.load(content_prefix+'.cookies')
       content = None 
 
     except IOError:
@@ -441,7 +479,11 @@ class HTTPTest(SearchBasedTest):
       content_file.write(content)
       content_file.close()
       
-      self.cookie_jar.save(content_prefix+'.cookies', 'w')
+      try:
+        self.cookie_jar.save(content_prefix+'.cookies')
+      except:
+        traceback.print_exc()
+        plog("WARN", "Error saving cookies in "+str(self.cookie_jar)+" to "+content_prefix+".cookies")
 
     except TypeError, e:
       plog('ERROR', 'Failed obtaining the shasum for ' + address)
@@ -458,8 +500,14 @@ class HTTPTest(SearchBasedTest):
       else: self.successes[address]=1
       return TEST_SUCCESS
 
-    # if content doesnt match, update the direct content
+    # if content doesnt match, update the direct content and use new cookies
+    self.cookie_jar = cookielib.LWPCookieJar()
+    # If we have alternate IPs to bind to on this box, use them?
+    # Sometimes pages have the client IP encoded in them..
+    BindingSocket.bind_to = refetch_ip
     (code_new, content_new) = http_request(address, self.cookie_jar, self.headers)
+    BindingSocket.bind_to = None
+    
     if not content_new:
       plog("WARN", "Failed to re-frech "+address+" outside of Tor. Did our network fail?")
       result = HttpTestResult(exit_node, address, TEST_INCONCLUSIVE, 
@@ -495,7 +543,11 @@ class HTTPTest(SearchBasedTest):
     new_content_file.close()
       
     os.rename(content_prefix+'.cookies', content_prefix+'.cookies-old')
-    self.cookie_jar.save(content_prefix+'.cookies', 'w')
+    try:
+      self.cookie_jar.save(content_prefix+'.cookies')
+    except:
+      traceback.print_exc()
+      plog("WARN", "Error saving cookies in "+str(self.cookie_jar)+" to "+content_prefix+".cookies")
 
     # compare the node content and the new content
     # if it matches, everything is ok
@@ -626,33 +678,31 @@ class HTMLTest(HTTPTest):
         for a in t.attrs:
           attr_name = str(a[0])
           attr_tgt = str(a[1])
-          # TODO: Split off javascript
           if attr_name in attrs_to_recurse:
             if str(t.name) in recurse_html:
-              plog("NOTICE", "Adding html "+str(t.name)+" target: "+attr_tgt)
               targets.append(("html", urlparse.urljoin(orig_addr, attr_tgt)))
             elif str(t.name) in recurse_script:
               if str(t.name) == "link":
                 for a in t.attrs:
                   if str(a[0]) == "type" and str(a[1]) in link_script_types:
                     targets.append(("js", urlparse.urljoin(orig_addr, attr_tgt)))
-                    plog("NOTICE", "Adding js "+str(t.name)+" target: "+attr_tgt)
               else:
                 targets.append(("js", urlparse.urljoin(orig_addr, attr_tgt)))
-                plog("NOTICE", "Adding js "+str(t.name)+" target: "+attr_tgt)
-              targets.append(("html", urlparse.urljoin(orig_addr, attr_tgt)))
             elif str(t.name) == 'a':
               if attr_name == "href":
                 for f in self.recurse_filetypes:
                   if f not in got_type and attr_tgt[-len(f):] == f:
                     got_type[f] = 1
-                    plog("NOTICE", "Adding http a target: "+attr_tgt)
                     targets.append(("http", urlparse.urljoin(orig_addr, attr_tgt)))
             else:
-              plog("NOTICE", "Adding http "+str(t.name)+" target: "+attr_tgt)
               targets.append(("http", urlparse.urljoin(orig_addr, attr_tgt)))
     for i in sets.Set(targets):
-      self.fetch_queue.put_nowait(i)
+      if self._is_useable_url(i[1], html_schemes):
+        plog("NOTICE", "Adding "+i[0]+" target: "+i[1])
+        self.fetch_queue.put_nowait(i)
+      else:
+        plog("NOTICE", "Skipping "+i[0]+" target: "+i[1])
+
 
   def _tag_not_worthy(self, tag):
     if str(tag.name) in tags_to_check:
@@ -725,12 +775,19 @@ class HTMLTest(HTTPTest):
       plog("ERROR", "Javascript 3-way failure at "+exit_node+" for "+address)
 
       return TEST_FAILURE
-  
+
   def check_html_notags(self, address):
+    plog('INFO', 'Conducting a html tagless test with destination ' + address)
+    ret = self.check_http_nodynamic(address)
+    
+    if type(ret) == int:
+      return ret
+    (tor_js, tsha, orig_js, osha, new_js, nsha, exit_node) = ret
     pass
 
   def check_html(self, address):
     # TODO: Break this out into a check_html_notags that just does a sha check
+    # FIXME: Also check+store non-tor mime types
     ''' check whether a http connection to a given address is molested '''
     plog('INFO', 'Conducting an html test with destination ' + address)
 
@@ -750,6 +807,7 @@ class HTMLTest(HTTPTest):
       plog('WARN', 'We had no exit node to test, skipping to the next test.')
       return TEST_SUCCESS
 
+    # XXX: Fetch via non-tor first...
     if pcode - (pcode % 100) != 200:
       plog("NOTICE", exit_node+" had error "+str(pcode)+" fetching content for "+address)
       result = HttpTestResult(exit_node, address, TEST_INCONCLUSIVE,
@@ -807,7 +865,11 @@ class HTMLTest(HTTPTest):
       tag_file.write(string_soup) 
       tag_file.close()
 
-      self.cookie_jar.save(content_prefix+'.cookies', 'w')
+      try:
+        self.cookie_jar.save(content_prefix+'.cookies')
+      except:
+        traceback.print_exc()
+        plog("WARN", "Error saving cookies in "+str(self.cookie_jar)+" to "+content_prefix+".cookies")
 
       content_file = open(content_prefix+'.content', 'w')
       content_file.write(content)
@@ -831,8 +893,15 @@ class HTMLTest(HTTPTest):
       else: self.successes[address]=1
       return TEST_SUCCESS
 
-    # if content doesnt match, update the direct content
+    # if content doesnt match, update the direct content and use new cookies
+    self.cookie_jar = cookielib.LWPCookieJar()
+
+    # If we have alternate IPs to bind to on this box, use them?
+    # Sometimes pages have the client IP encoded in them..
+    BindingSocket.bind_to = refetch_ip
     (code_new, content_new) = http_request(address, self.cookie_jar, self.headers)
+    BindingSocket.bind_to = None
+
     content_new = content_new.decode('ascii', 'ignore')
     if not content_new:
       plog("WARN", "Failed to re-frech "+address+" outside of Tor. Did our network fail?")
@@ -876,8 +945,12 @@ class HTMLTest(HTTPTest):
     tag_file.close()
       
     os.rename(content_prefix+'.cookies', content_prefix+'.cookies-old')
-    self.cookie_jar.save(content_prefix+'.cookies', 'w')
-    
+    try:
+      self.cookie_jar.save(content_prefix+'.cookies')
+    except:
+      traceback.print_exc()
+      plog("WARN", "Error saving cookies in "+str(self.cookie_jar)+" to "+content_prefix+".cookies")
+
     os.rename(content_prefix+'.content', content_prefix+'.content-old')
     new_content_file = open(content_prefix+'.content', 'w')
     new_content_file.write(content_new)
@@ -1645,14 +1718,101 @@ class Client:
       response = response[:-1]
     return response 
 
+class NodeManager(EventHandler):
+  ''' 
+  A tor control event handler extending TorCtl.EventHandler.
+  Monitors NS and NEWDESC events, and updates each test
+  with new nodes
+  '''
+  def __init__(self, c):
+    EventHandler.__init__(self)
+    self.c = c
+    self.routers = {}
+    self.sorted_r = []
+    self.rlock = threading.Lock()
+    self._read_routers(self.c.get_network_status())
+    self.new_nodes=True
+    c.set_event_handler(self)
+    c.set_events([TorCtl.EVENT_TYPE.NEWDESC, TorCtl.EVENT_TYPE.NS], True)
+
+  def has_new_nodes(self):
+    ret = False
+    plog("DEBUG", "has_new_nodes begin")
+    try:
+      self.rlock.acquire()
+      ret = self.new_nodes
+      self.new_nodes = False
+    finally:
+      self.rlock.release()
+    plog("DEBUG", "has_new_nodes end")
+    return ret
+
+  def get_nodes_for_port(self, port):
+    ''' return a list of nodes that allow exiting to a given port '''
+    plog("DEBUG", "get_nodes_for_port begin")
+    restriction = NodeRestrictionList([FlagsRestriction(["Running", "Valid",
+"Fast"]), MinBWRestriction(min_node_bw), ExitPolicyRestriction('255.255.255.255', port)])
+    try:
+      self.rlock.acquire()
+      ret = [x for x in self.sorted_r if restriction.r_is_ok(x)]
+    finally:
+      self.rlock.release()
+    plog("DEBUG", "get_nodes_for_port end")
+    return ret
+ 
+  def _read_routers(self, nslist):
+    routers = self.c.read_routers(nslist)
+    new_routers = []
+    for r in routers:
+      if r.idhex in self.routers:
+        if self.routers[r.idhex].nickname != r.nickname:
+          plog("NOTICE", "Router "+r.idhex+" changed names from "
+             +self.routers[r.idhex].nickname+" to "+r.nickname)
+        self.sorted_r.remove(self.routers[r.idhex])
+      self.routers[r.idhex] = r
+      new_routers.append(r)
+
+    self.sorted_r.extend(new_routers)
+    self.sorted_r.sort(lambda x, y: cmp(y.bw, x.bw))
+    # This is an OK update because of the GIL (also we don't touch it)
+    for i in xrange(len(self.sorted_r)): self.sorted_r[i].list_rank = i
+
+  def ns_event(self, n):
+    plog("DEBUG", "ns_event begin")
+    try:
+      self.rlock.acquire()
+      self._read_routers(n.nslist)
+      self.new_nodes = True
+    finally:
+      self.rlock.release()
+    plog("DEBUG", "Read " + str(len(n.nslist))+" NS => " 
+       + str(len(self.sorted_r)) + " routers")
+  
+  def new_desc_event(self, d):
+    plog("DEBUG", "new_desc_event begin")
+    try:
+      self.rlock.acquire()
+      for i in d.idlist: # Is this too slow?
+        self._read_routers(self.c.get_network_status("id/"+i))
+      self.new_nodes = True
+    finally:
+      self.rlock.release()
+    plog("DEBUG", "Read " + str(len(d.idlist))+" Desc => " 
+         + str(len(self.sorted_r)) + " routers")
+  
+
 class DNSRebindScanner(EventHandler):
   ''' 
   A tor control event handler extending TorCtl.EventHandler 
   Monitors for REMAP events (see check_dns_rebind())
   '''
-  def __init__(self, mt):
+  def __init__(self, mt, c):
     EventHandler.__init__(self)
     self.__mt = mt
+    c.set_event_handler(self)
+    c.set_events([TorCtl.EVENT_TYPE.STREAM], True)
+    self.c=c
+
 
   def stream_status_event(self, event):
     if event.status == 'REMAP':
@@ -1666,7 +1826,7 @@ class DNSRebindScanner(EventHandler):
           result = DNSRebindTestResult(node, '', TEST_FAILURE)
           handler.saveResult(result)
 
-class Metatroller:
+class Metaconnection:
   ''' Abstracts operations with the Metatroller '''
   def __init__(self):
     ''' 
@@ -1719,6 +1879,8 @@ class Metatroller:
       plog('ERROR', 'A service other that the Tor control port is listening on ' + control_host + ':' + control_port)
       plog('ERROR', e)
       exit()
+    self.node_manager = NodeManager(c)
+   
 
   def get_exit_node(self):
     ''' ask metatroller for the last exit used '''
@@ -1766,12 +1928,6 @@ class Metatroller:
     # self.__contol.set_option('AuthDirBadExit', exit) ?
     pass
 
-  def get_nodes_for_port(self, port):
-    ''' ask control port for a list of nodes that allow exiting to a given port '''
-    routers = self.__control.read_routers(self.__control.get_network_status())
-    restriction = NodeRestrictionList([FlagsRestriction(["Running", "Valid", "Fast"]), ExitPolicyRestriction('255.255.255.255', port)])
-    return [x for x in routers if restriction.r_is_ok(x)]
-
   # XXX: Hrmm is this in the right place?
   def check_all_exits_port_consistency(self):
     ''' 
@@ -1816,9 +1972,22 @@ class Metatroller:
     The test makes sure that external hosts are not resolved to private addresses  
     '''
     plog('INFO', 'Monitoring REMAP events for weirdness')
-    self.__dnshandler = DNSRebindScanner(self)
-    self.__control.set_event_handler(self.__dnshandler)
-    self.__control.set_events([TorCtl.EVENT_TYPE.STREAM], True)
+    # establish a control port connection
+    try:
+      s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+      s.connect((control_host, control_port))
+      c = Connection(s)
+      c.authenticate()
+    except socket.error, e:
+      plog('ERROR', 'Couldn\'t connect to the control port')
+      plog('ERROR', e)
+      exit()
+    except AttributeError, e:
+      plog('ERROR', 'A service other that the Tor control port is listening on ' + control_host + ':' + control_port)
+      plog('ERROR', e)
+      exit()
+
+    self.__dnshandler = DNSRebindScanner(self, c)
 
 
 # some helpful methods
@@ -1946,7 +2115,7 @@ def main(argv):
   wordlist = load_wordlist(wordlist_file)
 
   # initiate the connection to the metatroller
-  mt = Metatroller()
+  mt = Metaconnection()
 
   # initiate the passive dns rebind attack monitor
   if do_dns_rebind:
@@ -2017,9 +2186,15 @@ def main(argv):
   
   # start testing
   while 1:
+    avail_tests = tests.values()
+    if mt.node_manager.has_new_nodes():
+      plog("INFO", "Got signal for node update.")
+      for test in avail_tests:
+        test.update_nodes()
+      plog("INFO", "Note update complete.")
+
     # Get as much milage out of each exit as we safely can:
     # Run a random subset of our tests in random order
-    avail_tests = tests.values()
     n_tests = random.choice(xrange(1,len(avail_tests)+1))
     
     to_run = random.sample(avail_tests, n_tests)
@@ -2056,7 +2231,6 @@ def main(argv):
         if result == TEST_SUCCESS:
           test.mark_chosen(current_exit)
      
- 
     # Check each test for rewind 
     for test in tests.itervalues():
       if test.finished():

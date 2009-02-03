@@ -129,7 +129,8 @@ def main(argv):
 
       changed_content = bool(old_vs_new.changed_content() or old_vs_new.changed_content())
  
-      # Verify all of our changed tags are present here 
+      # Verify all of our changed tags are present here
+      # XXX: Have this print out more info on changed tags..
       if new_vs_tor.has_more_changed_tags(changed_tags) or \
         new_vs_tor.has_more_changed_attrs(changed_attributes) or \
         new_vs_tor.changed_content() and not changed_content:
