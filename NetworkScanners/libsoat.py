@@ -55,6 +55,21 @@ class TestResult(object):
     self.site = site
     self.timestamp = time.time()
     self.status = status
+    self.false_positive=False
+  
+  def mark_false_positive(self):
+    pass
+
+  def move_file(self, file, to_dir):
+    try:
+      basename = os.path.basename(file)
+      new_file = to_dir+basename
+      os.rename(file, new_file)
+      return new_file
+    except:
+      traceback.print_exc()
+      plog("WARN", "Error moving "+file+" to "+dir)
+      return file
 
 class SSLTestResult(TestResult):
   ''' Represents the result of an openssl test '''
@@ -78,7 +93,12 @@ class HttpTestResult(TestResult):
     self.content_exit = content_exit
     self.content_old = content_old
 
-  # XXX: Instead of removing these, move them to a 'falsepositives' dir
+  def mark_false_positive(self):
+    self.false_positive=True
+    self.content=self.move_file(self.content, http_falsepositive_dir)
+    self.content_old=self.move_file(self.content_old, http_falsepositive_dir)
+    self.content_exit=self.move_file(self.content_exit,http_falsepositive_dir)
+
   def remove_files(self):
     try: os.unlink(self.content)
     except: pass
@@ -107,6 +127,12 @@ class JsTestResult(TestResult):
     self.content_exit = content_exit
     self.content_old = content_old
 
+  def mark_false_positive(self):
+    self.false_positive=True
+    self.content=self.move_file(self.content, http_falsepositive_dir)
+    self.content_old=self.move_file(self.content_old, http_falsepositive_dir)
+    self.content_exit=self.move_file(self.content_exit,http_falsepositive_dir)
+
   def remove_files(self):
     try: os.unlink(self.content)
     except: pass
@@ -129,6 +155,15 @@ class HtmlTestResult(TestResult):
     self.content = content
     self.content_exit = content_exit
     self.content_old = content_old
+
+  def mark_false_positive(self):
+    self.false_positive=True
+    self.tags=self.move_file(self.tags,http_falsepositive_dir)
+    self.tags_old=self.move_file(self.tags_old,http_falsepositive_dir)
+    self.exit_tags=self.move_file(self.exit_tags,http_falsepositive_dir)
+    self.content=self.move_file(self.content,http_falsepositive_dir)
+    self.content_old=self.move_file(self.content_old, http_falsepositive_dir)
+    self.content_exit=self.move_file(self.content_exit,http_falsepositive_dir)
 
   def remove_files(self):
     try: os.unlink(self.tags)

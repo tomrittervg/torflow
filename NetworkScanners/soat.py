@@ -307,7 +307,8 @@ class HTTPTest(SearchBasedTest):
     self.exit_fails = {}
     self.successes = {}
     self.exit_limit = 100
-    self.httpcode_limit = 100
+    # XXX: 3 is waaay too low. 100 is more like it.. But set for testing
+    self.httpcode_limit = 3
     self.scan_filetypes = filetypes
     self.results = []
 
@@ -379,8 +380,7 @@ class HTTPTest(SearchBasedTest):
       if r.site == address:
         kill_results.append(r)
     for r in kill_results:
-      # XXX: Move files instead of removing them..
-      #r.remove_files()
+      r.mark_false_positive()
       self.results.remove(r)
     
   def register_exit_failure(self, address, exit_node):
@@ -632,7 +632,9 @@ class HTMLTest(HTTPTest):
     self.recurse_filetypes = recurse_filetypes
     self.fetch_queue = Queue.Queue()
     self.dynamic_fails = {}
-    self.dynamic_limit = 10
+    # XXX: 3 is way too low, but set for code exercise. 10 
+    # is prob reasonable
+    self.dynamic_limit = 3
  
   def run_test(self):
     # A single test should have a single cookie jar

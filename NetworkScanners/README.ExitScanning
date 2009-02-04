@@ -75,8 +75,8 @@ smattering of random and/or commonly censored words. If you speak other
 languages (especially any that have unicode characters), using keywords
 from them would be especially useful for testing and scanning. Note
 that these queries WILL be issued in plaintext via non-Tor, and the
-resulting urls fetched via non-Tor as well, so bear that in mind for
-your legal jurisdiction when choosing keywords.
+resulting urls fetched via non-Tor as well, so bear that and your
+server's legal jurisdiction in mind when choosing keywords.
 
 You can also separate out the wordlist.txt file into three files by
 changing the soat_config.py settings 'filetype_wordlist_file',
