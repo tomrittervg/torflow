@@ -35,6 +35,7 @@ import sys
 import time
 import urllib
 import urllib2
+import httplib
 import traceback
 import copy
 import StringIO
@@ -70,7 +71,6 @@ search_cookies=None
 linebreak = '\r\n'
 
 
-
 # Oh yeah. so dirty. Blame this guy if you hate me:
 # http://mail.python.org/pipermail/python-bugs-list/2008-October/061202.html
 _origsocket = socket.socket
@@ -83,6 +83,28 @@ class BindingSocket(_origsocket):
       self.bind((BindingSocket.bind_to, 0))
 socket.socket = BindingSocket 
 
+# Nice.. HTTPConnection.connect is doing DNS for us! Fix that:
+# Hrmm.. suppose we could also bind here.. but BindingSocket is 
+# more general and may come in handy for other tests.
+class NoDNSHTTPConnection(httplib.HTTPConnection):
+  def connect(self):
+    try:
+      self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM, 0)
+      if self.debuglevel > 0:
+        print "connect: (%s, %s)" % (self.host, self.port)
+      self.sock.connect((str(self.host), self.port))
+    except socket.error, msg:
+      if self.debuglevel > 0:
+        print 'connect fail:', (self.host, self.port)
+      if self.sock:
+        self.sock.close()
+      self.sock = None
+    if not self.sock:
+      raise socket.error, msg
+
+class NoDNSHTTPHandler(urllib2.HTTPHandler):
+  def http_open(self, req):
+    return self.do_open(NoDNSHTTPConnection, req)
 
 # Http request handling
 def http_request(address, cookie_jar=None, headers=firefox_headers):
@@ -96,7 +118,7 @@ def http_request(address, cookie_jar=None, headers=firefox_headers):
   mime_type = ""
   try:
     if cookie_jar != None:
-      opener = urllib2.build_opener(urllib2.HTTPCookieProcessor(cookie_jar))
+      opener = urllib2.build_opener(NoDNSHTTPHandler, urllib2.HTTPCookieProcessor(cookie_jar))
       reply = opener.open(request)
       if "__filename" in cookie_jar.__dict__:
         cookie_jar.save(cookie_jar.__filename)
@@ -1105,7 +1127,7 @@ class SSLTest(SearchBasedTest):
     c.set_connect_state()
      
     try:
-      c.connect((address, 443))
+      c.connect((address, 443)) # XXX: Verify TorDNS here too..
       c.send(crypto.dump_certificate_request(crypto.FILETYPE_PEM,request))
     except socket.error, e:
       plog('WARN','An error occured while opening an ssl connection to ' + address)
