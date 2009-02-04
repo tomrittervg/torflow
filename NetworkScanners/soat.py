@@ -2156,9 +2156,6 @@ def main(argv):
   do_dns_rebind = ('--dnsrebind','') in flags
   do_consistency = ('--policies','') in flags
 
-  # load the wordlist to search for sites lates on
-  wordlist = load_wordlist(wordlist_file)
-
   # initiate the connection to the metatroller
   mt = Metaconnection()
 
@@ -2187,19 +2184,19 @@ def main(argv):
   # FIXME: Create an event handler that updates these lists
   if do_ssl:
     try:
-      tests["SSL"] = SSLTest(mt, wordlist)
+      tests["SSL"] = SSLTest(mt, load_wordlist(ssl_wordlist_file))
     except NoURLsFound, e:
       plog('ERROR', e.message)
 
   if do_http:
     try:
-      tests["HTTP"] = HTTPTest(mt, wordlist)
+      tests["HTTP"] = HTTPTest(mt, load_wordlist(filetype_wordlist_file))
     except NoURLsFound, e:
       plog('ERROR', e.message)
 
   if do_html:
     try:
-      tests["HTML"] = HTMLTest(mt, wordlist)
+      tests["HTML"] = HTMLTest(mt, load_wordlist(html_wordlist_file))
     except NoURLsFound, e:
       plog('ERROR', e.message)
 

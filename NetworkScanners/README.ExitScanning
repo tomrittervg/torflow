@@ -1,0 +1,167 @@
+              How to run the Snakes on a Tor Exit Scanner
+
+
+
+I. Introduction
+
+The Snakes on a Tor Exit Scanner scans the Tor network for misbehaving
+and misconfigured exit nodes. It has several tests that it performs,
+including HTML, javascript, arbitrary HTTP, SSL and DNS scans. The
+mechanisms by which these scans operate will be covered in another
+document. This document concerns itself only with running the scanner.
+
+
+
+II. Prerequisites
+
+Python 2.4+
+Custom compiled Tor 0.2.1
+Super Secret SoaT Sauce
+Bonus: 500M of disk space
+Bonus: Secondary external IP address
+
+If you do not have 500M of disk space, you probably want to do:
+
+# rm -rf ./libs/pypy-svn 
+
+and make a special script to update TorFlow that runs:
+
+# svn --ignore-externals up .
+# svn up TorCtl
+
+Doing this will cause your scanner to not scan dynamic Javascript
+for modifications. It will still scan static javascript, but it will
+just ignore all modifications to dynamic javascript that changes between
+non-Tor fetches (which is surprisingly a lot).
+
+This also means that ultimately you will not be able to run a voting
+scanner once we get SoaT integrated into the directory authorities,
+because your scanner will vote certain classes of malicious exits as
+benign that the other scanners are trying to mark as BadExit. 
+
+Having a second external IP address will allow your scanner to filter
+out false positives for dynamic pages that arise due to pages encoding
+your IP address in documents.
+
+
+
+III. Setup
+
+A. Compiling Tor
+
+To run SoaT you will need to compile a custom Tor binary due to bug XXX.
+The patch to fix this bug is present in ../tordiffs/XXX.
+
+It is also strongly recommended that you have a custom Tor instance that
+it devoted only to exit scanning, and is not performing any other
+function (including serving as a relay or a directory authority).
+
+
+B. Configuring SoaT
+
+To configure SoaT (and even to get it to run), you will need to obtain
+Super Secret SoaT Sauce from Mike Perry's Super Secret SoaT Sauce Stash.
+It contains the necessary pheromones you will need to enable you to
+properly hunt some motherfuckin snakes.
+
+Once you have the Sauce, you should copy it to soat_config.py and
+have a look at its contents.
+
+You'll want to change is to set refetch_ip to be set to your secondary
+IP address. If you don't have a secondary IP, set it to None.
+
+You'll also want to edit wordlist.txt and change its contents to be a
+smattering of random and/or commonly censored words. If you speak other
+languages (especially any that have unicode characters), using keywords
+from them would be especially useful for testing and scanning. Note
+that these queries WILL be issued in plaintext via non-Tor, and the
+resulting urls fetched via non-Tor as well, so bear that in mind for
+your legal jurisdiction when choosing keywords.
+
+You can also separate out the wordlist.txt file into three files by
+changing the soat_config.py settings 'filetype_wordlist_file',
+'filetype_wordlist_file', and 'filetype_wordlist_file'. This will allow
+you to use separate keywords for obtaining SSL, HTML, and Filetype
+urls. This can be useful if you believe it likely for an adversary to
+target only certain keywords/concepts/sites in a particular context.
+
+If you're feeling ambitious, you can also edit soat_config.py to change
+the set of 'scan_filetypes' and increase 'max_content_size' to something
+large enough to support these filetypes. However, you should balance
+this with our more immediate need for the scanner to run quickly so that
+the code is exercised and can stabilize quickly.
+
+
+
+IV. Running Tor, The Metatroller, and SoaT
+
+Once you have everything compiled and configured, you should be ready to
+run the pieces. 
+
+First, start up your custom Tor with the sample torrc provided in the
+TorFlow svn root:
+
+# ~/src/tor-trunk/src/or/tor -f ~/src/torflow-trunk/torrc >& tor.log &
+
+Then, start up the Metatroller:
+
+# ~/src/torflow-trunk/metatroller.py >& mt.log &
+
+Finally, start up SoaT:
+
+# ./soat.py --ssl --html --http --dnsrebind >& soat.log &
+
+
+
+V. Monitoring and Results
+
+A. Watching for Captcha Problems
+
+You'll need to keep an eye on the beginning of the soat.log to make sure
+it is actually retrieving urls from Google. Google's servers can
+periodically decide that you are not worthy to query them, especially if
+you restart soat several times in a row. If this happens, open up
+soat_config.py and change the line:
+
+default_search_mode = google_search_mode
+
+to
+
+default_search_mode = yahoo_search_mode
+
+and remove the --ssl from the soat command line until Google decides it
+hates you a little less (this usually takes less than a day). The SSL
+scanner is hardcoded to use google_search_mode regardless of the
+default_search_mode because Yahoo's "inurl:" modifier does not apply to
+the scheme of the url, which we need in order to obtain fresh https
+urls.
+
+It is possible changing that default_search_mode to yahoo_search_mode
+BEFORE Google starts to hate you while still using --ssl will allow you
+to restart soat more times than with just Google alone, but then if both
+Yahoo and Google begin to hate you, you can't scan at all.
+
+
+B. Handling Results
+
+At this stage in the game, your primary task will be to periodically
+check the scanner for exceptions and hangs. For that you'll just want
+to tail the soat.log file to make sure it is putting out recent loglines
+and is continuing to run. If there are any issues, please mail me your
+soat.log. 
+
+As things stabilize, you'll want to begin grepping your soat.log for
+ERROR lines. These indicate serious scanning errors and content
+modifications. There will likely be false positives at first, and these
+will require you tar up your ./data directory and soat.log and send it
+to me to improve the filters for them:
+
+# tar -jcf soat-data.tbz2 ./data/soat ./soat.log
+
+At some point in the future, I hope to have a script prepared that will
+mail false positives and actual results to me when you run it. Later
+still, soat will automatically mail these results to an email list we
+are all subscribed to as they happen.
+
+
+Alright, let's get those motherfuckin snakes off this motherfuckin Tor!
