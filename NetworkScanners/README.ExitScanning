@@ -15,7 +15,7 @@ document. This document concerns itself only with running the scanner.
 II. Prerequisites
 
 Python 2.4+
-Custom compiled Tor 0.2.1
+Custom patched Tor 0.2.1
 Super Secret SoaT Sauce
 Bonus: 500M of disk space
 Bonus: Secondary external IP address
@@ -64,19 +64,24 @@ Super Secret SoaT Sauce from Mike Perry's Super Secret SoaT Sauce Stash.
 It contains the necessary pheromones you will need to enable you to
 properly hunt some motherfuckin snakes.
 
-Once you have the Sauce, you should copy it to soat_config.py and
-have a look at its contents.
+Once you have the Sauce, you should copy it to soat_config.py and have a
+look at its contents. In particular, you'll want to change 'refetch_ip'
+to be set to your secondary IP address. If you don't have a secondary
+IP, set it to None.
 
-You'll want to change is to set refetch_ip to be set to your secondary
-IP address. If you don't have a secondary IP, set it to None.
+If you're feeling ambitious, you can edit soat_config.py to change the
+set of 'scan_filetypes' and increase 'max_content_size' to something
+large enough to support these filetypes. However, you should balance
+this with our more immediate need for the scanner to run quickly so that
+the code is exercised and can stabilize quickly.
 
-You'll also want to edit wordlist.txt and change its contents to be a
+You'll also want to edit ./wordlist.txt and change its contents to be a
 smattering of random and/or commonly censored words. If you speak other
 languages (especially any that have unicode characters), using keywords
-from them would be especially useful for testing and scanning. Note
-that these queries WILL be issued in plaintext via non-Tor, and the
-resulting urls fetched via non-Tor as well, so bear that and your
-server's legal jurisdiction in mind when choosing keywords.
+from them would be especially useful for testing and scanning. Note that
+these queries WILL be issued in plaintext via non-Tor, and the resulting
+urls fetched via non-Tor as well, so bear that and your server's legal
+jurisdiction in mind when choosing keywords.
 
 You can also separate out the wordlist.txt file into three files by
 changing the soat_config.py settings 'filetype_wordlist_file',
@@ -84,12 +89,6 @@ changing the soat_config.py settings 'filetype_wordlist_file',
 you to use separate keywords for obtaining SSL, HTML, and Filetype
 urls. This can be useful if you believe it likely for an adversary to
 target only certain keywords/concepts/sites in a particular context.
-
-If you're feeling ambitious, you can also edit soat_config.py to change
-the set of 'scan_filetypes' and increase 'max_content_size' to something
-large enough to support these filetypes. However, you should balance
-this with our more immediate need for the scanner to run quickly so that
-the code is exercised and can stabilize quickly.
 
 
 
