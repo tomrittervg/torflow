@@ -492,7 +492,8 @@ class JSSoupDiffer(JSDiffer):
           if isinstance(child, Tag):
             plog("ERROR", "Script tag with subtag!")
           else:
-            tag_cnts = JSDiffer._count_ast_elements(self, str(child), tag.name)
+            script = str(child).replace("<!--", "").replace("-->", "")
+            tag_cnts = JSDiffer._count_ast_elements(self, script, tag.name)
             ast_cnts = JSSoupDiffer._add_cnts(tag_cnts, ast_cnts)
       for attr in tag.attrs:
         # hrmm.. %-encoding too? Firefox negs on it..

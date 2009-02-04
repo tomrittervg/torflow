@@ -92,41 +92,45 @@ def http_request(address, cookie_jar=None, headers=firefox_headers):
     request.add_header(h, headers[h])
 
   content = ""
+  new_cookies = []
+  mime_type = ""
   try:
     if cookie_jar != None:
       opener = urllib2.build_opener(urllib2.HTTPCookieProcessor(cookie_jar))
       reply = opener.open(request)
       if "__filename" in cookie_jar.__dict__:
         cookie_jar.save(cookie_jar.__filename)
+      new_cookies = cookie_jar.make_cookies(reply, request)
     else:
       reply = urllib2.urlopen(request)
 
     length = reply.info().get("Content-Length")
     if length and int(length) > max_content_size:
       plog("WARN", "Max content size exceeded for "+address+": "+length)
-      return (reply.code, "")
+      return (reply.code, [], "", "")
+    mime_type = reply.info().type
     content = decompress_response_data(reply)
   except urllib2.HTTPError, e:
     plog('WARN', "HTTP Error during request of "+address)
     traceback.print_exc()
-    return (e.code, "") 
+    return (e.code, [], "", "") 
   except (ValueError, urllib2.URLError):
     plog('WARN', 'The http-request address ' + address + ' is malformed')
     traceback.print_exc()
-    return (0, "")
+    return (0, [], "", "")
   except (IndexError, TypeError, socks.Socks5Error), e:
     plog('WARN', 'An error occured while negotiating socks5 with Tor: '+str(e))
     traceback.print_exc()
-    return (0, "")
+    return (0, [], "", "")
   except KeyboardInterrupt:
     raise KeyboardInterrupt
   except:
     plog('WARN', 'An unknown HTTP error occured for '+address)
     traceback.print_exc()
-    return (0, "")
+    return (0, [], "", "")
 
   # TODO: Consider also returning mime type here
-  return (reply.code, content)
+  return (reply.code, new_cookies, mime_type, content)
 
 class Test:
   """ Base class for our tests """
@@ -243,11 +247,11 @@ class SearchBasedTest(Test):
         try:
           # XXX: This does not handle http error codes.. (like 302!)
           if search_mode["useragent"]:
-            (code, content) = http_request(search_url, search_cookies)
+            (code, new_cookies, mime_type, content) = http_request(search_url, search_cookies)
           else:
             headers = copy.copy(firefox_headers)
             del headers["User-Agent"]
-            (code, content) = http_request(search_url, search_cookies, headers)[1]
+            (code, new_cookies, mime_type, content) = http_request(search_url, search_cookies, headers)[1]
         except socket.gaierror:
           plog('ERROR', 'Scraping of http://'+host+search_path+" failed")
           traceback.print_exc()
@@ -318,11 +322,12 @@ class HTTPTest(SearchBasedTest):
       exit_node = self.mt.get_exit_node()
       plog("ERROR", "Cookie mismatch at "+exit_node+":\nTor Cookies:"+tor_cookies+"\nPlain Cookies:\n"+plain_cookies)
       result = CookieTestResult(exit_node, TEST_FAILURE, 
-                              FAILURE_COOKIEMISMATCH, plain_cookies, 
-                              tor_cookies)
+                            FAILURE_COOKIEMISMATCH, plain_cookies, 
+                            tor_cookies)
       self.results.append(result)
       self.datahandler.saveResult(result)
       return TEST_FAILURE
+
     return TEST_SUCCESS
 
   def run_test(self):
@@ -418,11 +423,67 @@ class HTTPTest(SearchBasedTest):
     ''' check whether a http connection to a given address is molested '''
     plog('INFO', 'Conducting an http test with destination ' + address)
 
+
+    # an address representation acceptable for a filename 
+    address_file = self.datahandler.safeFilename(address[7:])
+    content_prefix = http_content_dir+address_file
+    failed_prefix = http_failed_dir+address_file
+    
+    # Keep a copy of the cookie jar before mods for refetch
+    orig_cookie_jar = cookielib.LWPCookieJar()
+    for cookie in self.cookie_jar: orig_cookie_jar.set_cookie(cookie)
+
+    try:
+      # Load content from disk, md5
+      content_file = open(content_prefix+'.content', 'r')
+      sha1sum = sha.sha()
+      buf = content_file.read(4096)
+      while buf:
+        sha1sum.update(buf)
+        buf = content_file.read(4096)
+      content_file.close()
+      self.cookie_jar.load(content_prefix+'.cookies')
+      content = None 
+
+    except IOError:
+      (code, new_cookies, mime_type, content) = http_request(address, self.cookie_jar, self.headers)
+
+      if code - (code % 100) != 200:
+        plog("NOTICE", "Non-tor HTTP error "+str(code)+" fetching content for "+address)
+        # Just remove it
+        self.remove_target(address)
+        return TEST_INCONCLUSIVE
+
+      if not content:
+        plog("WARN", "Failed to direct load "+address)
+        return TEST_INCONCLUSIVE 
+      sha1sum = sha.sha(content)
+
+      content_file = open(content_prefix+'.content', 'w')
+      content_file.write(content)
+      content_file.close()
+      
+      # Need to do set subtraction and only save new cookies.. 
+      # or extract/make_cookies
+      new_cookie_jar = cookielib.LWPCookieJar()
+      for cookie in new_cookies: new_cookie_jar.set_cookie(cookie)
+      try:
+        new_cookie_jar.save(content_prefix+'.cookies')
+      except:
+        traceback.print_exc()
+        plog("WARN", "Error saving cookies in "+str(self.cookie_jar)+" to "+content_prefix+".cookies")
+
+    except TypeError, e:
+      plog('ERROR', 'Failed obtaining the shasum for ' + address)
+      plog('ERROR', e)
+      return TEST_INCONCLUSIVE
+
+
     defaultsocket = socket.socket
     socks.setdefaultproxy(socks.PROXY_TYPE_SOCKS5, tor_host, tor_port)
     socket.socket = socks.socksocket
 
-    (pcode, pcontent) = http_request(address, self.tor_cookie_jar, self.headers)
+    (pcode, pnew_cookies, pmime_type, pcontent) = http_request(address, self.tor_cookie_jar, self.headers)
     psha1sum = sha.sha(pcontent)
 
     # reset the connection to direct
@@ -442,11 +503,6 @@ class HTTPTest(SearchBasedTest):
       self.register_httpcode_failure(address, exit_node)
       return TEST_INCONCLUSIVE
 
-    # an address representation acceptable for a filename 
-    address_file = self.datahandler.safeFilename(address[7:])
-    content_prefix = http_content_dir+address_file
-    failed_prefix = http_failed_dir+address_file
-
     # if we have no content, we had a connection error
     if pcontent == "":
       plog("NOTICE", exit_node+" failed to fetch content for "+address)
@@ -454,40 +510,6 @@ class HTTPTest(SearchBasedTest):
                               INCONCLUSIVE_NOEXITCONTENT)
       self.results.append(result)
       self.datahandler.saveResult(result)
-      return TEST_INCONCLUSIVE
-
-    try:
-      # Load content from disk, md5
-      content_file = open(content_prefix+'.content', 'r')
-      sha1sum = sha.sha()
-      buf = content_file.read(4096)
-      while buf:
-        sha1sum.update(buf)
-        buf = content_file.read(4096)
-      content_file.close()
-      self.cookie_jar.load(content_prefix+'.cookies')
-      content = None 
-
-    except IOError:
-      (code, content) = http_request(address, self.cookie_jar, self.headers)
-      if not content:
-        plog("WARN", "Failed to direct load "+address)
-        return TEST_INCONCLUSIVE 
-      sha1sum = sha.sha(content)
-
-      content_file = open(content_prefix+'.content', 'w')
-      content_file.write(content)
-      content_file.close()
-      
-      try:
-        self.cookie_jar.save(content_prefix+'.cookies')
-      except:
-        traceback.print_exc()
-        plog("WARN", "Error saving cookies in "+str(self.cookie_jar)+" to "+content_prefix+".cookies")
-
-    except TypeError, e:
-      plog('ERROR', 'Failed obtaining the shasum for ' + address)
-      plog('ERROR', e)
       return TEST_INCONCLUSIVE
 
     # compare the content
@@ -501,11 +523,10 @@ class HTTPTest(SearchBasedTest):
       return TEST_SUCCESS
 
     # if content doesnt match, update the direct content and use new cookies
-    self.cookie_jar = cookielib.LWPCookieJar()
     # If we have alternate IPs to bind to on this box, use them?
     # Sometimes pages have the client IP encoded in them..
     BindingSocket.bind_to = refetch_ip
-    (code_new, content_new) = http_request(address, self.cookie_jar, self.headers)
+    (code_new, new_cookies_new, mime_type_new, content_new) = http_request(address, orig_cookie_jar, self.headers)
     BindingSocket.bind_to = None
     
     if not content_new:
@@ -541,13 +562,17 @@ class HTTPTest(SearchBasedTest):
     new_content_file = open(content_prefix+'.content', 'w')
     new_content_file.write(content_new)
     new_content_file.close()
-      
+
+    # Need to do set subtraction and only save new cookies.. 
+    # or extract/make_cookies
+    new_cookie_jar = cookielib.LWPCookieJar()
+    for cookie in new_cookies_new: new_cookie_jar.set_cookie(cookie)
     os.rename(content_prefix+'.cookies', content_prefix+'.cookies-old')
     try:
-      self.cookie_jar.save(content_prefix+'.cookies')
+      new_cookie_jar.save(content_prefix+'.cookies')
     except:
       traceback.print_exc()
-      plog("WARN", "Error saving cookies in "+str(self.cookie_jar)+" to "+content_prefix+".cookies")
+      plog("WARN", "Error saving cookies in "+str(new_cookie_jar)+" to "+content_prefix+".cookies")
 
     # compare the node content and the new content
     # if it matches, everything is ok
@@ -676,19 +701,19 @@ class HTMLTest(HTTPTest):
       for t in tags:
         #plog("DEBUG", "Got tag: "+str(t))
         for a in t.attrs:
-          attr_name = str(a[0])
-          attr_tgt = str(a[1])
+          attr_name = a[0]
+          attr_tgt = a[1]
           if attr_name in attrs_to_recurse:
-            if str(t.name) in recurse_html:
+            if t.name in recurse_html:
               targets.append(("html", urlparse.urljoin(orig_addr, attr_tgt)))
-            elif str(t.name) in recurse_script:
-              if str(t.name) == "link":
+            elif t.name in recurse_script:
+              if t.name == "link":
                 for a in t.attrs:
-                  if str(a[0]) == "type" and str(a[1]) in link_script_types:
+                  if a[0] == "type" and a[1] in link_script_types:
                     targets.append(("js", urlparse.urljoin(orig_addr, attr_tgt)))
               else:
                 targets.append(("js", urlparse.urljoin(orig_addr, attr_tgt)))
-            elif str(t.name) == 'a':
+            elif t.name == 'a':
               if attr_name == "href":
                 for f in self.recurse_filetypes:
                   if f not in got_type and attr_tgt[-len(f):] == f:
@@ -705,7 +730,7 @@ class HTMLTest(HTTPTest):
 
 
   def _tag_not_worthy(self, tag):
-    if str(tag.name) in tags_to_check:
+    if tag.name in tags_to_check:
       return False
     for attr in tag.attrs:
       if attr[0] in attrs_to_check_map:
@@ -791,57 +816,17 @@ class HTMLTest(HTTPTest):
     ''' check whether a http connection to a given address is molested '''
     plog('INFO', 'Conducting an html test with destination ' + address)
 
-    defaultsocket = socket.socket
-    socks.setdefaultproxy(socks.PROXY_TYPE_SOCKS5, tor_host, tor_port)
-    socket.socket = socks.socksocket
-
-    # Wikipedia and others can give us 403.. So what do we do about that?
-    # Count the number of occurrances vs successful runs then remove the url
-    (pcode, pcontent) = http_request(address, self.tor_cookie_jar, self.headers)
-
-    # reset the connection to direct
-    socket.socket = defaultsocket
-
-    exit_node = self.mt.get_exit_node()
-    if exit_node == 0 or exit_node == '0' or not exit_node:
-      plog('WARN', 'We had no exit node to test, skipping to the next test.')
-      return TEST_SUCCESS
-
-    # XXX: Fetch via non-tor first...
-    if pcode - (pcode % 100) != 200:
-      plog("NOTICE", exit_node+" had error "+str(pcode)+" fetching content for "+address)
-      result = HttpTestResult(exit_node, address, TEST_INCONCLUSIVE,
-                              INCONCLUSIVE_BADHTTPCODE+str(pcode))
-      self.results.append(result)
-      self.datahandler.saveResult(result)
-      self.register_httpcode_failure(address, exit_node)
-      return TEST_INCONCLUSIVE
-
     # an address representation acceptable for a filename 
     address_file = self.datahandler.safeFilename(address[7:])
     content_prefix = http_content_dir+address_file
     failed_prefix = http_failed_dir+address_file
 
-    # if we have no content, we had a connection error
-    if pcontent == "":
-      plog("NOTICE", exit_node+" failed to fetch content for "+address)
-      result = HtmlTestResult(exit_node, address, TEST_INCONCLUSIVE,
-                              INCONCLUSIVE_NOEXITCONTENT)
-      self.results.append(result)
-      self.datahandler.saveResult(result)
-      return TEST_INCONCLUSIVE
+    # Keep a copy of the cookie jar before mods for refetch
+    orig_cookie_jar = cookielib.LWPCookieJar()
+    for cookie in self.cookie_jar: orig_cookie_jar.set_cookie(cookie)
 
     elements = SoupStrainer(lambda name, attrs: name in tags_to_check or 
         len(Set(map(lambda a: a[0], attrs)).intersection(Set(attrs_to_check))) > 0)
-    pcontent = pcontent.decode('ascii', 'ignore')
-    psoup = self._recursive_strain(BeautifulSoup(pcontent, parseOnlyThese=elements))
-
-    # Also find recursive urls
-    recurse_elements = SoupStrainer(lambda name, attrs: 
-         name in tags_to_recurse and 
-            len(Set(map(lambda a: a[0], attrs)).intersection(Set(attrs_to_recurse))) > 0)
-    self._add_recursive_targets(BeautifulSoup(pcontent, recurse_elements), 
-                               address) 
 
     # load the original tag structure
     # if we don't have any yet, get it
@@ -854,10 +839,18 @@ class HTMLTest(HTTPTest):
       self.cookie_jar.load(content_prefix+'.cookies', 'w')
 
     except IOError:
-      (code, content) = http_request(address, self.cookie_jar, self.headers)
+      (code, new_cookies, mime_type, content) = http_request(address, self.cookie_jar, self.headers)
+
+      if code - (code % 100) != 200:
+        plog("NOTICE", "Non-tor HTTP error "+str(code)+" fetching content for "+address)
+        # Just remove it
+        self.remove_target(address)
+        return TEST_INCONCLUSIVE
+
       content = content.decode('ascii','ignore')
       soup = self._recursive_strain(BeautifulSoup(content, parseOnlyThese=elements))
 
+      # XXX: str of this may be bad if there are unicode chars inside
       string_soup = str(soup)
       if not string_soup:
         plog("WARN", "Empty soup for "+address)
@@ -865,11 +858,15 @@ class HTMLTest(HTTPTest):
       tag_file.write(string_soup) 
       tag_file.close()
 
+      # Need to do set subtraction and only save new cookies.. 
+      # or extract/make_cookies
+      new_cookie_jar = cookielib.LWPCookieJar()
+      for cookie in new_cookies: new_cookie_jar.set_cookie(cookie)
       try:
-        self.cookie_jar.save(content_prefix+'.cookies')
+        new_cookie_jar.save(content_prefix+'.cookies')
       except:
         traceback.print_exc()
-        plog("WARN", "Error saving cookies in "+str(self.cookie_jar)+" to "+content_prefix+".cookies")
+        plog("WARN", "Error saving cookies in "+str(new_cookie_jar)+" to "+content_prefix+".cookies")
 
       content_file = open(content_prefix+'.content', 'w')
       content_file.write(content)
@@ -879,9 +876,55 @@ class HTMLTest(HTTPTest):
       plog('ERROR', 'Failed parsing the tag tree for ' + address)
       plog('ERROR', e)
       return TEST_INCONCLUSIVE
+
     if soup == 0:
       plog('ERROR', 'Failed to get the correct tag structure for ' + address)
       return TEST_INCONCLUSIVE
+
+
+    defaultsocket = socket.socket
+    socks.setdefaultproxy(socks.PROXY_TYPE_SOCKS5, tor_host, tor_port)
+    socket.socket = socks.socksocket
+
+    # Wikipedia and others can give us 403.. So what do we do about that?
+    # Count the number of occurrances vs successful runs then remove the url
+    (pcode, pcookies, pmime_type, pcontent) = http_request(address, self.tor_cookie_jar, self.headers)
+
+    # reset the connection to direct
+    socket.socket = defaultsocket
+
+    exit_node = self.mt.get_exit_node()
+    if exit_node == 0 or exit_node == '0' or not exit_node:
+      plog('WARN', 'We had no exit node to test, skipping to the next test.')
+      return TEST_SUCCESS
+
+    if pcode - (pcode % 100) != 200:
+      plog("NOTICE", exit_node+" had error "+str(pcode)+" fetching content for "+address)
+      result = HttpTestResult(exit_node, address, TEST_INCONCLUSIVE,
+                              INCONCLUSIVE_BADHTTPCODE+str(pcode))
+      self.results.append(result)
+      self.datahandler.saveResult(result)
+      self.register_httpcode_failure(address, exit_node)
+      return TEST_INCONCLUSIVE
+
+    # if we have no content, we had a connection error
+    if pcontent == "":
+      plog("NOTICE", exit_node+" failed to fetch content for "+address)
+      result = HtmlTestResult(exit_node, address, TEST_INCONCLUSIVE,
+                              INCONCLUSIVE_NOEXITCONTENT)
+      self.results.append(result)
+      self.datahandler.saveResult(result)
+      return TEST_INCONCLUSIVE
+
+    pcontent = pcontent.decode('ascii', 'ignore')
+    psoup = self._recursive_strain(BeautifulSoup(pcontent, parseOnlyThese=elements))
+
+    # Also find recursive urls
+    recurse_elements = SoupStrainer(lambda name, attrs: 
+         name in tags_to_recurse and 
+            len(Set(map(lambda a: a[0], attrs)).intersection(Set(attrs_to_recurse))) > 0)
+    self._add_recursive_targets(BeautifulSoup(pcontent, recurse_elements), 
+                               address) 
 
     # compare the content
     # if content matches, everything is ok
@@ -894,12 +937,10 @@ class HTMLTest(HTTPTest):
       return TEST_SUCCESS
 
     # if content doesnt match, update the direct content and use new cookies
-    self.cookie_jar = cookielib.LWPCookieJar()
-
     # If we have alternate IPs to bind to on this box, use them?
     # Sometimes pages have the client IP encoded in them..
     BindingSocket.bind_to = refetch_ip
-    (code_new, content_new) = http_request(address, self.cookie_jar, self.headers)
+    (code_new, new_cookies_new, mime_type_new, content_new) = http_request(address, orig_cookie_jar, self.headers)
     BindingSocket.bind_to = None
 
     content_new = content_new.decode('ascii', 'ignore')
@@ -945,11 +986,15 @@ class HTMLTest(HTTPTest):
     tag_file.close()
       
     os.rename(content_prefix+'.cookies', content_prefix+'.cookies-old')
+    # Need to do set subtraction and only save new cookies.. 
+    # or extract/make_cookies
+    new_cookie_jar = cookielib.LWPCookieJar()
+    for cookie in new_cookies_new: new_cookie_jar.set_cookie(cookie)
     try:
-      self.cookie_jar.save(content_prefix+'.cookies')
+      new_cookie_jar.save(content_prefix+'.cookies')
     except:
       traceback.print_exc()
-      plog("WARN", "Error saving cookies in "+str(self.cookie_jar)+" to "+content_prefix+".cookies")
+      plog("WARN", "Error saving cookies in "+str(new_cookie_jar)+" to "+content_prefix+".cookies")
 
     os.rename(content_prefix+'.content', content_prefix+'.content-old')
     new_content_file = open(content_prefix+'.content', 'w')
