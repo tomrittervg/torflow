@@ -328,6 +328,20 @@ class DataHandler:
       replace('|','_').replace('*','_').replace('<','_').replace('>','_').replace('"',''))
     return replaced[:200]
 
+  def resultFilename(self, result):
+    # XXX: Check existance and make a secondary name if exists.
+    dir = data_dir+result.proto.lower()+'/'
+    if result.false_positive:
+      dir += 'falsepositive/'
+    elif result.status == TEST_SUCCESS:
+      dir += 'successful/'
+    elif result.status == TEST_INCONCLUSIVE:
+      dir += 'inconclusive/'
+    elif result.status == TEST_FAILURE:
+      dir += 'failed/'
+
+    return dir+address+'.result.'+result.exit_node[1:]
+
   def saveResult(self, result):
     ''' generic method for saving test results '''
     address = ''
@@ -340,15 +354,7 @@ class DataHandler:
     else:
       raise Exception, 'This doesn\'t seems to be a result instance.'
 
-    dir = data_dir+result.proto.lower()+'/'
-    if result.status == TEST_SUCCESS:
-      dir += 'successful/'
-    if result.status == TEST_INCONCLUSIVE:
-      dir += 'inconclusive/'
-    if result.status == TEST_FAILURE:
-      dir += 'failed/'
-    
-    result_file = open(dir+address+'.result.'+result.exit_node[1:], 'w')
+    result_file = open(self.resultFilename(result), 'w')
     pickle.dump(result, result_file)
     result_file.close()
 
