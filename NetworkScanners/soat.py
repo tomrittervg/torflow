@@ -402,7 +402,7 @@ class HTTPTest(SearchBasedTest):
       if r.site == address:
         kill_results.append(r)
     for r in kill_results:
-      r.mark_false_positive()
+      r.mark_false_positive(reason)
       self.results.remove(r)
     
   def register_exit_failure(self, address, exit_node):
@@ -447,11 +447,9 @@ class HTTPTest(SearchBasedTest):
     ''' check whether a http connection to a given address is molested '''
     plog('INFO', 'Conducting an http test with destination ' + address)
 
-
     # an address representation acceptable for a filename 
     address_file = self.datahandler.safeFilename(address[7:])
     content_prefix = http_content_dir+address_file
-    failed_prefix = http_failed_dir+address_file
     
     # Keep a copy of the cookie jar before mods for refetch or
     # to restore on errors that cancel a fetch
@@ -469,6 +467,9 @@ class HTTPTest(SearchBasedTest):
         sha1sum.update(buf)
         buf = content_file.read(4096)
       content_file.close()
+      
+      added_cookie_jar = cookielib.MozillaCookieJar()
+      added_cookie_jar.load(content_prefix+'.cookies')
       self.cookie_jar.load(content_prefix+'.cookies')
       content = None 
 
@@ -498,10 +499,10 @@ class HTTPTest(SearchBasedTest):
       
       # Need to do set subtraction and only save new cookies.. 
       # or extract/make_cookies
-      new_cookie_jar = cookielib.MozillaCookieJar()
-      for cookie in new_cookies: new_cookie_jar.set_cookie(cookie)
+      added_cookie_jar = cookielib.MozillaCookieJar()
+      for cookie in new_cookies: added_cookie_jar.set_cookie(cookie)
       try:
-        new_cookie_jar.save(content_prefix+'.cookies')
+        added_cookie_jar.save(content_prefix+'.cookies')
       except:
         traceback.print_exc()
         plog("WARN", "Error saving cookies in "+str(self.cookie_jar)+" to "+content_prefix+".cookies")
@@ -513,7 +514,6 @@ class HTTPTest(SearchBasedTest):
       self.cookie_jar = orig_cookie_jar
       self.tor_cookie_jar = orig_tor_cookie_jar
       return TEST_INCONCLUSIVE
-
 
     defaultsocket = socket.socket
     socks.setdefaultproxy(socks.PROXY_TYPE_SOCKS5, tor_host, tor_port)
@@ -584,32 +584,16 @@ class HTTPTest(SearchBasedTest):
 
     sha1sum_new = sha.sha(content_new)
 
-    # compare the new and old content
-    # if they match, means the node has been changing the content
-    if sha1sum.hexdigest() == sha1sum_new.hexdigest():
-      # XXX: Check for existence of this file before overwriting
-      exit_content_file = open(failed_prefix+'.content.'+exit_node[1:], 'w')
-      exit_content_file.write(pcontent)
-      exit_content_file.close()
-
-      result = HttpTestResult(exit_node, address, TEST_FAILURE, 
-                              FAILURE_EXITONLY, sha1sum.hexdigest(), 
-                              psha1sum.hexdigest(), content_prefix+".content",
-                              exit_content_file.name)
-      self.results.append(result)
-      self.datahandler.saveResult(result)
-
-      self.register_exit_failure(address, exit_node)
-      return TEST_FAILURE
-
-    # if content has changed outside of tor, update the saved file
-    os.rename(content_prefix+'.content', content_prefix+'.content-old')
-    new_content_file = open(content_prefix+'.content', 'w')
-    new_content_file.write(content_new)
-    new_content_file.close()
+    if sha1sum.hexdigest() != sha1sum_new.hexdigest():
+      # if content has changed outside of tor, update the saved file
+      os.rename(content_prefix+'.content', content_prefix+'.content-old')
+      new_content_file = open(content_prefix+'.content', 'w')
+      new_content_file.write(content_new)
+      new_content_file.close()
 
     # Need to do set subtraction and only save new cookies.. 
     # or extract/make_cookies
+    self.cookie_jar = orig_cookie_jar
     new_cookie_jar = cookielib.MozillaCookieJar()
     for cookie in new_cookies_new: new_cookie_jar.set_cookie(cookie)
     os.rename(content_prefix+'.cookies', content_prefix+'.cookies-old')
@@ -648,6 +632,24 @@ class HTTPTest(SearchBasedTest):
     address_file = self.datahandler.safeFilename(address[7:])
     content_prefix = http_content_dir+address_file
     failed_prefix = http_failed_dir+address_file
+
+    # compare the new and old content
+    # if they match, means the node has been changing the content
+    if sha1sum.hexdigest() == sha1sum_new.hexdigest():
+      # XXX: Check for existence of this file before overwriting
+      exit_content_file = open(failed_prefix+'.content.'+exit_node[1:], 'w')
+      exit_content_file.write(pcontent)
+      exit_content_file.close()
+
+      result = HttpTestResult(exit_node, address, TEST_FAILURE, 
+                              FAILURE_EXITONLY, sha1sum.hexdigest(), 
+                              psha1sum.hexdigest(), content_prefix+".content",
+                              exit_content_file.name)
+      self.results.append(result)
+      self.datahandler.saveResult(result)
+
+      self.register_exit_failure(address, exit_node)
+      return TEST_FAILURE
 
     # XXX: Check for existence of this file before overwriting
     exit_content_file = open(failed_prefix+'.dyn-content.'+exit_node[1:], 'w')
@@ -819,9 +821,9 @@ class HTMLTest(HTTPTest):
 
     jsdiff = JSDiffer(orig_js)
     jsdiff.prune_differences(new_js)
-    false_positive = not jsdiff.contains_differences(tor_js)
+    has_js_changes = jsdiff.contains_differences(tor_js)
 
-    if false_positive:
+    if not has_js_changes:
       result = JsTestResult(exit_node, address, TEST_SUCCESS)
       self.results.append(result)
       #self.datahandler.saveResult(result)
@@ -850,10 +852,6 @@ class HTMLTest(HTTPTest):
 
   def check_html(self, address):
     plog('INFO', 'Conducting an html test with destination ' + address)
-
-    # Keep a copy of the cookie jar before mods for refetch
-    orig_cookie_jar = cookielib.MozillaCookieJar()
-    for cookie in self.cookie_jar: orig_cookie_jar.set_cookie(cookie)
 
     ret = self.check_http_nodynamic(address)
     
@@ -893,13 +891,6 @@ class HTMLTest(HTTPTest):
       else: self.successes[address]=1
       return TEST_SUCCESS
 
-    # if content doesnt match, update the direct content and use new cookies
-    # If we have alternate IPs to bind to on this box, use them?
-    # Sometimes pages have the client IP encoded in them..
-    BindingSocket.bind_to = refetch_ip
-    (code_new, new_cookies_new, mime_type_new, new_html) = http_request(address, orig_cookie_jar, self.headers)
-    BindingSocket.bind_to = None
-
     content_new = new_html.decode('ascii', 'ignore')
     if not content_new:
       plog("WARN", "Failed to re-frech "+address+" outside of Tor. Did our network fail?")
@@ -908,6 +899,7 @@ class HTMLTest(HTTPTest):
       self.results.append(result)
       self.datahandler.saveResult(result)
       return TEST_INCONCLUSIVE
+
 
     new_soup = self._recursive_strain(BeautifulSoup(content_new,
                                      parseOnlyThese=elements))
@@ -927,23 +919,6 @@ class HTMLTest(HTTPTest):
  
       self.register_exit_failure(address, exit_node)
       return TEST_FAILURE
-
-    # if content has changed outside of tor, update the saved files
-    os.rename(content_prefix+'.content', content_prefix+'.content-old')
-    new_content_file = open(content_prefix+'.content', 'w')
-    new_content_file.write(new_html)
-    new_content_file.close()
-      
-    os.rename(content_prefix+'.cookies', content_prefix+'.cookies-old')
-    # Need to do set subtraction and only save new cookies.. 
-    # or extract/make_cookies
-    new_cookie_jar = cookielib.MozillaCookieJar()
-    for cookie in new_cookies_new: new_cookie_jar.set_cookie(cookie)
-    try:
-      new_cookie_jar.save(content_prefix+'.cookies')
-    except:
-      traceback.print_exc()
-      plog("WARN", "Error saving cookies in "+str(new_cookie_jar)+" to "+content_prefix+".cookies")
 
     # Lets try getting just the tag differences
     # 1. Take difference between old and new tags both ways
@@ -992,7 +967,7 @@ class HTMLTest(HTTPTest):
     exit_content_file.close()
 
     result = HtmlTestResult(exit_node, address, TEST_FAILURE, 
-                            FAILURE_DYNAMICTAGS, new_content_file.name,
+                            FAILURE_DYNAMICTAGS, content_prefix+".content",
                             exit_content_file.name, 
                             content_prefix+'.content-old')
     self.results.append(result)
@@ -1029,7 +1004,8 @@ class SSLTest(SearchBasedTest):
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     c = SSL.Connection(ctx, s)
     c.set_connect_state()
-     
+  
+    # FIXME: Change this whole test to store pickled SSLDomains
     try:
       c.connect((address, 443)) # XXX: Verify TorDNS here too..
       c.send(crypto.dump_certificate_request(crypto.FILETYPE_PEM,request))
@@ -1083,11 +1059,13 @@ class SSLTest(SearchBasedTest):
     # if we don't have the original cert yet, get it
     original_cert = 0
     try:
+      # XXX: Use pickle with IP:cert string
       cert_file = open(ssl_certs_dir + address_file + '.pem', 'r')
       cert_string = cert_file.read()
       original_cert = crypto.load_certificate(crypto.FILETYPE_PEM, cert_string)
     except IOError:
       plog('INFO', 'Opening a direct ssl connection to ' + address)
+      # XXX: Connect to specific IP used via Non-Tor
       original_cert = self.ssl_request(address)
       if not original_cert:
         plog('WARN', 'Error getting the correct cert for ' + address)

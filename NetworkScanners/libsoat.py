@@ -84,6 +84,27 @@ class SSLTestResult(TestResult):
     self.cert = cert_file
     self.proto = "ssl"
 
+class SSLDomain:
+  def __init__(self, domain):
+    self.domain = domain
+    # These two could just be sets.Set, but I was kind 
+    # of curious about the logline below.
+    self.cert_map = {}
+    self.ip_map = {}
+
+  def add(self, cert_string, ip):
+    if self.ip_map[ip] != cert_string:
+      plog("NOTICE", self.domain+" is rotating certs for IP "+ip+". Interesting..")
+    self.cert_map[cert_string] = ip
+    self.ip_map[ip] = cert_string
+
+  def matches(self, cert_string):
+    return cert_string in self.cert_map
+
+  def seen_ip(self, ip):
+    return ip in self.ip_map
+
+
 class HttpTestResult(TestResult):
   ''' Represents the result of a http test '''
   def __init__(self, exit_node, website, status, reason=None, 
