@@ -404,7 +404,10 @@ class HTTPTest(SearchBasedTest):
     for r in kill_results:
       # Save this new result file in false positive dir 
       # and remove old one
-      os.unlink(self.datahandler.resultFilename(r))
+      try:
+        os.unlink(self.datahandler.resultFilename(r))
+      except:
+        pass
       r.mark_false_positive(reason)
       self.datahandler.saveResult(r)
       self.results.remove(r)
