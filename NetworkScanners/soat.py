@@ -173,7 +173,7 @@ class Test:
   def get_node(self):
     return random.choice(self.nodes)
 
-  def remove_target(self, target):
+  def remove_target(self, target, reason="None"):
     if target in self.targets: self.targets.remove(target)
     if len(self.targets) < self.min_targets:
       plog("NOTICE", self.proto+" scanner short on targets. Adding more")
@@ -392,8 +392,8 @@ class HTTPTest(SearchBasedTest):
           urls[ftype].append(url)
     return urls     
  
-  def remove_target(self, address):
-    SearchBasedTest.remove_target(self, address)
+  def remove_target(self, address, reason):
+    SearchBasedTest.remove_target(self, address, reason)
     if address in self.httpcode_fails: del self.httpcode_fails[address]
     if address in self.successes: del self.successes[address]
     if address in self.exit_fails: del self.exit_fails[address]
@@ -418,7 +418,7 @@ class HTTPTest(SearchBasedTest):
       if address not in self.successes: self.successes[address] = 0
       plog("NOTICE", "Excessive HTTP 2-way failure ("+str(err_cnt)+" vs "+str(self.successes[address])+") for "+address+". Removing.")
   
-      self.remove_target(address)
+      self.remove_target(address, FALSEPOSITIVE_DYNAMIC_TOR)
     else:
       plog("ERROR", self.proto+" 2-way failure at "+exit_node+". This makes "+str(err_cnt)+" node failures for "+address)
 
@@ -436,7 +436,7 @@ class HTTPTest(SearchBasedTest):
       if address not in self.successes: self.successes[address] = 0
       plog("NOTICE", "Excessive HTTP error code failure ("+str(err_cnt)+" vs "+str(self.successes[address])+") for "+address+". Removing.")
 
-      self.remove_target(address)
+      self.remove_target(address, FALSEPOSITIVE_HTTPERRORS)
     else:
       plog("ERROR", self.proto+" http error code failure at "+exit_node+". This makes "+str(err_cnt)+" node failures for "+address)
     
@@ -451,9 +451,12 @@ class HTTPTest(SearchBasedTest):
     content_prefix = http_content_dir+address_file
     failed_prefix = http_failed_dir+address_file
     
-    # Keep a copy of the cookie jar before mods for refetch
+    # Keep a copy of the cookie jar before mods for refetch or
+    # to restore on errors that cancel a fetch
     orig_cookie_jar = cookielib.LWPCookieJar()
     for cookie in self.cookie_jar: orig_cookie_jar.set_cookie(cookie)
+    orig_tor_cookie_jar = cookielib.LWPCookieJar()
+    for cookie in self.tor_cookie_jar: orig_tor_cookie_jar.set_cookie(cookie)
 
     try:
       # Load content from disk, md5
@@ -473,11 +476,17 @@ class HTTPTest(SearchBasedTest):
       if code - (code % 100) != 200:
         plog("NOTICE", "Non-tor HTTP error "+str(code)+" fetching content for "+address)
         # Just remove it
-        self.remove_target(address)
+        self.remove_target(address, FALSEPOSITIVE_HTTPERRORS)
+        # Restore cookie jars
+        self.cookie_jar = orig_cookie_jar
+        self.tor_cookie_jar = orig_tor_cookie_jar
         return TEST_INCONCLUSIVE
 
       if not content:
         plog("WARN", "Failed to direct load "+address)
+        # Restore cookie jar
+        self.cookie_jar = orig_cookie_jar
+        self.tor_cookie_jar = orig_tor_cookie_jar
         return TEST_INCONCLUSIVE 
       sha1sum = sha.sha(content)
 
@@ -498,6 +507,9 @@ class HTTPTest(SearchBasedTest):
     except TypeError, e:
       plog('ERROR', 'Failed obtaining the shasum for ' + address)
       plog('ERROR', e)
+      # Restore cookie jars
+      self.cookie_jar = orig_cookie_jar
+      self.tor_cookie_jar = orig_tor_cookie_jar
       return TEST_INCONCLUSIVE
 
 
@@ -514,6 +526,9 @@ class HTTPTest(SearchBasedTest):
     exit_node = self.mt.get_exit_node()
     if exit_node == 0 or exit_node == '0' or not exit_node:
       plog('WARN', 'We had no exit node to test, skipping to the next test.')
+      # Restore cookie jars
+      self.cookie_jar = orig_cookie_jar
+      self.tor_cookie_jar = orig_tor_cookie_jar
       return TEST_SUCCESS
 
     if pcode - (pcode % 100) != 200:
@@ -523,6 +538,9 @@ class HTTPTest(SearchBasedTest):
       self.results.append(result)
       self.datahandler.saveResult(result)
       self.register_httpcode_failure(address, exit_node)
+      # Restore cookie jars
+      self.cookie_jar = orig_cookie_jar
+      self.tor_cookie_jar = orig_tor_cookie_jar
       return TEST_INCONCLUSIVE
 
     # if we have no content, we had a connection error
@@ -532,6 +550,9 @@ class HTTPTest(SearchBasedTest):
                               INCONCLUSIVE_NOEXITCONTENT)
       self.results.append(result)
       self.datahandler.saveResult(result)
+      # Restore cookie jars
+      self.cookie_jar = orig_cookie_jar
+      self.tor_cookie_jar = orig_tor_cookie_jar
       return TEST_INCONCLUSIVE
 
     # compare the content
@@ -642,7 +663,7 @@ class HTTPTest(SearchBasedTest):
 
     # The HTTP Test should remove address immediately.
     plog("WARN", "HTTP Test is removing dynamic URL "+address)
-    self.remove_target(address)
+    self.remove_target(address, FALSEPOSITIVE_DYNAMIC)
     return TEST_FAILURE
 
 class HTMLTest(HTTPTest):
@@ -693,8 +714,8 @@ class HTMLTest(HTTPTest):
   def get_targets(self):
     return self.get_search_urls('http', self.fetch_targets) 
 
-  def remove_target(self, address):
-    HTTPTest.remove_target(self, address)
+  def remove_target(self, address, reason):
+    HTTPTest.remove_target(self, address, reason)
     if address in self.dynamic_fails: del self.dynamic_fails[address]
 
   def register_dynamic_failure(self, address, exit_node):
@@ -711,7 +732,7 @@ class HTMLTest(HTTPTest):
       if address not in self.successes: self.successes[address] = 0
       plog("NOTICE", "Excessive HTTP 3-way failure ("+str(err_cnt)+" vs "+str(self.successes[address])+") for "+address+". Removing.")
 
-      self.remove_target(address)
+      self.remove_target(address, FALSEPOSITIVE_DYNAMIC)
     else:
       plog("ERROR", self.proto+" 3-way failure at "+exit_node+". This makes "+str(err_cnt)+" node failures for "+address)
 
@@ -835,8 +856,9 @@ class HTMLTest(HTTPTest):
     pass
 
   def check_html(self, address):
-    # TODO: Break this out into a check_html_notags that just does a sha check
-    # FIXME: Also check+store non-tor mime types
+    # FIXME: Is there any reason not to just do SHA1 until we
+    # hit a difference, and then pull in the Soup stuff for false positives?
+    # Would eliminate a lot of semi-duplicate code...
     ''' check whether a http connection to a given address is molested '''
     plog('INFO', 'Conducting an html test with destination ' + address)
 
@@ -848,6 +870,8 @@ class HTMLTest(HTTPTest):
     # Keep a copy of the cookie jar before mods for refetch
     orig_cookie_jar = cookielib.LWPCookieJar()
     for cookie in self.cookie_jar: orig_cookie_jar.set_cookie(cookie)
+    orig_tor_cookie_jar = cookielib.LWPCookieJar()
+    for cookie in self.tor_cookie_jar: orig_tor_cookie_jar.set_cookie(cookie)
 
     elements = SoupStrainer(lambda name, attrs: name in tags_to_check or 
         len(Set(map(lambda a: a[0], attrs)).intersection(Set(attrs_to_check))) > 0)
@@ -868,7 +892,10 @@ class HTMLTest(HTTPTest):
       if code - (code % 100) != 200:
         plog("NOTICE", "Non-tor HTTP error "+str(code)+" fetching content for "+address)
         # Just remove it
-        self.remove_target(address)
+        self.remove_target(address, FALSEPOSITIVE_HTTPERRORS)
+        # Restore cookie jars
+        self.cookie_jar = orig_cookie_jar
+        self.tor_cookie_jar = orig_tor_cookie_jar
         return TEST_INCONCLUSIVE
 
       content = content.decode('ascii','ignore')
@@ -899,10 +926,16 @@ class HTMLTest(HTTPTest):
     except TypeError, e:
       plog('ERROR', 'Failed parsing the tag tree for ' + address)
       plog('ERROR', e)
+      # Restore cookie jars
+      self.cookie_jar = orig_cookie_jar
+      self.tor_cookie_jar = orig_tor_cookie_jar
       return TEST_INCONCLUSIVE
 
     if soup == 0:
       plog('ERROR', 'Failed to get the correct tag structure for ' + address)
+      # Restore cookie jars
+      self.cookie_jar = orig_cookie_jar
+      self.tor_cookie_jar = orig_tor_cookie_jar
       return TEST_INCONCLUSIVE
 
 
@@ -920,6 +953,9 @@ class HTMLTest(HTTPTest):
     exit_node = self.mt.get_exit_node()
     if exit_node == 0 or exit_node == '0' or not exit_node:
       plog('WARN', 'We had no exit node to test, skipping to the next test.')
+      # Restore cookie jars
+      self.cookie_jar = orig_cookie_jar
+      self.tor_cookie_jar = orig_tor_cookie_jar
       return TEST_SUCCESS
 
     if pcode - (pcode % 100) != 200:
@@ -929,6 +965,9 @@ class HTMLTest(HTTPTest):
       self.results.append(result)
       self.datahandler.saveResult(result)
       self.register_httpcode_failure(address, exit_node)
+      # Restore cookie jars
+      self.cookie_jar = orig_cookie_jar
+      self.tor_cookie_jar = orig_tor_cookie_jar
       return TEST_INCONCLUSIVE
 
     # if we have no content, we had a connection error
@@ -938,6 +977,9 @@ class HTMLTest(HTTPTest):
                               INCONCLUSIVE_NOEXITCONTENT)
       self.results.append(result)
       self.datahandler.saveResult(result)
+      # Restore cookie jars
+      self.cookie_jar = orig_cookie_jar
+      self.tor_cookie_jar = orig_tor_cookie_jar
       return TEST_INCONCLUSIVE
 
     pcontent = pcontent.decode('ascii', 'ignore')

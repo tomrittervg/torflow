@@ -46,6 +46,11 @@ FAILURE_DYNAMICJS = "FailureDynamicJS"
 FAILURE_DYNAMICBINARY = "FailureDynamicBinary" 
 FAILURE_COOKIEMISMATCH = "FailureCookieMismatch"
 
+# False positive reasons
+FALSEPOSITIVE_HTTPERRORS = "FalsePositiveHTTPErrors"
+FALSEPOSITIVE_DYNAMIC = "FalsePositiveDynamic"
+FALSEPOSITIVE_DYNAMIC_TOR = "FalsePositiveDynamicTor"
+
 # classes to use with pickle to dump test results into files
 
 class TestResult(object):
@@ -57,10 +62,11 @@ class TestResult(object):
     self.status = status
     self.false_positive=False
   
-  def mark_false_positive(self):
+  def mark_false_positive(self, reason):
     pass
 
   def move_file(self, file, to_dir):
+    if not file: return None
     try:
       basename = os.path.basename(file)
       new_file = to_dir+basename
@@ -92,9 +98,12 @@ class HttpTestResult(TestResult):
     self.content = content
     self.content_exit = content_exit
     self.content_old = content_old
+    self.false_positive=False
+    self.false_positive_reason="None"
 
-  def mark_false_positive(self):
+  def mark_false_positive(self, reason):
     self.false_positive=True
+    self.false_positive_reason=reason
     self.content=self.move_file(self.content, http_falsepositive_dir)
     self.content_old=self.move_file(self.content_old, http_falsepositive_dir)
     self.content_exit=self.move_file(self.content_exit,http_falsepositive_dir)
@@ -126,9 +135,12 @@ class JsTestResult(TestResult):
     self.content = content
     self.content_exit = content_exit
     self.content_old = content_old
+    self.false_positive=False
+    self.false_positive_reason="None"
 
-  def mark_false_positive(self):
+  def mark_false_positive(self, reason):
     self.false_positive=True
+    self.false_positive_reason=reason
     self.content=self.move_file(self.content, http_falsepositive_dir)
     self.content_old=self.move_file(self.content_old, http_falsepositive_dir)
     self.content_exit=self.move_file(self.content_exit,http_falsepositive_dir)
@@ -155,9 +167,12 @@ class HtmlTestResult(TestResult):
     self.content = content
     self.content_exit = content_exit
     self.content_old = content_old
+    self.false_positive=False
+    self.false_positive_reason="None"
 
-  def mark_false_positive(self):
+  def mark_false_positive(self, reason):
     self.false_positive=True
+    self.false_positive_reason=reason
     self.tags=self.move_file(self.tags,http_falsepositive_dir)
     self.tags_old=self.move_file(self.tags_old,http_falsepositive_dir)
     self.exit_tags=self.move_file(self.exit_tags,http_falsepositive_dir)
@@ -527,7 +542,7 @@ class JSSoupDiffer(JSDiffer):
           if isinstance(child, Tag):
             plog("ERROR", "Script tag with subtag!")
           else:
-            script = str(child).replace("<!--", "").replace("-->", "")
+            script = str(child).replace("<!--", "").replace("-->", "").replace("<![CDATA[", "").replace("]]>", "")
             tag_cnts = JSDiffer._count_ast_elements(self, script, tag.name)
             ast_cnts = JSSoupDiffer._add_cnts(tag_cnts, ast_cnts)
       for attr in tag.attrs:
