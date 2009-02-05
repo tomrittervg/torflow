@@ -355,8 +355,8 @@ class HTTPTest(SearchBasedTest):
 
   def run_test(self):
     # A single test should have a single cookie jar
-    self.tor_cookie_jar = cookielib.LWPCookieJar()
-    self.cookie_jar = cookielib.LWPCookieJar()
+    self.tor_cookie_jar = cookielib.MozillaCookieJar()
+    self.cookie_jar = cookielib.MozillaCookieJar()
     # XXX: Change these headers (esp accept) based on 
     # url type
     self.headers = copy.copy(firefox_headers)
@@ -441,7 +441,9 @@ class HTTPTest(SearchBasedTest):
       plog("ERROR", self.proto+" http error code failure at "+exit_node+". This makes "+str(err_cnt)+" node failures for "+address)
     
 
-  def check_http_nodynamic(self, address):
+  def check_http_nodynamic(self, address, nocontent=False):
+    # TODO: use nocontent to cause us to not load content into memory.
+    # This will require refactoring http_response though.
     ''' check whether a http connection to a given address is molested '''
     plog('INFO', 'Conducting an http test with destination ' + address)
 
@@ -453,9 +455,9 @@ class HTTPTest(SearchBasedTest):
     
     # Keep a copy of the cookie jar before mods for refetch or
     # to restore on errors that cancel a fetch
-    orig_cookie_jar = cookielib.LWPCookieJar()
+    orig_cookie_jar = cookielib.MozillaCookieJar()
     for cookie in self.cookie_jar: orig_cookie_jar.set_cookie(cookie)
-    orig_tor_cookie_jar = cookielib.LWPCookieJar()
+    orig_tor_cookie_jar = cookielib.MozillaCookieJar()
     for cookie in self.tor_cookie_jar: orig_tor_cookie_jar.set_cookie(cookie)
 
     try:
@@ -496,7 +498,7 @@ class HTTPTest(SearchBasedTest):
       
       # Need to do set subtraction and only save new cookies.. 
       # or extract/make_cookies
-      new_cookie_jar = cookielib.LWPCookieJar()
+      new_cookie_jar = cookielib.MozillaCookieJar()
       for cookie in new_cookies: new_cookie_jar.set_cookie(cookie)
       try:
         new_cookie_jar.save(content_prefix+'.cookies')
@@ -608,7 +610,7 @@ class HTTPTest(SearchBasedTest):
 
     # Need to do set subtraction and only save new cookies.. 
     # or extract/make_cookies
-    new_cookie_jar = cookielib.LWPCookieJar()
+    new_cookie_jar = cookielib.MozillaCookieJar()
     for cookie in new_cookies_new: new_cookie_jar.set_cookie(cookie)
     os.rename(content_prefix+'.cookies', content_prefix+'.cookies-old')
     try:
@@ -627,7 +629,7 @@ class HTTPTest(SearchBasedTest):
       else: self.successes[address]=1
       return TEST_SUCCESS
  
-    if not content:
+    if not content and not nocontent:
       content_file = open(content_prefix+'.content', 'r')
       content = content_file.read()
       content_file.close()
@@ -681,8 +683,8 @@ class HTMLTest(HTTPTest):
  
   def run_test(self):
     # A single test should have a single cookie jar
-    self.tor_cookie_jar = cookielib.LWPCookieJar()
-    self.cookie_jar = cookielib.LWPCookieJar()
+    self.tor_cookie_jar = cookielib.MozillaCookieJar()
+    self.cookie_jar = cookielib.MozillaCookieJar()
     # XXX: Change these headers (esp accept) based on 
     # url type
     self.headers = copy.copy(firefox_headers)
@@ -846,155 +848,44 @@ class HTMLTest(HTTPTest):
 
       return TEST_FAILURE
 
-  def check_html_notags(self, address):
-    plog('INFO', 'Conducting a html tagless test with destination ' + address)
+  def check_html(self, address):
+    plog('INFO', 'Conducting an html test with destination ' + address)
+
+    # Keep a copy of the cookie jar before mods for refetch
+    orig_cookie_jar = cookielib.MozillaCookieJar()
+    for cookie in self.cookie_jar: orig_cookie_jar.set_cookie(cookie)
+
     ret = self.check_http_nodynamic(address)
     
     if type(ret) == int:
       return ret
-    (tor_js, tsha, orig_js, osha, new_js, nsha, exit_node) = ret
-    pass
-
-  def check_html(self, address):
-    # FIXME: Is there any reason not to just do SHA1 until we
-    # hit a difference, and then pull in the Soup stuff for false positives?
-    # Would eliminate a lot of semi-duplicate code...
-    ''' check whether a http connection to a given address is molested '''
-    plog('INFO', 'Conducting an html test with destination ' + address)
+    (tor_html, tsha, orig_html, osha, new_html, nsha, exit_node) = ret
 
     # an address representation acceptable for a filename 
     address_file = self.datahandler.safeFilename(address[7:])
     content_prefix = http_content_dir+address_file
     failed_prefix = http_failed_dir+address_file
 
-    # Keep a copy of the cookie jar before mods for refetch
-    orig_cookie_jar = cookielib.LWPCookieJar()
-    for cookie in self.cookie_jar: orig_cookie_jar.set_cookie(cookie)
-    orig_tor_cookie_jar = cookielib.LWPCookieJar()
-    for cookie in self.tor_cookie_jar: orig_tor_cookie_jar.set_cookie(cookie)
-
     elements = SoupStrainer(lambda name, attrs: name in tags_to_check or 
-        len(Set(map(lambda a: a[0], attrs)).intersection(Set(attrs_to_check))) > 0)
+     len(Set(map(lambda a: a[0], attrs)).intersection(Set(attrs_to_check))) > 0)
 
-    # load the original tag structure
-    # if we don't have any yet, get it
-    soup = 0
-    try:
-      tag_file = open(content_prefix+'.tags', 'r')
-      soup = BeautifulSoup(tag_file.read())
-      tag_file.close()
-      
-      self.cookie_jar.load(content_prefix+'.cookies', 'w')
+    orig_soup = self._recursive_strain(BeautifulSoup(orig_html.decode('ascii',
+                                       'ignore'), parseOnlyThese=elements))
 
-    except IOError:
-      (code, new_cookies, mime_type, content) = http_request(address, self.cookie_jar, self.headers)
-
-      if code - (code % 100) != 200:
-        plog("NOTICE", "Non-tor HTTP error "+str(code)+" fetching content for "+address)
-        # Just remove it
-        self.remove_target(address, FALSEPOSITIVE_HTTPERRORS)
-        # Restore cookie jars
-        self.cookie_jar = orig_cookie_jar
-        self.tor_cookie_jar = orig_tor_cookie_jar
-        return TEST_INCONCLUSIVE
-
-      content = content.decode('ascii','ignore')
-      soup = self._recursive_strain(BeautifulSoup(content, parseOnlyThese=elements))
-
-      # XXX: str of this may be bad if there are unicode chars inside
-      string_soup = str(soup)
-      if not string_soup:
-        plog("WARN", "Empty soup for "+address)
-      tag_file = open(content_prefix+'.tags', 'w')
-      tag_file.write(string_soup) 
-      tag_file.close()
-
-      # Need to do set subtraction and only save new cookies.. 
-      # or extract/make_cookies
-      new_cookie_jar = cookielib.LWPCookieJar()
-      for cookie in new_cookies: new_cookie_jar.set_cookie(cookie)
-      try:
-        new_cookie_jar.save(content_prefix+'.cookies')
-      except:
-        traceback.print_exc()
-        plog("WARN", "Error saving cookies in "+str(new_cookie_jar)+" to "+content_prefix+".cookies")
-
-      content_file = open(content_prefix+'.content', 'w')
-      content_file.write(content)
-      content_file.close()
-
-    except TypeError, e:
-      plog('ERROR', 'Failed parsing the tag tree for ' + address)
-      plog('ERROR', e)
-      # Restore cookie jars
-      self.cookie_jar = orig_cookie_jar
-      self.tor_cookie_jar = orig_tor_cookie_jar
-      return TEST_INCONCLUSIVE
-
-    if soup == 0:
-      plog('ERROR', 'Failed to get the correct tag structure for ' + address)
-      # Restore cookie jars
-      self.cookie_jar = orig_cookie_jar
-      self.tor_cookie_jar = orig_tor_cookie_jar
-      return TEST_INCONCLUSIVE
-
-
-    defaultsocket = socket.socket
-    socks.setdefaultproxy(socks.PROXY_TYPE_SOCKS5, tor_host, tor_port)
-    socket.socket = socks.socksocket
-
-    # Wikipedia and others can give us 403.. So what do we do about that?
-    # Count the number of occurrances vs successful runs then remove the url
-    (pcode, pcookies, pmime_type, pcontent) = http_request(address, self.tor_cookie_jar, self.headers)
-
-    # reset the connection to direct
-    socket.socket = defaultsocket
-
-    exit_node = self.mt.get_exit_node()
-    if exit_node == 0 or exit_node == '0' or not exit_node:
-      plog('WARN', 'We had no exit node to test, skipping to the next test.')
-      # Restore cookie jars
-      self.cookie_jar = orig_cookie_jar
-      self.tor_cookie_jar = orig_tor_cookie_jar
-      return TEST_SUCCESS
-
-    if pcode - (pcode % 100) != 200:
-      plog("NOTICE", exit_node+" had error "+str(pcode)+" fetching content for "+address)
-      result = HttpTestResult(exit_node, address, TEST_INCONCLUSIVE,
-                              INCONCLUSIVE_BADHTTPCODE+str(pcode))
-      self.results.append(result)
-      self.datahandler.saveResult(result)
-      self.register_httpcode_failure(address, exit_node)
-      # Restore cookie jars
-      self.cookie_jar = orig_cookie_jar
-      self.tor_cookie_jar = orig_tor_cookie_jar
-      return TEST_INCONCLUSIVE
-
-    # if we have no content, we had a connection error
-    if pcontent == "":
-      plog("NOTICE", exit_node+" failed to fetch content for "+address)
-      result = HtmlTestResult(exit_node, address, TEST_INCONCLUSIVE,
-                              INCONCLUSIVE_NOEXITCONTENT)
-      self.results.append(result)
-      self.datahandler.saveResult(result)
-      # Restore cookie jars
-      self.cookie_jar = orig_cookie_jar
-      self.tor_cookie_jar = orig_tor_cookie_jar
-      return TEST_INCONCLUSIVE
-
-    pcontent = pcontent.decode('ascii', 'ignore')
-    psoup = self._recursive_strain(BeautifulSoup(pcontent, parseOnlyThese=elements))
+    tor_soup = self._recursive_strain(BeautifulSoup(tor_html.decode('ascii',
+                                      'ignore'), parseOnlyThese=elements))
 
     # Also find recursive urls
     recurse_elements = SoupStrainer(lambda name, attrs: 
-         name in tags_to_recurse and 
-            len(Set(map(lambda a: a[0], attrs)).intersection(Set(attrs_to_recurse))) > 0)
-    self._add_recursive_targets(BeautifulSoup(pcontent, recurse_elements), 
-                               address) 
+        name in tags_to_recurse and 
+       len(Set(map(lambda a: a[0], attrs)).intersection(Set(attrs_to_recurse))) > 0)
+    self._add_recursive_targets(BeautifulSoup(tor_html.decode('ascii',
+                                   'ignore'), recurse_elements), address) 
 
     # compare the content
     # if content matches, everything is ok
-    if str(psoup) == str(soup):
+    if str(orig_soup) == str(tor_soup):
+      plog("INFO", "Successful soup comparison after SHA1 fail for "+address+" via "+exit_node)
       result = HtmlTestResult(exit_node, address, TEST_SUCCESS)
       self.results.append(result)
       #self.datahandler.saveResult(result)
@@ -1006,10 +897,10 @@ class HTMLTest(HTTPTest):
     # If we have alternate IPs to bind to on this box, use them?
     # Sometimes pages have the client IP encoded in them..
     BindingSocket.bind_to = refetch_ip
-    (code_new, new_cookies_new, mime_type_new, content_new) = http_request(address, orig_cookie_jar, self.headers)
+    (code_new, new_cookies_new, mime_type_new, new_html) = http_request(address, orig_cookie_jar, self.headers)
     BindingSocket.bind_to = None
 
-    content_new = content_new.decode('ascii', 'ignore')
+    content_new = new_html.decode('ascii', 'ignore')
     if not content_new:
       plog("WARN", "Failed to re-frech "+address+" outside of Tor. Did our network fail?")
       result = HtmlTestResult(exit_node, address, TEST_INCONCLUSIVE, 
@@ -1018,23 +909,18 @@ class HTMLTest(HTTPTest):
       self.datahandler.saveResult(result)
       return TEST_INCONCLUSIVE
 
-    soup_new = self._recursive_strain(BeautifulSoup(content_new,
+    new_soup = self._recursive_strain(BeautifulSoup(content_new,
                                      parseOnlyThese=elements))
     # compare the new and old content
     # if they match, means the node has been changing the content
-    if str(soup) == str(soup_new):
+    if str(orig_soup) == str(new_soup):
       # XXX: Check for existence of this file before overwriting
-      exit_tag_file = open(failed_prefix+'.tags.'+exit_node[1:],'w')
-      exit_tag_file.write(str(psoup))
-      exit_tag_file.close()
-
       exit_content_file = open(failed_prefix+'.content.'+exit_node[1:], 'w')
-      exit_content_file.write(pcontent)
+      exit_content_file.write(tor_html)
       exit_content_file.close()
 
       result = HtmlTestResult(exit_node, address, TEST_FAILURE, 
-                              FAILURE_EXITONLY, tag_file.name, 
-                              exit_tag_file.name, content_prefix+".content",
+                              FAILURE_EXITONLY, content_prefix+".content",
                               exit_content_file.name)
       self.results.append(result)
       self.datahandler.saveResult(result)
@@ -1042,19 +928,16 @@ class HTMLTest(HTTPTest):
       self.register_exit_failure(address, exit_node)
       return TEST_FAILURE
 
-    # if content has changed outside of tor, update the saved file
-    os.rename(content_prefix+'.tags', content_prefix+'.tags-old')
-    string_soup_new = str(soup_new)
-    if not string_soup_new:
-      plog("WARN", "Empty soup for "+address)
-    tag_file = open(content_prefix+'.tags', 'w')
-    tag_file.write(string_soup_new) 
-    tag_file.close()
+    # if content has changed outside of tor, update the saved files
+    os.rename(content_prefix+'.content', content_prefix+'.content-old')
+    new_content_file = open(content_prefix+'.content', 'w')
+    new_content_file.write(new_html)
+    new_content_file.close()
       
     os.rename(content_prefix+'.cookies', content_prefix+'.cookies-old')
     # Need to do set subtraction and only save new cookies.. 
     # or extract/make_cookies
-    new_cookie_jar = cookielib.LWPCookieJar()
+    new_cookie_jar = cookielib.MozillaCookieJar()
     for cookie in new_cookies_new: new_cookie_jar.set_cookie(cookie)
     try:
       new_cookie_jar.save(content_prefix+'.cookies')
@@ -1062,30 +945,15 @@ class HTMLTest(HTTPTest):
       traceback.print_exc()
       plog("WARN", "Error saving cookies in "+str(new_cookie_jar)+" to "+content_prefix+".cookies")
 
-    os.rename(content_prefix+'.content', content_prefix+'.content-old')
-    new_content_file = open(content_prefix+'.content', 'w')
-    new_content_file.write(content_new)
-    new_content_file.close()
-
-    # compare the node content and the new content
-    # if it matches, everything is ok
-    if str(psoup) == str(soup_new):
-      result = HtmlTestResult(exit_node, address, TEST_SUCCESS)
-      self.results.append(result)
-      #self.datahandler.saveResult(result)
-      if address in self.successes: self.successes[address]+=1
-      else: self.successes[address]=1
-      return TEST_SUCCESS
-
     # Lets try getting just the tag differences
     # 1. Take difference between old and new tags both ways
     # 2. Make map of tags that change to their attributes
     # 3. Compare list of changed tags for tor vs new and
     #    see if any extra tags changed or if new attributes
     #    were added to additional tags
-    old_vs_new = SoupDiffer(soup, soup_new)
-    new_vs_old = SoupDiffer(soup_new, soup)
-    new_vs_tor = SoupDiffer(soup_new, psoup)
+    old_vs_new = SoupDiffer(orig_soup, new_soup)
+    new_vs_old = SoupDiffer(new_soup, orig_soup)
+    new_vs_tor = SoupDiffer(new_soup, tor_soup)
 
     # I'm an evil man and I'm going to CPU hell..
     changed_tags = old_vs_new.changed_tags_with_attrs()
@@ -1105,9 +973,9 @@ class HTMLTest(HTTPTest):
       false_positive = True
 
     if false_positive:
-      jsdiff = JSSoupDiffer(soup)
-      jsdiff.prune_differences(soup_new)
-      false_positive = not jsdiff.contains_differences(psoup)
+      jsdiff = JSSoupDiffer(orig_soup)
+      jsdiff.prune_differences(new_soup)
+      false_positive = not jsdiff.contains_differences(tor_soup)
 
     if false_positive:
       plog("NOTICE", "False positive detected for dynamic change at "+address+" via "+exit_node)
@@ -1119,20 +987,14 @@ class HTMLTest(HTTPTest):
       return TEST_SUCCESS
 
     # XXX: Check for existence of this file before overwriting
-    exit_tag_file = open(failed_prefix+'.dyn-tags.'+exit_node[1:],'w')
-    exit_tag_file.write(str(psoup))
-    exit_tag_file.close()
-
     exit_content_file = open(failed_prefix+'.dyn-content.'+exit_node[1:], 'w')
-    exit_content_file.write(pcontent)
+    exit_content_file.write(tor_html)
     exit_content_file.close()
 
     result = HtmlTestResult(exit_node, address, TEST_FAILURE, 
-                            FAILURE_DYNAMICTAGS, tag_file.name, 
-                            exit_tag_file.name, new_content_file.name,
+                            FAILURE_DYNAMICTAGS, new_content_file.name,
                             exit_content_file.name, 
-                            content_prefix+'.content-old',
-                            content_prefix+'.tags-old')
+                            content_prefix+'.content-old')
     self.results.append(result)
     self.datahandler.saveResult(result)
 

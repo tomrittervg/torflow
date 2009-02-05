@@ -156,14 +156,10 @@ class JsTestResult(TestResult):
 class HtmlTestResult(TestResult):
   ''' Represents the result of a http test '''
   def __init__(self, exit_node, website, status, reason=None, 
-               tags=None, exit_tags=None, content=None, 
-               content_exit=None, content_old=None, tags_old=None):
+               content=None, content_exit=None, content_old=None):
     super(HtmlTestResult, self).__init__(exit_node, website, status)
     self.proto = "http"
     self.reason = reason
-    self.tags = tags
-    self.tags_old = tags_old
-    self.exit_tags = exit_tags
     self.content = content
     self.content_exit = content_exit
     self.content_old = content_old
@@ -173,20 +169,11 @@ class HtmlTestResult(TestResult):
   def mark_false_positive(self, reason):
     self.false_positive=True
     self.false_positive_reason=reason
-    self.tags=self.move_file(self.tags,http_falsepositive_dir)
-    self.tags_old=self.move_file(self.tags_old,http_falsepositive_dir)
-    self.exit_tags=self.move_file(self.exit_tags,http_falsepositive_dir)
     self.content=self.move_file(self.content,http_falsepositive_dir)
     self.content_old=self.move_file(self.content_old, http_falsepositive_dir)
     self.content_exit=self.move_file(self.content_exit,http_falsepositive_dir)
 
   def remove_files(self):
-    try: os.unlink(self.tags)
-    except: pass
-    try: os.unlink(self.tags_old)
-    except: pass
-    try: os.unlink(self.exit_tags)
-    except: pass
     try: os.unlink(self.content)
     except: pass
     try: os.unlink(self.content_old)
