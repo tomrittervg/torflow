@@ -402,14 +402,15 @@ class HTTPTest(SearchBasedTest):
       if r.site == address:
         kill_results.append(r)
     for r in kill_results:
-      # Save this new result file in false positive dir 
-      # and remove old one
-      try:
-        os.unlink(self.datahandler.resultFilename(r))
-      except:
-        pass
-      r.mark_false_positive(reason)
-      self.datahandler.saveResult(r)
+      if r.status == TEST_FAILURE:
+        # Save this new result file in false positive dir 
+        # and remove old one
+        try:
+          os.unlink(self.datahandler.resultFilename(r))
+        except:
+          pass
+        r.mark_false_positive(reason)
+        self.datahandler.saveResult(r)
       self.results.remove(r)
     
   def register_exit_failure(self, address, exit_node):

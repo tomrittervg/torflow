@@ -319,6 +319,10 @@ class DataHandler:
           results.append(result)
     return results
 
+  def getResult(self, file):
+    fh = open(file, 'r')
+    return pickle.load(fh)
+
   def safeFilename(self, str):
     ''' 
     remove characters illegal in some systems 
@@ -326,24 +330,10 @@ class DataHandler:
     '''
     replaced = (str.replace('/','_').replace('\\','_').replace('?','_').replace(':','_').
       replace('|','_').replace('*','_').replace('<','_').replace('>','_').replace('"',''))
-    return replaced[:200]
+    return str(replaced[:200].decode('ascii', 'ignore'))
 
   def resultFilename(self, result):
     # XXX: Check existance and make a secondary name if exists.
-    dir = data_dir+result.proto.lower()+'/'
-    if result.false_positive:
-      dir += 'falsepositive/'
-    elif result.status == TEST_SUCCESS:
-      dir += 'successful/'
-    elif result.status == TEST_INCONCLUSIVE:
-      dir += 'inconclusive/'
-    elif result.status == TEST_FAILURE:
-      dir += 'failed/'
-
-    return dir+address+'.result.'+result.exit_node[1:]
-
-  def saveResult(self, result):
-    ''' generic method for saving test results '''
     address = ''
     if result.__class__.__name__ == 'HtmlTestResult' or result.__class__.__name__ == 'HttpTestResult':
       address = self.safeFilename(result.site[7:])
@@ -354,6 +344,20 @@ class DataHandler:
     else:
       raise Exception, 'This doesn\'t seems to be a result instance.'
 
+    dir = data_dir+result.proto.lower()+'/'
+    if result.false_positive:
+      dir += 'falsepositive/'
+    elif result.status == TEST_SUCCESS:
+      dir += 'successful/'
+    elif result.status == TEST_INCONCLUSIVE:
+      dir += 'inconclusive/'
+    elif result.status == TEST_FAILURE:
+      dir += 'failed/'
+
+    return str((dir+address+'.result.'+result.exit_node[1:]).decode('ascii', 'ignore'))
+
+  def saveResult(self, result):
+    ''' generic method for saving test results '''
     result_file = open(self.resultFilename(result), 'w')
     pickle.dump(result, result_file)
     result_file.close()
