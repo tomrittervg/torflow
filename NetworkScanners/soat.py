@@ -578,8 +578,10 @@ class HTTPTest(SearchBasedTest):
     # if content doesnt match, update the direct content and use new cookies
     # If we have alternate IPs to bind to on this box, use them?
     # Sometimes pages have the client IP encoded in them..
+    # Also, use the Tor cookies, since those identifiers are
+    # probably embeded in the Tor page as well.
     BindingSocket.bind_to = refetch_ip
-    (code_new, new_cookies_new, mime_type_new, content_new) = http_request(address, orig_cookie_jar, self.headers)
+    (code_new, new_cookies_new, mime_type_new, content_new) = http_request(address, orig_tor_cookie_jar, self.headers)
     BindingSocket.bind_to = None
     
     if not content_new:
@@ -601,9 +603,12 @@ class HTTPTest(SearchBasedTest):
 
     # Need to do set subtraction and only save new cookies.. 
     # or extract/make_cookies
+    
     self.cookie_jar = orig_cookie_jar
     new_cookie_jar = cookielib.MozillaCookieJar()
-    for cookie in new_cookies_new: new_cookie_jar.set_cookie(cookie)
+    for cookie in new_cookies_new: 
+      new_cookie_jar.set_cookie(cookie)
+      self.cookie_jar.set_cookie(cookie) # Update..
     os.rename(content_prefix+'.cookies', content_prefix+'.cookies-old')
     try:
       new_cookie_jar.save(content_prefix+'.cookies')
@@ -784,41 +789,7 @@ class HTMLTest(HTTPTest):
         self.fetch_queue.put_nowait(i)
       else:
         plog("NOTICE", "Skipping "+i[0]+" target: "+i[1])
-
-
-  def _tag_not_worthy(self, tag):
-    if tag.name in tags_to_check:
-      return False
-    for attr in tag.attrs:
-      if attr[0] in attrs_to_check_map:
-        return False
-    return True
  
-  def _recursive_strain(self, soup):
-    """ Remove all tags that are of no interest. Also remove content """
-    to_extract = []
-    for tag in soup.findAll():
-      to_prune = []
-      for attr in tag.attrs:
-        if attr[0] in attrs_to_prune:
-          to_prune.append(attr)
-      for attr in to_prune:
-        tag.attrs.remove(attr)
-      if self._tag_not_worthy(tag):
-        to_extract.append(tag)
-      if tag.name not in tags_preserve_inner:
-        for child in tag.childGenerator():
-          if not isinstance(child, Tag) or self._tag_not_worthy(child):
-            to_extract.append(child)
-    for tag in to_extract:
-      if isinstance(tag, Tag):
-        parent = tag.findParent()
-        for child in tag.findChildren():
-          parent.append(child)
-    for tag in to_extract:
-      tag.extract()
-    return soup      
-
   def check_js(self, address):
     plog('INFO', 'Conducting a js test with destination ' + address)
     ret = self.check_http_nodynamic(address)
@@ -872,14 +843,8 @@ class HTMLTest(HTTPTest):
     content_prefix = http_content_dir+address_file
     failed_prefix = http_failed_dir+address_file
 
-    elements = SoupStrainer(lambda name, attrs: name in tags_to_check or 
-     len(Set(map(lambda a: a[0], attrs)).intersection(Set(attrs_to_check))) > 0)
-
-    orig_soup = self._recursive_strain(TheChosenSoup(orig_html.decode('ascii',
-                                       'ignore'), parseOnlyThese=elements))
-
-    tor_soup = self._recursive_strain(TheChosenSoup(tor_html.decode('ascii',
-                                      'ignore'), parseOnlyThese=elements))
+    orig_soup = FullyStrainedSoup(orig_html.decode('ascii', 'ignore'))
+    tor_soup = FullyStrainedSoup(tor_html.decode('ascii', 'ignore'))
 
     # Also find recursive urls
     recurse_elements = SoupStrainer(lambda name, attrs: 
@@ -908,9 +873,8 @@ class HTMLTest(HTTPTest):
       self.datahandler.saveResult(result)
       return TEST_INCONCLUSIVE
 
+    new_soup = FullyStrainedSoup(content_new)
 
-    new_soup = self._recursive_strain(TheChosenSoup(content_new,
-                                     parseOnlyThese=elements))
     # compare the new and old content
     # if they match, means the node has been changing the content
     if str(orig_soup) == str(new_soup):

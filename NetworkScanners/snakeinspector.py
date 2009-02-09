@@ -31,7 +31,8 @@ def main(argv):
     results = [dh.getResult(argv[1])]
 
   for r in results:
-    if r.status == TEST_FAILURE:
+    r.verbose = True
+    if r.status == TEST_FAILURE and r.reason == "FailureExitOnly":
       print r
       print "\n-----------------------------\n"
 

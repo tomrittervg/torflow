@@ -9,8 +9,9 @@ import pickle
 import sys
 import time
 import traceback
+import difflib
 sys.path.append("./libs")
-from BeautifulSoup.BeautifulSoup import Tag
+from BeautifulSoup.BeautifulSoup import Tag, SoupStrainer
 
 
 import sets
@@ -66,7 +67,8 @@ class TestResult(object):
     self.reason = reason
     self.false_positive=False
     self.false_positive_reason="None"
-  
+    self.verbose=False
+ 
   def mark_false_positive(self, reason):
     pass
 
@@ -196,14 +198,29 @@ class JsTestResult(TestResult):
     except: pass
 
   def __str__(self):
-    # XXX: Re-run the JSDiffer and compare these differences
     ret = TestResult.__str__(self)
-    if self.content:
-      ret += " "+self.content+"\n"
-    if self.content_old:
-      ret += " "+self.content_old+"\n"
-    if self.content_exit:
-      ret += " "+self.content_exit+"\n"
+    if self.verbose:
+      if self.content and self.content_old:
+        diff = difflib.unified_diff(open(self.content).read().split("\n"),
+                             open(self.content_old).read().split("\n"), 
+                             "Non-Tor1", "Non-Tor2",
+                             lineterm="")
+        for line in diff:
+          ret+=line+"\n"
+      if self.content and self.content_exit:
+        diff = difflib.unified_diff(open(self.content).read().split("\n"),
+                             open(self.content_exit).read().split("\n"), 
+                              "Non-Tor", "Exit",
+                              lineterm="")
+        for line in diff:
+          ret+=line+"\n"
+    else:
+      if self.content:
+        ret += " "+self.content+"\n"
+      if self.content_old:
+        ret += " "+self.content_old+"\n"
+      if self.content_exit:
+        ret += " "+self.content_exit+"\n"
     return ret
 
 class HtmlTestResult(TestResult):
@@ -232,14 +249,37 @@ class HtmlTestResult(TestResult):
     except: pass
 
   def __str__(self):
-    # XXX: Re-run the SoupDiffer+JSDiffer and compare these differences
     ret = TestResult.__str__(self)
-    if self.content:
-      ret += " "+self.content+"\n"
-    if self.content_old:
-      ret += " "+self.content_old+"\n"
-    if self.content_exit:
-      ret += " "+self.content_exit+"\n"
+    if self.verbose:
+      if self.content and self.content_old:
+        content = open(self.content).read().decode('ascii', 'ignore')
+        content_old = open(self.content_old).read().decode('ascii', 'ignore')
+        soup = FullyStrainedSoup(content)
+        old_soup = FullyStrainedSoup(content_old)
+        tags = map(str, soup.findAll())
+        old_tags = map(str, old_soup.findAll())
+        diff = difflib.unified_diff(tags, old_tags, "Non-Tor1", "Non-Tor1",
+                                    lineterm="")
+        for line in diff:
+          ret+=line+"\n"
+      if self.content and self.content_exit:
+        content = open(self.content).read().decode('ascii', 'ignore')
+        content_exit = open(self.content_exit).read().decode('ascii', 'ignore')
+        soup = FullyStrainedSoup(content)
+        tor_soup = FullyStrainedSoup(content_exit)
+        tags = map(str, soup.findAll())
+        tor_tags = map(str, tor_soup.findAll())
+        diff = difflib.unified_diff(tags, tor_tags, "Non-Tor", "Exit",
+                                    lineterm="")
+        for line in diff:
+          ret+=line+"\n"
+    else:
+      if self.content:
+        ret += " "+self.content+"\n"
+      if self.content_old:
+        ret += " "+self.content_old+"\n"
+      if self.content_exit:
+        ret += " "+self.content_exit+"\n"
     return ret
 
 class SSHTestResult(TestResult):
@@ -401,6 +441,53 @@ class DataHandler:
     result_file = open(self.resultFilename(result), 'w')
     pickle.dump(result, result_file)
     result_file.close()
+
+
+# These three bits are needed to fully recursively strain the parsed soup.
+# For some reason, the SoupStrainer does not get applied recursively..
+__first_strainer = SoupStrainer(lambda name, attrs: name in tags_to_check or 
+   len(Set(map(lambda a: a[0], attrs)).intersection(Set(attrs_to_check))) > 0)
+
+def __tag_not_worthy(tag):
+  if tag.name in tags_to_check:
+    return False
+  for attr in tag.attrs:
+    if attr[0] in attrs_to_check_map:
+      return False
+  return True
+
+def FullyStrainedSoup(html):
+  """ Remove all tags that are of no interest. Also remove content """
+  soup = TheChosenSoup(html, __first_strainer)
+  to_extract = []
+  for tag in soup.findAll():
+    to_prune = []
+    for attr in tag.attrs:
+      if attr[0] in attrs_to_prune:
+        to_prune.append(attr)
+    for attr in to_prune:
+      tag.attrs.remove(attr)
+    if __tag_not_worthy(tag):
+      to_extract.append(tag)
+    if tag.name not in tags_preserve_inner:
+      for child in tag.childGenerator():
+        if not isinstance(child, Tag) or __tag_not_worthy(child):
+          to_extract.append(child)
+  for tag in to_extract:
+    if isinstance(tag, Tag):
+      parent = tag.findParent()
+      for child in tag.findChildren():
+        parent.append(child)
+  for tag in to_extract:
+    tag.extract()
+  # Also flatten the tag structure
+  flattened_tags = soup.findAll()
+  for tag in flattened_tags:
+    if isinstance(tag, Tag): # Don't extract script/CSS strings.
+      tag.extract() 
+  for tag in flattened_tags:
+    soup.append(tag)
+  return soup      
 
 class SoupDiffer:
   """ Diff two soup tag sets, optionally writing diffs to outfile. """
