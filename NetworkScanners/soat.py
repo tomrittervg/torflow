@@ -2027,10 +2027,11 @@ def main(argv):
 #    print '--imap (~works)'
     print '--dnsrebind (use with one or more of above tests)'
     print '--policies'
+    print '--exit <exit>'
     print ''
     return
 
-  opts = ['ssl','html','http','ssh','smtp','pop','imap','dns','dnsrebind','policies']
+  opts = ['ssl','html','http','ssh','smtp','pop','imap','dns','dnsrebind','policies','exit=']
   flags, trailer = getopt.getopt(argv[1:], [], opts)
   
   # get specific test types
@@ -2043,6 +2044,11 @@ def main(argv):
   do_imap = ('--imap','') in flags
   do_dns_rebind = ('--dnsrebind','') in flags
   do_consistency = ('--policies','') in flags
+
+  scan_exit=None
+  for flag in flags:
+    if flag[0] == "--exit":
+      scan_exit = flag[1]
 
   # initiate the connection to the metatroller
   mt = Metaconnection()
@@ -2113,7 +2119,19 @@ def main(argv):
   
   for test in tests.itervalues():
     test.rewind()
-  
+ 
+  if scan_exit:
+    plog("NOTICE", "Scanning only "+scan_exit)
+    mt.set_new_exit(scan_exit)
+    mt.get_new_circuit()
+ 
+    for test in tests.values():
+      # Keep testing failures and inconclusives
+      result = test.run_test()
+      plog("INFO", test.proto+" test via "+scan_exit+" has result "+str(result))
+    plog('INFO', 'Done.')
+    sys.exit(0)
+ 
   # start testing
   while 1:
     avail_tests = tests.values()
