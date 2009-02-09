@@ -10,6 +10,7 @@ import sys
 import time
 import traceback
 import difflib
+import re
 sys.path.append("./libs")
 from BeautifulSoup.BeautifulSoup import Tag, SoupStrainer
 
