@@ -384,17 +384,17 @@ class DataHandler:
     ''' get results of dns rebind tests '''
     return self.__getResults(data_dir + 'dnsbrebind/')
 
-  def __getResults(self, dir):
+  def __getResults(self, rdir):
     ''' 
     recursively traverse the directory tree starting with dir
     gather test results from files ending with .result
     '''
     results = []
 
-    for root, dirs, files in os.walk(dir):
-      for file in files:
-        if file[:-41].endswith('result'):
-          fh = open(os.path.join(root, file))
+    for root, dirs, files in os.walk(rdir):
+      for f in files:
+        if f[:-41].endswith('result'):
+          fh = open(os.path.join(root, f))
           result = pickle.load(fh)
           results.append(result)
     return results
@@ -403,14 +403,14 @@ class DataHandler:
     fh = open(file, 'r')
     return pickle.load(fh)
 
-  def safeFilename(self, str):
+  def safeFilename(self, unsafe_file):
     ''' 
     remove characters illegal in some systems 
     and trim the string to a reasonable length
     '''
-    replaced = (str.replace('/','_').replace('\\','_').replace('?','_').replace(':','_').
-      replace('|','_').replace('*','_').replace('<','_').replace('>','_').replace('"',''))
-    return str(replaced[:200].decode('ascii', 'ignore'))
+    unsafe_file = unsafe_file.decode('ascii', 'ignore')
+    safe_file = re.sub(unsafe_filechars, "_", unsafe_file)
+    return str(safe_file[:200])
 
   def resultFilename(self, result):
     # XXX: Check existance and make a secondary name if exists.
@@ -424,17 +424,17 @@ class DataHandler:
     else:
       raise Exception, 'This doesn\'t seems to be a result instance.'
 
-    dir = data_dir+result.proto.lower()+'/'
+    rdir = data_dir+result.proto.lower()+'/'
     if result.false_positive:
-      dir += 'falsepositive/'
+      rdir += 'falsepositive/'
     elif result.status == TEST_SUCCESS:
-      dir += 'successful/'
+      rdir += 'successful/'
     elif result.status == TEST_INCONCLUSIVE:
-      dir += 'inconclusive/'
+      rdir += 'inconclusive/'
     elif result.status == TEST_FAILURE:
-      dir += 'failed/'
+      rdir += 'failed/'
 
-    return str((dir+address+'.result.'+result.exit_node[1:]).decode('ascii', 'ignore'))
+    return str((rdir+address+'.result.'+result.exit_node[1:]).decode('ascii', 'ignore'))
 
   def saveResult(self, result):
     ''' generic method for saving test results '''
