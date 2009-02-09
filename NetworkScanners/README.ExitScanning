@@ -17,6 +17,7 @@ II. Prerequisites
 Python 2.4+
 Custom patched Tor 0.2.1
 Super Secret SoaT Sauce
+py-openssl/pyOpenSSL
 Bonus: 500M of disk space
 Bonus: Secondary external IP address
 
@@ -95,7 +96,8 @@ target only certain keywords/concepts/sites in a particular context.
 IV. Running Tor, The Metatroller, and SoaT
 
 Once you have everything compiled and configured, you should be ready to
-run the pieces. 
+run the pieces. You probably want to do this as a separate, unprivileged
+user.
 
 First, start up your custom Tor with the sample torrc provided in the
 TorFlow svn root:

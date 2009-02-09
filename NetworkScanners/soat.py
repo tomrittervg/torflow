@@ -59,9 +59,9 @@ from TorCtl.TorCtl import Connection, EventHandler
 import OpenSSL
 from OpenSSL import *
 
+
 sys.path.append("./libs/")
-# XXX: Try to determine if we should be using MinimalSoup
-from BeautifulSoup.BeautifulSoup import BeautifulSoup, SoupStrainer, Tag
+from BeautifulSoup.BeautifulSoup import SoupStrainer, Tag
 from SocksiPy import socks
 import Pyssh.pyssh
 
@@ -286,7 +286,7 @@ class SearchBasedTest(Test):
   
         links = SoupStrainer('a')
         try:
-          soup = BeautifulSoup(content, parseOnlyThese=links)
+          soup = TheChosenSoup(content, parseOnlyThese=links)
         except Exception:
           plog('ERROR', 'Soup-scraping of http://'+host+search_path+" failed")
           traceback.print_exc()
@@ -875,17 +875,17 @@ class HTMLTest(HTTPTest):
     elements = SoupStrainer(lambda name, attrs: name in tags_to_check or 
      len(Set(map(lambda a: a[0], attrs)).intersection(Set(attrs_to_check))) > 0)
 
-    orig_soup = self._recursive_strain(BeautifulSoup(orig_html.decode('ascii',
+    orig_soup = self._recursive_strain(TheChosenSoup(orig_html.decode('ascii',
                                        'ignore'), parseOnlyThese=elements))
 
-    tor_soup = self._recursive_strain(BeautifulSoup(tor_html.decode('ascii',
+    tor_soup = self._recursive_strain(TheChosenSoup(tor_html.decode('ascii',
                                       'ignore'), parseOnlyThese=elements))
 
     # Also find recursive urls
     recurse_elements = SoupStrainer(lambda name, attrs: 
         name in tags_to_recurse and 
        len(Set(map(lambda a: a[0], attrs)).intersection(Set(attrs_to_recurse))) > 0)
-    self._add_recursive_targets(BeautifulSoup(tor_html.decode('ascii',
+    self._add_recursive_targets(TheChosenSoup(tor_html.decode('ascii',
                                    'ignore'), recurse_elements), address) 
 
     # compare the content
@@ -909,7 +909,7 @@ class HTMLTest(HTTPTest):
       return TEST_INCONCLUSIVE
 
 
-    new_soup = self._recursive_strain(BeautifulSoup(content_new,
+    new_soup = self._recursive_strain(TheChosenSoup(content_new,
                                      parseOnlyThese=elements))
     # compare the new and old content
     # if they match, means the node has been changing the content
@@ -1033,6 +1033,16 @@ class SSLTest(SearchBasedTest):
     
     # return the cert
     return c.get_peer_certificate()
+
+  def get_resolved_ip(self, hostname):
+    mappings = self.mt.__control.get_address_mappings("cache")
+    ret = None
+    for m in mappings:
+      if m.from_name == hostname:
+        if ret:
+          plog("WARN", "Multiple maps for "+hostname)
+        ret = m.to_name
+    return ret
 
   def check_openssl(self, address):
     ''' check whether an https connection to a given address is molested '''

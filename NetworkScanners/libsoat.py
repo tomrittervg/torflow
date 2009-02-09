@@ -10,13 +10,13 @@ import sys
 import time
 import traceback
 sys.path.append("./libs")
-from BeautifulSoup.BeautifulSoup import BeautifulSoup, Tag
+from BeautifulSoup.BeautifulSoup import Tag
 
 
 import sets
 from sets import Set
-
 from soat_config import *
+
 sys.path.append("../")
 from TorCtl.TorUtil import *
 
@@ -33,6 +33,9 @@ except ImportError:
 TEST_SUCCESS = 0
 TEST_INCONCLUSIVE = 1
 TEST_FAILURE = 2
+
+# Sorry, we sort of rely on the ordinal nature of the above constants
+RESULT_STRINGS = {TEST_SUCCESS:"Success", TEST_INCONCLUSIVE:"Inconclusive", TEST_FAILURE:"Failure"}
 
 # Inconclusive reasons
 INCONCLUSIVE_NOEXITCONTENT = "InconclusiveNoExitContent"
@@ -55,12 +58,14 @@ FALSEPOSITIVE_DYNAMIC_TOR = "FalsePositiveDynamicTor"
 
 class TestResult(object):
   ''' Parent class for all test result classes '''
-  def __init__(self, exit_node, site, status):
+  def __init__(self, exit_node, site, status, reason=None):
     self.exit_node = exit_node
     self.site = site
     self.timestamp = time.time()
     self.status = status
+    self.reason = reason
     self.false_positive=False
+    self.false_positive_reason="None"
   
   def mark_false_positive(self, reason):
     pass
@@ -76,6 +81,18 @@ class TestResult(object):
       traceback.print_exc()
       plog("WARN", "Error moving "+file+" to "+dir)
       return file
+
+  def __str__(self):
+    ret = self.__class__.__name__+" for "+self.site+"\n"
+    ret += " Time: "+time.ctime(self.timestamp)+"\n"
+    ret += " Exit: "+self.exit_node+"\n"
+    ret += " "+str(RESULT_STRINGS[self.status])
+    if self.reason:
+      ret += " Reason: "+self.reason
+    if self.false_positive:
+      ret += " (False positive: "+self.false_positive_reason+")"
+    ret += "\n"
+    return ret
 
 class SSLTestResult(TestResult):
   ''' Represents the result of an openssl test '''
@@ -110,17 +127,14 @@ class HttpTestResult(TestResult):
   def __init__(self, exit_node, website, status, reason=None, 
                sha1sum=None, exit_sha1sum=None, content=None, 
                content_exit=None, content_old=None, sha1sum_old=None):
-    super(HttpTestResult, self).__init__(exit_node, website, status)
+    super(HttpTestResult, self).__init__(exit_node, website, status, reason)
     self.proto = "http"
-    self.reason = reason
     self.sha1sum = sha1sum
     self.sha1sum_old = sha1sum_old
     self.exit_sha1sum = exit_sha1sum
     self.content = content
     self.content_exit = content_exit
     self.content_old = content_old
-    self.false_positive=False
-    self.false_positive_reason="None"
 
   def mark_false_positive(self, reason):
     self.false_positive=True
@@ -136,6 +150,16 @@ class HttpTestResult(TestResult):
     except: pass
     try: os.unlink(self.content_exit)
     except: pass
+
+  def __str__(self):
+    ret = TestResult.__str__(self)
+    if self.content:
+      ret += " "+self.content+" (SHA1: "+self.sha1sum+")\n"
+    if self.content_old:
+      ret += " "+self.content_old+" (SHA1: "+self.sha1sum_old+")\n"
+    if self.content_exit:
+      ret += " "+self.content_exit+" (SHA1: "+self.exit_sha1sum+")\n"
+    return ret
 
 class CookieTestResult(TestResult):
   def __init__(self, exit_node, status, reason, plain_cookies, 
@@ -150,14 +174,11 @@ class JsTestResult(TestResult):
   ''' Represents the result of a JS test '''
   def __init__(self, exit_node, website, status, reason=None, 
                content=None, content_exit=None, content_old=None):
-    super(JsTestResult, self).__init__(exit_node, website, status)
+    super(JsTestResult, self).__init__(exit_node, website, status, reason)
     self.proto = "http"
-    self.reason = reason
     self.content = content
     self.content_exit = content_exit
     self.content_old = content_old
-    self.false_positive=False
-    self.false_positive_reason="None"
 
   def mark_false_positive(self, reason):
     self.false_positive=True
@@ -174,18 +195,26 @@ class JsTestResult(TestResult):
     try: os.unlink(self.content_exit)
     except: pass
 
+  def __str__(self):
+    # XXX: Re-run the JSDiffer and compare these differences
+    ret = TestResult.__str__(self)
+    if self.content:
+      ret += " "+self.content+"\n"
+    if self.content_old:
+      ret += " "+self.content_old+"\n"
+    if self.content_exit:
+      ret += " "+self.content_exit+"\n"
+    return ret
+
 class HtmlTestResult(TestResult):
   ''' Represents the result of a http test '''
   def __init__(self, exit_node, website, status, reason=None, 
                content=None, content_exit=None, content_old=None):
-    super(HtmlTestResult, self).__init__(exit_node, website, status)
+    super(HtmlTestResult, self).__init__(exit_node, website, status, reason)
     self.proto = "http"
-    self.reason = reason
     self.content = content
     self.content_exit = content_exit
     self.content_old = content_old
-    self.false_positive=False
-    self.false_positive_reason="None"
 
   def mark_false_positive(self, reason):
     self.false_positive=True
@@ -201,6 +230,17 @@ class HtmlTestResult(TestResult):
     except: pass
     try: os.unlink(self.content_exit)
     except: pass
+
+  def __str__(self):
+    # XXX: Re-run the SoupDiffer+JSDiffer and compare these differences
+    ret = TestResult.__str__(self)
+    if self.content:
+      ret += " "+self.content+"\n"
+    if self.content_old:
+      ret += " "+self.content_old+"\n"
+    if self.content_exit:
+      ret += " "+self.content_exit+"\n"
+    return ret
 
 class SSHTestResult(TestResult):
   ''' Represents the result of an ssh test '''
@@ -382,7 +422,7 @@ class SoupDiffer:
     """ Create a map of changed tags to ALL attributes that tag
         has ever had (changed or not) """
     changed_tags = {}
-    for tags in map(BeautifulSoup, self.changed_tags()):
+    for tags in map(TheChosenSoup, self.changed_tags()):
       for t in tags.findAll():
         if t.name not in changed_tags:
           changed_tags[t.name] = sets.Set([])
@@ -394,7 +434,7 @@ class SoupDiffer:
     """ Returns true if we have additional tags with additional
         attributes that were not present in tag_attr_map 
         (returned from changed_tags_with_attrs) """
-    for tags in map(BeautifulSoup, self.changed_tags()):
+    for tags in map(TheChosenSoup, self.changed_tags()):
       for t in tags.findAll():
         if t.name not in tag_attr_map:
           return True
