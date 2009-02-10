@@ -45,6 +45,7 @@ import cookielib
 import sha
 import Queue
 import threading
+import pickle
 
 from libsoat import *
 
@@ -121,7 +122,7 @@ def http_request(address, cookie_jar=None, headers=firefox_headers):
       opener = urllib2.build_opener(NoDNSHTTPHandler, urllib2.HTTPCookieProcessor(cookie_jar))
       reply = opener.open(request)
       if "__filename" in cookie_jar.__dict__:
-        cookie_jar.save(cookie_jar.__filename)
+        cookie_jar.save(cookie_jar.__filename, ignore_discard=True)
       new_cookies = cookie_jar.make_cookies(reply, request)
     else:
       reply = urllib2.urlopen(request)
@@ -133,7 +134,7 @@ def http_request(address, cookie_jar=None, headers=firefox_headers):
     mime_type = reply.info().type
     content = decompress_response_data(reply)
   except urllib2.HTTPError, e:
-    plog('WARN', "HTTP Error during request of "+address)
+    plog('WARN', "HTTP Error during request of "+address+": "+str(e))
     traceback.print_exc()
     return (e.code, [], "", "") 
   except (ValueError, urllib2.URLError):
@@ -146,8 +147,8 @@ def http_request(address, cookie_jar=None, headers=firefox_headers):
     return (0, [], "", "")
   except KeyboardInterrupt:
     raise KeyboardInterrupt
-  except:
-    plog('WARN', 'An unknown HTTP error occured for '+address)
+  except e:
+    plog('WARN', 'An unknown HTTP error occured for '+address+": "+str(e))
     traceback.print_exc()
     return (0, [], "", "")
 
@@ -161,8 +162,14 @@ class Test:
     self.port = port
     self.mt = mt
     self.datahandler = DataHandler()
-    self.min_targets = 10
+    self.min_targets = min_targets
     self.marked_nodes = sets.Set([])
+    self.exit_fails = {}
+    self.successes = {}
+    self.exit_limit_pct = max_exit_fail_pct
+    self.results = []
+    self.dynamic_fails = {}
+    self.dynamic_limit = max_dynamic_failure
 
   def run_test(self): 
     raise NotImplemented()
@@ -178,6 +185,24 @@ class Test:
     if len(self.targets) < self.min_targets:
       plog("NOTICE", self.proto+" scanner short on targets. Adding more")
       self.targets.extend(self.get_targets())
+    if target in self.dynamic_fails: del self.dynamic_fails[target]
+    if target in self.successes: del self.successes[target]
+    if target in self.exit_fails: del self.exit_fails[target]
+    kill_results = []
+    for r in self.results:
+      if r.site == target:
+        kill_results.append(r)
+    for r in kill_results:
+      if r.status == TEST_FAILURE:
+        # Save this new result file in false positive dir 
+        # and remove old one
+        try:
+          os.unlink(self.datahandler.resultFilename(r))
+        except:
+          pass
+        r.mark_false_positive(reason)
+        self.datahandler.saveResult(r)
+      self.results.remove(r)
 
   def update_nodes(self):
     self.nodes = self.mt.node_manager.get_nodes_for_port(self.port)
@@ -213,6 +238,42 @@ class Test:
     self.nodes_marked = 0
     self.marked_nodes = sets.Set([])
 
+  def register_exit_failure(self, address, exit_node):
+    if address in self.exit_fails:
+      self.exit_fails[address].add(exit_node)
+    else:
+      self.exit_fails[address] = sets.Set([exit_node])
+
+    # TODO: Do something if abundance of succesful tests?
+    # Problem is this can still trigger for localized content
+    err_cnt = len(self.exit_fails[address])
+    if err_cnt > self.exit_limit_pct*self.total_nodes/100.0:
+      if address not in self.successes: self.successes[address] = 0
+      plog("NOTICE", "Excessive "+self.proto+" 2-way failure ("+str(err_cnt)+" vs "+str(self.successes[address])+") for "+address+". Removing.")
+  
+      self.remove_target(address, FALSEPOSITIVE_DYNAMIC_TOR)
+    else:
+      plog("ERROR", self.proto+" 2-way failure at "+exit_node+". This makes "+str(err_cnt)+" node failures for "+address)
+
+  def register_dynamic_failure(self, address, exit_node):
+    if address in self.dynamic_fails:
+      self.dynamic_fails[address].add(exit_node)
+    else:
+      self.dynamic_fails[address] = sets.Set([exit_node])
+    
+    err_cnt = len(self.dynamic_fails[address])
+    if err_cnt > self.dynamic_limit:
+      # Remove all associated data for this url.
+      # (Note, this also seems to imply we should report BadExit in bulk,
+      # after we've had a chance for these false positives to be weeded out)
+      if address not in self.successes: self.successes[address] = 0
+      plog("NOTICE", "Excessive "+self.proto+" 3-way failure ("+str(err_cnt)+" vs "+str(self.successes[address])+") for "+address+". Removing.")
+
+      self.remove_target(address, FALSEPOSITIVE_DYNAMIC)
+    else:
+      plog("ERROR", self.proto+" 3-way failure at "+exit_node+". This makes "+str(err_cnt)+" node failures for "+address)
+
+
 class SearchBasedTest(Test):
   def __init__(self, mt, proto, port, wordlist):
     self.wordlist = wordlist
@@ -221,7 +282,7 @@ class SearchBasedTest(Test):
   def _is_useable_url(self, url, valid_schemes=None, filetypes=None):
     (scheme, netloc, path, params, query, fragment) = urlparse.urlparse(url)
     if netloc.rfind(":") != -1:
-      # XXX: %-encoding?
+      # FIXME: %-encoding?
       port = netloc[netloc.rfind(":")+1:]
       try:
         if int(port) != self.port:
@@ -245,9 +306,9 @@ class SearchBasedTest(Test):
     '''
     plog('INFO', 'Searching google for relevant sites...')
   
-    urllist = []
+    urllist = Set([])
     for filetype in filetypes:
-      type_urls = []
+      type_urls = Set([])
   
       while len(type_urls) < results_per_type:
         query = random.choice(self.wordlist)
@@ -259,7 +320,6 @@ class SearchBasedTest(Test):
   
         # search google for relevant pages
         # note: google only accepts requests from idenitified browsers
-        # TODO gracefully handle the case when google doesn't want to give us result anymore
         host = search_mode["host"]
         params = urllib.urlencode({search_mode["query"] : query})
         search_path = '/search' + '?' + params
@@ -267,17 +327,16 @@ class SearchBasedTest(Test):
          
         plog("INFO", "Search url: "+search_url)
         try:
-          # XXX: This does not handle http error codes.. (like 302!)
           if search_mode["useragent"]:
             (code, new_cookies, mime_type, content) = http_request(search_url, search_cookies)
           else:
             headers = copy.copy(firefox_headers)
             del headers["User-Agent"]
-            (code, new_cookies, mime_type, content) = http_request(search_url, search_cookies, headers)[1]
+            (code, new_cookies, mime_type, content) = http_request(search_url, search_cookies, headers)
         except socket.gaierror:
           plog('ERROR', 'Scraping of http://'+host+search_path+" failed")
           traceback.print_exc()
-          return list(Set(urllist))
+          return list(urllist)
         except:
           plog('ERROR', 'Scraping of http://'+host+search_path+" failed")
           traceback.print_exc()
@@ -294,7 +353,13 @@ class SearchBasedTest(Test):
           return [protocol+"://www.eff.org", protocol+"://www.fastmail.fm", protocol+"://www.torproject.org", protocol+"://secure.wikileaks.org/"]
         
         # get the links and do some additional filtering
-        for link in soup.findAll('a', {'class' : search_mode["class"]}):
+        for link in soup.findAll('a'):
+          skip = True
+          for a in link.attrs:
+            if a[0] == "class" and search_mode["class"] in a[1]:
+              skip = False
+              break
+          if skip: continue
           url = link['href']
           if protocol == 'any': prot_list = None
           else: prot_list = [protocol]
@@ -303,36 +368,30 @@ class SearchBasedTest(Test):
 
           if self._is_useable_url(url, prot_list, file_list):
             if host_only:
-              # XXX: %-encoding, @'s, etc?
+              # FIXME: %-encoding, @'s, etc?
               host = urlparse.urlparse(url)[1]
-              type_urls.append(host)
+              type_urls.add(host)
             else:
-              type_urls.append(url)
+              type_urls.add(url)
           else:
             pass
         plog("INFO", "Have "+str(len(type_urls))+"/"+str(results_per_type)+" google urls so far..") 
 
       # make sure we don't get more urls than needed
-      # hrmm...
-      #if type_urls > results_per_type:
-      #  type_urls = random.sample(type_urls, results_per_type) 
-      urllist.extend(type_urls)
+      if len(type_urls) > results_per_type:
+        type_urls = Set(random.sample(type_urls, results_per_type))
+      urllist.union_update(type_urls)
        
-    return list(Set(urllist))
+    return list(urllist)
 
 class HTTPTest(SearchBasedTest):
   def __init__(self, mt, wordlist, filetypes=scan_filetypes):
     # FIXME: Handle http urls w/ non-80 ports..
     SearchBasedTest.__init__(self, mt, "HTTP", 80, wordlist)
-    self.fetch_targets = 5
+    self.fetch_targets = urls_per_filetype
     self.httpcode_fails = {}
-    self.exit_fails = {}
-    self.successes = {}
-    self.exit_limit = 100
-    # XXX: 3 is waaay too low. 100 is more like it.. But set for testing
-    self.httpcode_limit = 3
+    self.httpcode_limit_pct = max_exit_httpcode_pct
     self.scan_filetypes = filetypes
-    self.results = []
 
   def check_cookies(self):
     tor_cookies = "\n"
@@ -357,8 +416,6 @@ class HTTPTest(SearchBasedTest):
     # A single test should have a single cookie jar
     self.tor_cookie_jar = cookielib.MozillaCookieJar()
     self.cookie_jar = cookielib.MozillaCookieJar()
-    # XXX: Change these headers (esp accept) based on 
-    # url type
     self.headers = copy.copy(firefox_headers)
     
     ret_result = TEST_SUCCESS
@@ -370,7 +427,7 @@ class HTTPTest(SearchBasedTest):
     plog("INFO", "HTTPTest decided to fetch "+str(n_tests)+" urls of types: "+str(filetypes))
 
     for ftype in filetypes:
-      # XXX: Set referrer to random or none for each of these
+      # FIXME: Set referrer to random or none for each of these
       address = random.choice(self.targets[ftype])
       result = self.check_http(address)
       if result > ret_result:
@@ -380,8 +437,13 @@ class HTTPTest(SearchBasedTest):
       ret_result = result
     return ret_result
 
+  def remove_target(self, address, reason):
+    SearchBasedTest.remove_target(self, address, reason)
+    if address in self.httpcode_fails: del self.httpcode_fails[address]
+
   def get_targets(self):
-    raw_urls = self.get_search_urls('http', self.fetch_targets, filetypes=self.scan_filetypes)
+    raw_urls = self.get_search_urls('http', self.fetch_targets, 
+                                     filetypes=self.scan_filetypes)
 
     urls = {} 
     # Slow, but meh..
@@ -392,44 +454,7 @@ class HTTPTest(SearchBasedTest):
           urls[ftype].append(url)
     return urls     
  
-  def remove_target(self, address, reason):
-    SearchBasedTest.remove_target(self, address, reason)
-    if address in self.httpcode_fails: del self.httpcode_fails[address]
-    if address in self.successes: del self.successes[address]
-    if address in self.exit_fails: del self.exit_fails[address]
-    kill_results = []
-    for r in self.results:
-      if r.site == address:
-        kill_results.append(r)
-    for r in kill_results:
-      if r.status == TEST_FAILURE:
-        # Save this new result file in false positive dir 
-        # and remove old one
-        try:
-          os.unlink(self.datahandler.resultFilename(r))
-        except:
-          pass
-        r.mark_false_positive(reason)
-        self.datahandler.saveResult(r)
-      self.results.remove(r)
     
-  def register_exit_failure(self, address, exit_node):
-    if address in self.exit_fails:
-      self.exit_fails[address].add(exit_node)
-    else:
-      self.exit_fails[address] = sets.Set([exit_node])
-
-    # TODO: Do something if abundance of succesful tests?
-    # Problem is this can still trigger for localized content
-    err_cnt = len(self.exit_fails[address])
-    if err_cnt > self.exit_limit:
-      if address not in self.successes: self.successes[address] = 0
-      plog("NOTICE", "Excessive HTTP 2-way failure ("+str(err_cnt)+" vs "+str(self.successes[address])+") for "+address+". Removing.")
-  
-      self.remove_target(address, FALSEPOSITIVE_DYNAMIC_TOR)
-    else:
-      plog("ERROR", self.proto+" 2-way failure at "+exit_node+". This makes "+str(err_cnt)+" node failures for "+address)
-
   def register_httpcode_failure(self, address, exit_node):
     if address in self.httpcode_fails:
       self.httpcode_fails[address].add(exit_node)
@@ -437,7 +462,7 @@ class HTTPTest(SearchBasedTest):
       self.httpcode_fails[address] = sets.Set([exit_node])
     
     err_cnt = len(self.httpcode_fails[address])
-    if err_cnt > self.httpcode_limit:
+    if err_cnt > self.httpcode_limit_pct*self.total_nodes/100.0:
       # Remove all associated data for this url.
       # (Note, this also seems to imply we should report BadExit in bulk,
       # after we've had a chance for these false positives to be weeded out)
@@ -477,8 +502,8 @@ class HTTPTest(SearchBasedTest):
       content_file.close()
       
       added_cookie_jar = cookielib.MozillaCookieJar()
-      added_cookie_jar.load(content_prefix+'.cookies')
-      self.cookie_jar.load(content_prefix+'.cookies')
+      added_cookie_jar.load(content_prefix+'.cookies', ignore_discard=True)
+      self.cookie_jar.load(content_prefix+'.cookies', ignore_discard=True)
       content = None 
 
     except IOError:
@@ -510,7 +535,7 @@ class HTTPTest(SearchBasedTest):
       added_cookie_jar = cookielib.MozillaCookieJar()
       for cookie in new_cookies: added_cookie_jar.set_cookie(cookie)
       try:
-        added_cookie_jar.save(content_prefix+'.cookies')
+        added_cookie_jar.save(content_prefix+'.cookies', ignore_discard=True)
       except:
         traceback.print_exc()
         plog("WARN", "Error saving cookies in "+str(self.cookie_jar)+" to "+content_prefix+".cookies")
@@ -543,11 +568,14 @@ class HTTPTest(SearchBasedTest):
 
     if pcode - (pcode % 100) != 200:
       plog("NOTICE", exit_node+" had error "+str(pcode)+" fetching content for "+address)
+      # FIXME: Timeouts and socks errors give error code 0. Maybe
+      # break them up into more detailed reasons?
       result = HttpTestResult(exit_node, address, TEST_INCONCLUSIVE,
                               INCONCLUSIVE_BADHTTPCODE+str(pcode))
       self.results.append(result)
       self.datahandler.saveResult(result)
-      self.register_httpcode_failure(address, exit_node)
+      if pcode != 0:
+        self.register_httpcode_failure(address, exit_node)
       # Restore cookie jars
       self.cookie_jar = orig_cookie_jar
       self.tor_cookie_jar = orig_tor_cookie_jar
@@ -611,7 +639,7 @@ class HTTPTest(SearchBasedTest):
       self.cookie_jar.set_cookie(cookie) # Update..
     os.rename(content_prefix+'.cookies', content_prefix+'.cookies-old')
     try:
-      new_cookie_jar.save(content_prefix+'.cookies')
+      new_cookie_jar.save(content_prefix+'.cookies', ignore_discard=True)
     except:
       traceback.print_exc()
       plog("WARN", "Error saving cookies in "+str(new_cookie_jar)+" to "+content_prefix+".cookies")
@@ -627,7 +655,11 @@ class HTTPTest(SearchBasedTest):
       return TEST_SUCCESS
  
     if not content and not nocontent:
-      content_file = open(content_prefix+'.content', 'r')
+      if sha1sum.hexdigest() != sha1sum_new.hexdigest():
+        load_file = content_prefix+'.content-old'
+      else:
+        load_file = content_prefix+'.content'
+      content_file = open(load_file, 'r')
       content = content_file.read()
       content_file.close()
 
@@ -650,7 +682,7 @@ class HTTPTest(SearchBasedTest):
     # if they match, means the node has been changing the content
     if sha1sum.hexdigest() == sha1sum_new.hexdigest():
       # XXX: Check for existence of this file before overwriting
-      exit_content_file = open(failed_prefix+'.content.'+exit_node[1:], 'w')
+      exit_content_file = open(failed_prefix+'.'+exit_node[1:]+'.content', 'w')
       exit_content_file.write(pcontent)
       exit_content_file.close()
 
@@ -665,7 +697,7 @@ class HTTPTest(SearchBasedTest):
       return TEST_FAILURE
 
     # XXX: Check for existence of this file before overwriting
-    exit_content_file = open(failed_prefix+'.dyn-content.'+exit_node[1:], 'w')
+    exit_content_file = open(failed_prefix+'.'+exit_node[1:]+'.dyn-content','w')
     exit_content_file.write(pcontent)
     exit_content_file.close()
 
@@ -685,36 +717,34 @@ class HTTPTest(SearchBasedTest):
 
 class HTMLTest(HTTPTest):
   def __init__(self, mt, wordlist, recurse_filetypes=scan_filetypes):
-    # XXX: Change these to 10 and 20 once we exercise the fetch logic
     HTTPTest.__init__(self, mt, wordlist, recurse_filetypes)
+    self.fetch_targets = num_html_urls
     self.proto = "HTML"
-    self.min_targets = 9
     self.recurse_filetypes = recurse_filetypes
     self.fetch_queue = Queue.Queue()
-    self.dynamic_fails = {}
-    # XXX: 3 is way too low, but set for code exercise. 10 
-    # is prob reasonable
-    self.dynamic_limit = 3
  
   def run_test(self):
     # A single test should have a single cookie jar
     self.tor_cookie_jar = cookielib.MozillaCookieJar()
     self.cookie_jar = cookielib.MozillaCookieJar()
-    # XXX: Change these headers (esp accept) based on 
-    # url type
     self.headers = copy.copy(firefox_headers)
+
+    first_referer = None    
+    if random.randint(1,100) < referer_chance_pct:
+      # FIXME: Hrmm.. May want to do this a bit better..
+      first_referer = random.choice(self.targets)
+      plog("INFO", "Chose random referer "+first_referer)
     
     ret_result = TEST_SUCCESS
     self.tests_run += 1
-    # XXX: Set referrer to address for subsequent fetches
-    # XXX: Set referrer to random or none for initial fetch
-    # XXX: Watch for spider-traps! (ie mutually sourcing iframes)
+    # TODO: Watch for spider-traps! (ie mutually sourcing iframes)
     # Keep a trail log for this test and check for loops
     address = random.choice(self.targets)
 
-    self.fetch_queue.put_nowait(("html", address))
+    self.fetch_queue.put_nowait(("html", address, first_referer))
     while not self.fetch_queue.empty():
-      (test, url) = self.fetch_queue.get_nowait()
+      (test, url, referer) = self.fetch_queue.get_nowait()
+      if referer: self.headers['Referer'] = referer
       if test == "html": result = self.check_html(url)
       elif test == "http": result = self.check_http(url)
       elif test == "js": result = self.check_js(url)
@@ -730,28 +760,6 @@ class HTMLTest(HTTPTest):
 
   def get_targets(self):
     return self.get_search_urls('http', self.fetch_targets) 
-
-  def remove_target(self, address, reason):
-    HTTPTest.remove_target(self, address, reason)
-    if address in self.dynamic_fails: del self.dynamic_fails[address]
-
-  def register_dynamic_failure(self, address, exit_node):
-    if address in self.dynamic_fails:
-      self.dynamic_fails[address].add(exit_node)
-    else:
-      self.dynamic_fails[address] = sets.Set([exit_node])
-    
-    err_cnt = len(self.dynamic_fails[address])
-    if err_cnt > self.dynamic_limit:
-      # Remove all associated data for this url.
-      # (Note, this also seems to imply we should report BadExit in bulk,
-      # after we've had a chance for these false positives to be weeded out)
-      if address not in self.successes: self.successes[address] = 0
-      plog("NOTICE", "Excessive HTTP 3-way failure ("+str(err_cnt)+" vs "+str(self.successes[address])+") for "+address+". Removing.")
-
-      self.remove_target(address, FALSEPOSITIVE_DYNAMIC)
-    else:
-      plog("ERROR", self.proto+" 3-way failure at "+exit_node+". This makes "+str(err_cnt)+" node failures for "+address)
 
   def _add_recursive_targets(self, soup, orig_addr):
     # Only pull at most one filetype from the list of 'a' links
@@ -786,14 +794,18 @@ class HTMLTest(HTTPTest):
     for i in sets.Set(targets):
       if self._is_useable_url(i[1], html_schemes):
         plog("NOTICE", "Adding "+i[0]+" target: "+i[1])
-        self.fetch_queue.put_nowait(i)
+        self.fetch_queue.put_nowait((i[0], i[1], orig_addr))
       else:
         plog("NOTICE", "Skipping "+i[0]+" target: "+i[1])
  
   def check_js(self, address):
     plog('INFO', 'Conducting a js test with destination ' + address)
+
+    orig_accept = self.headers['Accept']
+    self.headers['Accept'] = "*/*"
     ret = self.check_http_nodynamic(address)
-    
+    self.headers['Accept'] = orig_accept
+
     if type(ret) == int:
       return ret
     (tor_js, tsha, orig_js, osha, new_js, nsha, exit_node) = ret
@@ -815,7 +827,8 @@ class HTMLTest(HTTPTest):
       failed_prefix = http_failed_dir+address_file
 
       # XXX: Check for existence of this file before overwriting
-      exit_content_file = open(failed_prefix+'.dyn-content.'+exit_node[1:], 'w')
+      exit_content_file = open(failed_prefix+'.'+exit_node[1:]+'.dyn-content',
+                                'w')
       exit_content_file.write(tor_js)
       exit_content_file.close()
 
@@ -879,7 +892,7 @@ class HTMLTest(HTTPTest):
     # if they match, means the node has been changing the content
     if str(orig_soup) == str(new_soup):
       # XXX: Check for existence of this file before overwriting
-      exit_content_file = open(failed_prefix+'.content.'+exit_node[1:], 'w')
+      exit_content_file = open(failed_prefix+'.'+exit_node[1:]+'.content', 'w')
       exit_content_file.write(tor_html)
       exit_content_file.close()
 
@@ -934,7 +947,7 @@ class HTMLTest(HTTPTest):
       return TEST_SUCCESS
 
     # XXX: Check for existence of this file before overwriting
-    exit_content_file = open(failed_prefix+'.dyn-content.'+exit_node[1:], 'w')
+    exit_content_file = open(failed_prefix+'.'+exit_node[1:]+'.dyn-content','w')
     exit_content_file.write(tor_html)
     exit_content_file.close()
 
@@ -951,7 +964,7 @@ class HTMLTest(HTTPTest):
 
 class SSLTest(SearchBasedTest):
   def __init__(self, mt, wordlist):
-    self.test_hosts = 10
+    self.test_hosts = num_ssl_hosts
     SearchBasedTest.__init__(self, mt, "SSL", 443, wordlist)
 
   def run_test(self):
@@ -966,32 +979,31 @@ class SSLTest(SearchBasedTest):
     address=str(address) # Unicode hostnames not supported..
      
     # specify the context
-    ctx = SSL.Context(SSL.SSLv23_METHOD)
+    ctx = SSL.Context(SSL.TLSv1_METHOD)
     ctx.set_verify_depth(1)
 
     # ready the certificate request
     request = crypto.X509Req()
 
     # open an ssl connection
+    # FIXME: Hrmmm. handshake considerations
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     c = SSL.Connection(ctx, s)
     c.set_connect_state()
   
-    # FIXME: Change this whole test to store pickled SSLDomains
     try:
       c.connect((address, 443)) # XXX: Verify TorDNS here too..
       c.send(crypto.dump_certificate_request(crypto.FILETYPE_PEM,request))
     except socket.error, e:
-      plog('WARN','An error occured while opening an ssl connection to ' + address)
-      plog('WARN', e)
+      plog('WARN','An error occured while opening an ssl connection to '+address+": "+str(e))
       return 0
-    except (IndexError, TypeError):
-      plog('WARN', 'An error occured while negotiating socks5 with Tor (timeout?)')
+    except (IndexError, TypeError, socks.Socks5Error), e:
+      plog('WARN', 'An error occured while negotiating socks5 for '+address+': '+str(e))
       return 0
     except KeyboardInterrupt:
       raise KeyboardInterrupt
-    except:
-      plog('WARN', 'An unknown SSL error occured for '+address)
+    except e:
+      plog('WARN', 'An unknown SSL error occured for '+address+': '+str(e))
       traceback.print_exc()
       return 0
     
@@ -1008,15 +1020,81 @@ class SSLTest(SearchBasedTest):
         ret = m.to_name
     return ret
 
+  def _update_cert_list(self, ssl_domain, check_ips):
+    changed = False
+    for ip in check_ips:
+      if not ssl_domain.seen_ip(ip):
+        plog('INFO', 'Ssl connection to new ip '+ip+" for "+ssl_domain.domain)
+        raw_cert = self.ssl_request(ip)
+        if not raw_cert:
+          plog('WARN', 'Error getting the correct cert for '+ssl_domain.domain+":"+ip)
+          continue
+        ssl_domain.add_cert(ip,
+               crypto.dump_certificate(crypto.FILETYPE_PEM, raw_cert))
+        changed = True
+    return changed
+
   def check_openssl(self, address):
     ''' check whether an https connection to a given address is molested '''
     plog('INFO', 'Conducting an ssl test with destination ' + address)
 
     # an address representation acceptable for a filename 
     address_file = self.datahandler.safeFilename(address[8:])
+    ssl_file_name = ssl_certs_dir + address_file + '.ssl'
+
+    # load the original cert and compare
+    # if we don't have the original cert yet, get it
+    try:
+      ssl_file = open(ssl_file_name, 'r')
+      ssl_domain = pickle.load(ssl_file)
+      ssl_file.close()
+    except IOError:
+      ssl_domain = SSLDomain(address)
+
+    check_ips = []
+    resolved = socket.getaddrinfo(address, 443)
+    for res in resolved:
+      if res[0] == socket.AF_INET and res[2] == socket.IPPROTO_TCP:
+        check_ips.append(res[4][0])
+
+    try:
+      if self._update_cert_list(ssl_domain, check_ips):
+        ssl_file = open(ssl_file_name, 'w')
+        pickle.dump(ssl_domain, ssl_file)
+        ssl_file.close()
+    except OpenSSL.crypto.Error:
+      plog('WARN', 'Crypto error.')
+      traceback.print_exc()
+      return TEST_INCONCLUSIVE
+
+    if not ssl_domain.cert_map:
+      plog('WARN', 'Error getting the correct cert for ' + address)
+      return TEST_INCONCLUSIVE
+
+    if ssl_domain.cert_changed:
+      ssl_domain = SSLDomain(address)
+      plog('INFO', 'Fetching all new certs for '+address)
+      try:
+        if self._update_cert_list(ssl_domain, check_ips):
+          ssl_file = open(ssl_file_name, 'w')
+          pickle.dump(ssl_domain, ssl_file)
+          ssl_file.close()
+      except OpenSSL.crypto.Error:
+        plog('WARN', 'Crypto error.')
+        traceback.print_exc()
+        return TEST_INCONCLUSIVE
+      if ssl_domain.cert_changed:
+        plog("NOTICE", "Fully dynamic certificate host "+address)
+
+        result = SSLTestResult("NoExit", address, ssl_file_name, 
+                               TEST_INCONCLUSIVE,
+                               INCONCLUSIVE_DYNAMICSSL)
+        self.datahandler.saveResult(result)
+        self.results.append(result)
+        self.remove_target(address, FALSEPOSITIVE_DYNAMIC)
+        return TEST_INCONCLUSIVE
 
     # get the cert via tor
-
     defaultsocket = socket.socket
     socks.setdefaultproxy(socks.PROXY_TYPE_SOCKS5, tor_host, tor_port)
     socket.socket = socks.socksocket
@@ -1027,107 +1105,44 @@ class SSLTest(SearchBasedTest):
     socket.socket = defaultsocket
 
     exit_node = self.mt.get_exit_node()
-    if exit_node == 0 or exit_node == '0' or not exit_node:
+    if not exit_node or exit_node == '0':
       plog('WARN', 'We had no exit node to test, skipping to the next test.')
       return TEST_FAILURE
 
     # if we got no cert, there was an ssl error
     if cert == 0:
-      result = SSLTestResult(exit_node, address, 0, TEST_INCONCLUSIVE)
+      result = SSLTestResult(exit_node, address, ssl_file_name, 
+                             TEST_INCONCLUSIVE,
+                             INCONCLUSIVE_NOEXITCONTENT)
       self.datahandler.saveResult(result)
-      return TEST_INCONCLUSIVE
-
-    # load the original cert and compare
-    # if we don't have the original cert yet, get it
-    original_cert = 0
-    try:
-      # XXX: Use pickle with IP:cert string
-      cert_file = open(ssl_certs_dir + address_file + '.pem', 'r')
-      cert_string = cert_file.read()
-      original_cert = crypto.load_certificate(crypto.FILETYPE_PEM, cert_string)
-    except IOError:
-      plog('INFO', 'Opening a direct ssl connection to ' + address)
-      # XXX: Connect to specific IP used via Non-Tor
-      original_cert = self.ssl_request(address)
-      if not original_cert:
-        plog('WARN', 'Error getting the correct cert for ' + address)
-        return TEST_INCONCLUSIVE
-      if original_cert.has_expired():
-        plog('WARN', 'The ssl cert for '+address+' seems to have expired. Skipping to the next test...')
-        return TEST_INCONCLUSIVE
-      cert_file = open(ssl_certs_dir + address_file + '.pem', 'w')
-      cert_file.write(crypto.dump_certificate(crypto.FILETYPE_PEM, original_cert))
-      cert_file.close()
-    except OpenSSL.crypto.Error:
-      plog('NOTICE', 'There are non-related files in ' + ssl_certs_dir + '. You should probably clean it.')
-      return TEST_INCONCLUSIVE
-    if not original_cert:
-      plog('WARN', 'Error getting the correct cert for ' + address)
+      self.results.append(result)
       return TEST_INCONCLUSIVE
 
     # get an easily comparable representation of the certs
     cert_pem = crypto.dump_certificate(crypto.FILETYPE_PEM, cert)
-    original_cert_pem = crypto.dump_certificate(crypto.FILETYPE_PEM, original_cert)
 
     # if certs match, everything is ok
-    if cert_pem == original_cert_pem:
-      cert_file = ssl_certs_dir + address_file + '.pem'
-      result = SSLTestResult(exit_node, address, cert_file, TEST_SUCCESS)
-      self.datahandler.saveResult(result)
+    if ssl_domain.seen_cert(cert_pem):
+      result = SSLTestResult(exit_node, address, ssl_file_name, TEST_SUCCESS)
+      #self.datahandler.saveResult(result)
       return TEST_SUCCESS
-    
-    # if certs dont match, open up a direct connection and update the cert
-    plog('INFO', 'Opening a direct ssl connection to ' + address)
-    original_cert_new = self.ssl_request(address)
-    if original_cert_new == 0:
-      plog('WARN', 'Error getting the correct cert for ' + address)
-      result = SSLTestResult(exit_node, address, 0, TEST_INCONCLUSIVE)
+
+    # False positive case.. Can't help it if the cert rotates AND we have a
+    # failure... Need to prune all results for this cert and give up.
+    if ssl_domain.cert_rotates:
+      result = SSLTestResult(exit_node, address, ssl_file_name, TEST_FAILURE, 
+                             FAILURE_DYNAMICCERTS, cert_pem)
+      self.results.append(result)
       self.datahandler.saveResult(result)
-      return TEST_INCONCLUSIVE
-
-    original_cert_new_pem = crypto.dump_certificate(crypto.FILETYPE_PEM, original_cert_new)
-
-    # compare the old and new cert
-    # if certs match, means the exit node has been messing with the cert
-    if original_cert_pem == original_cert_new_pem:
-      plog('ERROR', 'Exit node ' + exit_node + ' seems to be meddling with certificates. (' + address + ')')
-
-      cert_file_name = ssl_certs_dir + address_file + '_' + exit_node[1:] + '.pem'
-      cert_file = open(cert_file_name, 'w')
-      cert_file.write(cert_pem)
-      cert_file.close()
-
-      result = SSLTestResult(exit_node, address, cert_file_name, TEST_FAILURE)
-      self.datahandler.saveResult(result)
+      self.register_dynamic_failure(address, exit_node)
       return TEST_FAILURE
 
-    # if comparsion fails, replace the old cert with the new one
-    # XXX: Hrmm, probably should store as a seperate IP file in this case
-    # so we don't keep alternating on sites that have round robin
-    # DNS and different certs for each IP.. 
-    cert_file = open(ssl_certs_dir + address_file + '.pem', 'w')
-    cert_file.write(original_cert_new_pem)
-    cert_file.close()
-      
-    # compare the new cert and the node cert
-    # if certs match, everything is ok
-    if cert_pem == original_cert_new_pem:
-      cert_file = ssl_certs_dir + address_file + '.pem'
-      result = SSLTestResult(exit_node, address, cert_file, TEST_SUCCESS)
-      self.datahandler.saveResult(result)
-      return TEST_SUCCESS
-
     # if certs dont match, means the exit node has been messing with the cert
-    plog('ERROR', 'Exit node ' + exit_node + ' seems to be meddling with certificates. (' + address + ')')
-
-    cert_file_name = ssl_certs_dir + address + '_' + exit_node[1:] + '.pem'
-    cert_file = open(cert_file_name, 'w')
-    cert_file.write(cert_pem)
-    cert_file.close()
-
-    result = SSLTestResult(exit_node, address, cert_file_name, TEST_FAILURE)
+    result = SSLTestResult(exit_node, address, ssl_file_name, TEST_FAILURE,
+                           FAILURE_EXITONLY, cert_pem)
     self.datahandler.saveResult(result)
-
+    self.results.append(result)
+    self.register_exit_failure(address, exit_node)
     return TEST_FAILURE
 
 class POP3STest(Test):
@@ -1139,7 +1154,7 @@ class POP3STest(Test):
     return self.check_pop(random.choice(self.targets))
 
   def get_targets(self):
-    return [] # XXX
+    return [] 
 
   def check_pop(self, address, port=''):
     ''' 
@@ -1310,7 +1325,6 @@ class POP3STest(Test):
         tls_started != tls_started_d or tls_succeeded != tls_succeeded_d):
       result = POPTestResult(exit_node, address, TEST_FAILURE)
       self.datahandler.saveResult(result)
-      # XXX: Log?
       return TEST_FAILURE
     
     result = POPTestResult(exit_node, address, TEST_SUCCESS)
@@ -1410,7 +1424,6 @@ class SMTPSTest(Test):
     if ehlo1_reply != ehlo1_reply_d or has_starttls != has_starttls_d or ehlo2_reply != ehlo2_reply_d:
       result = SMTPTestResult(exit_node, address, TEST_FAILURE)
       self.datahandler.saveResult(result)
-      # XXX: Log?
       return TEST_FAILURE
 
     result = SMTPTestResult(exit_node, address, TEST_SUCCESS)
@@ -1578,7 +1591,6 @@ class IMAPSTest(Test):
       tls_started != tls_started_d or tls_succeeded != tls_succeeded_d):
       result = IMAPTestResult(exit_node, address, TEST_FAILURE)
       self.datahandler.saveResult(result)
-      # XXX: log?
       return TEST_FAILURE
 
     result = IMAPTestResult(exit_node, address, TEST_SUCCESS)
@@ -1589,7 +1601,7 @@ class DNSTest(Test):
   def check_dns(self, address):
     ''' A basic comparison DNS test. Rather unreliable. '''
     # TODO Spawns a lot of false positives (for ex. doesn't work for google.com). 
-    # XXX: This should be done passive like the DNSRebind test (possibly as
+    # TODO: This should be done passive like the DNSRebind test (possibly as
     # part of it)
     plog('INFO', 'Conducting a basic dns test for destination ' + address)
 
@@ -1861,7 +1873,7 @@ class Metaconnection:
     # self.__contol.set_option('AuthDirBadExit', exit) ?
     pass
 
-  # XXX: Hrmm is this in the right place?
+  # FIXME: Hrmm is this in the right place?
   def check_all_exits_port_consistency(self):
     ''' 
     an independent test that finds nodes that allow connections over a common protocol
@@ -1898,7 +1910,7 @@ class Metaconnection:
       plog('INFO', 'Exits with ' + common_protocol + ' / ' + secure_protocol + ' problem: ' + `len(specific_bad_exits[i])` + ' (~' + `(len(specific_bad_exits[i]) * 100 / len(routers))` + '%)')
     plog('INFO', 'Total bad exits: ' + `len(bad_exits)` + ' (~' + `(len(bad_exits) * 100 / len(routers))` + '%)')
 
-  # XXX: Hrmm is this in the right place?
+  # FIXME: Hrmm is this in the right place?
   def check_dns_rebind(self):
     ''' 
     A DNS-rebind attack test that runs in the background and monitors REMAP events
@@ -1960,11 +1972,12 @@ def decompress_response_data(response):
   if not tot_len:
     tot_len = "0"
 
-  start = time.time()
+  start = 0
   data = ""
   while True:
     data_read = response.read(500) # Cells are 495 bytes..
-    # XXX: if this doesn't work, check stream observer for 
+    if not start: start = time.time()
+    # TODO: if this doesn't work, check stream observer for 
     # lack of progress.. or for a sign we should read..
     len_read = len(data)
     now = time.time()
@@ -2070,12 +2083,11 @@ def main(argv):
   global search_cookies
   search_cookies = cookielib.LWPCookieJar()
   if os.path.isfile(search_cookie_file):
-    search_cookies.load(search_cookie_file)
+    search_cookies.load(search_cookie_file, ignore_discard=True)
   search_cookies.__filename = search_cookie_file
 
   tests = {}
 
-  # FIXME: Create an event handler that updates these lists
   if do_ssl:
     try:
       tests["SSL"] = SSLTest(mt, load_wordlist(ssl_wordlist_file))

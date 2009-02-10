@@ -2,7 +2,6 @@
 #
 # Common code to soat
 
-import dircache
 import operator
 import os
 import pickle
@@ -43,12 +42,14 @@ RESULT_STRINGS = {TEST_SUCCESS:"Success", TEST_INCONCLUSIVE:"Inconclusive", TEST
 INCONCLUSIVE_NOEXITCONTENT = "InconclusiveNoExitContent"
 INCONCLUSIVE_NOLOCALCONTENT = "InconclusiveNoLocalContent"
 INCONCLUSIVE_BADHTTPCODE = "InconclusiveBadHTTPCode"
+INCONCLUSIVE_DYNAMICSSL = "InconclusiveDynamicSSL"
 
 # Failed reasons
 FAILURE_EXITONLY = "FailureExitOnly"
 FAILURE_DYNAMICTAGS = "FailureDynamicTags" 
 FAILURE_DYNAMICJS = "FailureDynamicJS" 
 FAILURE_DYNAMICBINARY = "FailureDynamicBinary" 
+FAILURE_DYNAMICCERTS = "FailureDynamicCerts"
 FAILURE_COOKIEMISMATCH = "FailureCookieMismatch"
 
 # False positive reasons
@@ -71,7 +72,8 @@ class TestResult(object):
     self.verbose=False
  
   def mark_false_positive(self, reason):
-    pass
+    self.false_positive=True
+    self.false_positive_reason=reason
 
   def move_file(self, file, to_dir):
     if not file: return None
@@ -82,7 +84,7 @@ class TestResult(object):
       return new_file
     except:
       traceback.print_exc()
-      plog("WARN", "Error moving "+file+" to "+dir)
+      plog("WARN", "Error moving "+file+" to "+to_dir)
       return file
 
   def __str__(self):
@@ -99,26 +101,52 @@ class TestResult(object):
 
 class SSLTestResult(TestResult):
   ''' Represents the result of an openssl test '''
-  def __init__(self, exit_node, ssl_site, cert_file, status):
-    super(SSLTestResult, self).__init__(exit_node, ssl_site, status)
-    self.cert = cert_file
+  def __init__(self, exit_node, ssl_site, ssl_file, status, reason=None, 
+               exit_cert_pem=None):
+    super(SSLTestResult, self).__init__(exit_node, ssl_site, status, reason)
+    self.ssl_file = ssl_file
+    self.exit_cert = exit_cert_pem # Meh, not that much space
     self.proto = "ssl"
+
+  def mark_false_positive(self, reason):
+    TestResult.mark_false_positive(self, reason)
+    self.ssl_file=self.move_file(self.ssl_file, ssl_falsepositive_dir)
+
+  def __str__(self):
+    ret = TestResult.__str__(self)
+    ssl_file = open(self.ssl_file, 'r')
+    ssl_domain = pickle.load(ssl_file)
+    ssl_file.close()
+    ret += " Rotates: "+str(ssl_domain.cert_rotates)
+    ret += " Changed: "+str(ssl_domain.cert_changed)+"\n" 
+    if self.verbose:
+      for cert in ssl_domain.cert_map.iterkeys():
+        ret += "\nCert for "+ssl_domain.cert_map[cert]+":\n"
+        ret += cert+"\n"
+      if self.exit_cert:
+        ret += "\nExit node's cert:\n"
+        ret += self.exit_cert+"\n" 
+    return ret 
 
 class SSLDomain:
   def __init__(self, domain):
     self.domain = domain
-    # These two could just be sets.Set, but I was kind 
-    # of curious about the logline below.
     self.cert_map = {}
     self.ip_map = {}
+    self.cert_rotates = False
+    self.cert_changed = False
 
-  def add(self, cert_string, ip):
-    if self.ip_map[ip] != cert_string:
-      plog("NOTICE", self.domain+" is rotating certs for IP "+ip+". Interesting..")
+  def add_cert(self, ip, cert_string):
+    if ip in self.ip_map and self.ip_map[ip] != cert_string:
+      plog("NOTICE", self.domain+" has changed certs.")
+      self.cert_changed = True
+    elif len(self.cert_map) and cert_string not in self.cert_map:
+      plog("NOTICE", self.domain+" is rotating certs.")
+      self.cert_rotates = True
     self.cert_map[cert_string] = ip
     self.ip_map[ip] = cert_string
-
-  def matches(self, cert_string):
+    
+  def seen_cert(self, cert_string):
     return cert_string in self.cert_map
 
   def seen_ip(self, ip):
@@ -140,8 +168,7 @@ class HttpTestResult(TestResult):
     self.content_old = content_old
 
   def mark_false_positive(self, reason):
-    self.false_positive=True
-    self.false_positive_reason=reason
+    TestResult.mark_false_positive(self, reason)
     self.content=self.move_file(self.content, http_falsepositive_dir)
     self.content_old=self.move_file(self.content_old, http_falsepositive_dir)
     self.content_exit=self.move_file(self.content_exit,http_falsepositive_dir)
@@ -184,8 +211,7 @@ class JsTestResult(TestResult):
     self.content_old = content_old
 
   def mark_false_positive(self, reason):
-    self.false_positive=True
-    self.false_positive_reason=reason
+    TestResult.mark_false_positive(self, reason)
     self.content=self.move_file(self.content, http_falsepositive_dir)
     self.content_old=self.move_file(self.content_old, http_falsepositive_dir)
     self.content_exit=self.move_file(self.content_exit,http_falsepositive_dir)
@@ -235,8 +261,7 @@ class HtmlTestResult(TestResult):
     self.content_old = content_old
 
   def mark_false_positive(self, reason):
-    self.false_positive=True
-    self.false_positive_reason=reason
+    TestResult.mark_false_positive(self, reason)
     self.content=self.move_file(self.content,http_falsepositive_dir)
     self.content_old=self.move_file(self.content_old, http_falsepositive_dir)
     self.content_exit=self.move_file(self.content_exit,http_falsepositive_dir)
@@ -394,7 +419,7 @@ class DataHandler:
 
     for root, dirs, files in os.walk(rdir):
       for f in files:
-        if f[:-41].endswith('result'):
+        if f.endswith('.result'):
           fh = open(os.path.join(root, f))
           result = pickle.load(fh)
           results.append(result)
@@ -404,6 +429,14 @@ class DataHandler:
     fh = open(file, 'r')
     return pickle.load(fh)
 
+  def uniqueFilename(self, afile):
+    if not os.path.exists(afile):
+      return afile
+    i=1
+    while os.path.exists(afile+"."+str(i)):
+      i+=1
+    return afile+"."+str(i) 
+  
   def safeFilename(self, unsafe_file):
     ''' 
     remove characters illegal in some systems 
@@ -435,7 +468,7 @@ class DataHandler:
     elif result.status == TEST_FAILURE:
       rdir += 'failed/'
 
-    return str((rdir+address+'.result.'+result.exit_node[1:]).decode('ascii', 'ignore'))
+    return str((rdir+address+'.'+result.exit_node[1:]+".result").decode('ascii', 'ignore'))
 
   def saveResult(self, result):
     ''' generic method for saving test results '''
@@ -602,7 +635,6 @@ class SoupDiffer:
     f.close()
 
 class JSDiffer:
-  # XXX: Strip html comments from these strings
   def __init__(self, js_string):
     if HAVE_PYPY: self.ast_cnts = self._count_ast_elements(js_string)
 
@@ -618,6 +650,7 @@ class JSDiffer:
   def _count_ast_elements(self, js_string, name="global"):
     ast_cnts = {}
     try:
+      js_string = js_string.replace("\n\r","\n").replace("\r\n","\n").replace("\r","\n")
       ast = pypy.lang.js.jsparser.parse(js_string)
       JSDiffer._ast_recursive_worker(ast, ast_cnts)
     except (pypy.rlib.parsing.deterministic.LexerError, UnicodeDecodeError, pypy.rlib.parsing.parsing.ParseError), e:
