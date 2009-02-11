@@ -136,26 +136,26 @@ def http_request(address, cookie_jar=None, headers=firefox_headers):
   except urllib2.HTTPError, e:
     plog('NOTICE', "HTTP Error during request of "+address+": "+str(e))
     traceback.print_exc()
-    return (e.code, [], "", str(e)) 
+    return (e.code, [], "", e.__class__.__name__+str(e)) 
   except (ValueError, urllib2.URLError):
     plog('WARN', 'The http-request address ' + address + ' is malformed')
     traceback.print_exc()
     return (0, [], "", "")
   except socks.Socks5Error, e:
-    if e.value[0] == 1 or e.value[0] == 6: # Timeout or 'general'
+    if e.value[0] == 6: #  or e.value[0] == 1: # Timeout or 'general'
       plog('NOTICE', 'An error occured while negotiating socks5 with Tor: '+str(e))
       traceback.print_exc()
       return (0, [], "", "")
     else:
       plog('WARN', 'An unknown SOCKS5 error occured for '+address+": "+str(e))
       traceback.print_exc()
-      return (666, [], "", str(e))
+      return (666, [], "", e.__class__.__name__+str(e))
   except KeyboardInterrupt:
     raise KeyboardInterrupt
   except Exception, e:
     plog('WARN', 'An unknown HTTP error occured for '+address+": "+str(e))
     traceback.print_exc()
-    return (666, [], "", str(e))
+    return (666, [], "", e.__class__.__name__+str(e))
 
   return (reply.code, new_cookies, mime_type, content)
 
@@ -712,9 +712,9 @@ class HTTPTest(SearchBasedTest):
     
     if not ((mime_type == mime_type_new or not mime_type) \
                and mime_type_new == pmime_type):
+      if not mime_type: mime_type = "text/disk"
       plog("WARN", "Mime type change: 1st: "+mime_type+", 2nd: "+mime_type_new+", Tor: "+pmime_type)
       # TODO: If this actually happens, store a result.
-      mime_type = 'text/html'; 
 
     # Dirty dirty dirty...
     return (mime_type_new, pcontent, psha1sum, content, sha1sum, content_new, 
@@ -1077,7 +1077,7 @@ class SSLTest(SearchBasedTest):
       plog('WARN','An error occured while opening an ssl connection to '+address+": "+str(e))
       return e
     except socks.Socks5Error, e:
-      if e.value[0] == 1 or e.value[0] == 6: # Timeout or 'general'
+      if e.value[0] == 6: #  or e.value[0] == 1: # Timeout or 'general'
         plog('NOTICE', 'An error occured while negotiating socks5 for '+address+': '+str(e))
         return -1
       else:
@@ -1225,7 +1225,7 @@ class SSLTest(SearchBasedTest):
     if isinstance(cert, Exception):
       plog('ERROR', 'SSL failure with exception '+str(cert)+' for: '+address+' via '+exit_node)
       result = SSLTestResult(exit_node, address, ssl_file_name, TEST_FAILURE, 
-                             FAILURE_MISCEXCEPTION+str(cert)) 
+              FAILURE_MISCEXCEPTION+":"+cert.__class__.__name__+str(cert)) 
       self.results.append(result)
       self.datahandler.saveResult(result)
       self.register_exit_failure(address, exit_node)
@@ -1237,7 +1237,7 @@ class SSLTest(SearchBasedTest):
     except OpenSSL.crypto.Error, e:
       plog('ERROR', 'SSL failure with exception '+str(e)+' for: '+address+' via '+exit_node)
       result = SSLTestResult(exit_node, address, ssl_file_name, TEST_FAILURE, 
-                             FAILURE_MISCEXCEPTION+str(e)) 
+              FAILURE_MISCEXCEPTION+":"+e.__class__.__name__+str(e)) 
       self.results.append(result)
       self.datahandler.saveResult(result)
       self.register_exit_failure(address, exit_node)

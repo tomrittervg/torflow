@@ -84,8 +84,7 @@ class TestResult(object):
     return os.path.normpath(os.path.join(new_data_root, *split_file[1:]))
 
   def rebase(self, new_data_root):
-    if 'filename' in self.__dict__: # XXX: Kill this...
-      self.filename = self._rebase(self.filename, new_data_root)
+    self.filename = self._rebase(self.filename, new_data_root)
  
   def mark_false_positive(self, reason):
     self.false_positive=True
@@ -668,7 +667,8 @@ class SoupDiffer:
           return True
         else:
           for attr in t.attrs:
-            if attr[0] not in tag_attr_map[t.name]:
+            if attr[0] not in tag_attr_map[t.name] \
+                and attr[0] in attrs_to_check_map:
               return True
     return False
 
@@ -680,7 +680,8 @@ class SoupDiffer:
           ret += " New Tag: "+str(t)+"\n"
         else:
           for attr in t.attrs:
-            if attr[0] not in tag_attr_map[t.name]:
+            if attr[0] not in tag_attr_map[t.name] \
+                 and attr[0] in attrs_to_check_map:
               ret += " New Attr "+attr[0]+": "+str(t)+"\n"
     return ret
 
@@ -732,7 +733,8 @@ class SoupDiffer:
         (returned from changed_attributes_by_tag) """
     for (tag, attr) in self.changed_attributes():
       if tag in attrs_by_tag:
-        if attr[0] not in attrs_by_tag[tag]:
+        if attr[0] not in attrs_by_tag[tag] \
+            and attr[0] in attrs_to_check_map:
           return True
       else:
         return True
@@ -742,7 +744,8 @@ class SoupDiffer:
     ret = ""
     for (tag, attr) in self.changed_attributes():
       if tag in attrs_by_tag:
-        if attr[0] not in attrs_by_tag[tag]:
+        if attr[0] not in attrs_by_tag[tag] \
+            and attr[0] in attrs_to_check_map:
           ret += " New Attr "+attr[0]+": "+tag+" "+attr[0]+'="'+attr[1]+'"\n'
       else:
         ret += " New Tag: "+tag+" "+attr[0]+'="'+attr[1]+'"\n'
@@ -866,7 +869,6 @@ class JSDiffer:
     return self._difference_checker(other_cnts) 
 
   def show_differences(self, other_string):
-    ret = ""
     if not HAVE_PYPY:
       return "PyPy import not present. Not diffing javascript"
     other_cnts = self._count_ast_elements(other_string)
