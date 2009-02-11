@@ -12,8 +12,8 @@ import difflib
 import re
 import copy
 sys.path.append("./libs")
+from OpenSSL import crypto
 from BeautifulSoup.BeautifulSoup import Tag, SoupStrainer
-
 
 import sets
 from sets import Set
@@ -41,7 +41,6 @@ RESULT_STRINGS = {TEST_SUCCESS:"Success", TEST_INCONCLUSIVE:"Inconclusive", TEST
 RESULT_CODES=dict([v,k] for k,v in RESULT_STRINGS.iteritems())
 
 # Inconclusive reasons
-INCONCLUSIVE_NOEXITCONTENT = "InconclusiveNoExitContent"
 INCONCLUSIVE_NOLOCALCONTENT = "InconclusiveNoLocalContent"
 INCONCLUSIVE_DYNAMICSSL = "InconclusiveDynamicSSL"
 INCONCLUSIVE_TORBREAKAGE = "InconclusiveTorBreakage"
@@ -54,11 +53,14 @@ FAILURE_DYNAMICBINARY = "FailureDynamicBinary"
 FAILURE_DYNAMICCERTS = "FailureDynamicCerts"
 FAILURE_COOKIEMISMATCH = "FailureCookieMismatch"
 FAILURE_BADHTTPCODE = "FailureBadHTTPCode"
+FAILURE_MISCEXCEPTION = "FailureMiscException"
+FAILURE_NOEXITCONTENT = "FailureNoExitContent"
 
 # False positive reasons
 FALSEPOSITIVE_HTTPERRORS = "FalsePositiveHTTPErrors"
 FALSEPOSITIVE_DYNAMIC = "FalsePositiveDynamic"
 FALSEPOSITIVE_DYNAMIC_TOR = "FalsePositiveDynamicTor"
+FALSEPOSITIVE_DEADSITE = "FalsePositiveDeadSite"
 
 # classes to use with pickle to dump test results into files
 
@@ -128,6 +130,13 @@ class SSLTestResult(TestResult):
     TestResult.mark_false_positive(self, reason)
     self.ssl_file=self.move_file(self.ssl_file, ssl_falsepositive_dir)
 
+  def _dump_cert(self, cert):
+    ret = ""
+    x509 = crypto.load_certificate(crypto.FILETYPE_PEM, cert)
+    ret += "Issuer: "+str(x509.get_issuer())+"\n"
+    ret += "Subject: "+str(x509.get_subject())+"\n"
+    return ret
+
   def __str__(self):
     ret = TestResult.__str__(self)
     ssl_file = open(self.ssl_file, 'r')
@@ -138,14 +147,16 @@ class SSLTestResult(TestResult):
     if self.verbose:
       for cert in ssl_domain.cert_map.iterkeys():
         ret += "\nCert for "+ssl_domain.cert_map[cert]+":\n"
-        ret += cert+"\n"
+        ret += cert
+        ret += self._dump_cert(cert)
       if self.exit_cert:
         # XXX: Kill the first part of this clause after restart:
         if 'exit_ip' in self.__dict__ and self.exit_ip: 
           ret += "\nExit node's cert for "+self.exit_ip+":\n"
         else:
           ret += "\nExit node's cert:\n"
-        ret += self.exit_cert+"\n" 
+        ret += self.exit_cert
+        ret += self._dump_cert(self.exit_cert)
     return ret 
 
 class SSLDomain:
@@ -172,6 +183,8 @@ class SSLDomain:
   def seen_ip(self, ip):
     return ip in self.ip_map
 
+  def num_certs(self):
+    return len(self.cert_map)
 
 class HttpTestResult(TestResult):
   ''' Represents the result of a http test '''

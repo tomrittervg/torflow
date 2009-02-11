@@ -141,10 +141,15 @@ def http_request(address, cookie_jar=None, headers=firefox_headers):
     plog('WARN', 'The http-request address ' + address + ' is malformed')
     traceback.print_exc()
     return (0, [], "", "")
-  except (IndexError, TypeError, socks.Socks5Error), e:
-    plog('NOTICE', 'An error occured while negotiating socks5 with Tor: '+str(e))
-    traceback.print_exc()
-    return (0, [], "", "")
+  except socks.Socks5Error, e:
+    if e.value[0] == 1 or e.value[0] == 6: # Timeout or 'general'
+      plog('NOTICE', 'An error occured while negotiating socks5 with Tor: '+str(e))
+      traceback.print_exc()
+      return (0, [], "", "")
+    else:
+      plog('WARN', 'An unknown SOCKS5 error occured for '+address+": "+str(e))
+      traceback.print_exc()
+      return (666, [], "", str(e))
   except KeyboardInterrupt:
     raise KeyboardInterrupt
   except Exception, e:
@@ -170,6 +175,10 @@ class Test:
     self.results = []
     self.dynamic_fails = {}
     self.banned_targets = sets.Set([])
+    self.total_nodes = 0
+    self.nodes = []
+    self.node_map = {}
+    self.all_nodes = sets.Set([])
 
   def run_test(self): 
     raise NotImplemented()
@@ -254,7 +263,7 @@ class Test:
     # TODO: Do something if abundance of succesful tests?
     # Problem is this can still trigger for localized content
     err_cnt = len(self.exit_fails[address])
-    if err_cnt > self.exit_limit_pct*self.total_nodes/100.0:
+    if self.total_nodes and err_cnt > self.exit_limit_pct*self.total_nodes/100.0:
       if address not in self.successes: self.successes[address] = 0
       plog("NOTICE", "Excessive "+self.proto+" 2-way failure ("+str(err_cnt)+" vs "+str(self.successes[address])+") for "+address+". Removing.")
   
@@ -416,6 +425,8 @@ class HTTPTest(SearchBasedTest):
     tor_cookies = "\n"
     plain_cookies = "\n"
     # XXX: do we need to sort these? So far we have worse problems..
+    # We probably only want to do this on a per-url basis.. Then
+    # we can do the 3-way compare..
     for cookie in self.tor_cookie_jar:
       tor_cookies += "\t"+cookie.name+":"+cookie.domain+cookie.path+" discard="+str(cookie.discard)+"\n"
     for cookie in self.cookie_jar:
@@ -484,7 +495,7 @@ class HTTPTest(SearchBasedTest):
       self.httpcode_fails[address] = sets.Set([exit_node])
     
     err_cnt = len(self.httpcode_fails[address])
-    if err_cnt > self.httpcode_limit_pct*self.total_nodes/100.0:
+    if self.total_nodes and err_cnt > self.httpcode_limit_pct*self.total_nodes/100.0:
       # Remove all associated data for this url.
       # (Note, this also seems to imply we should report BadExit in bulk,
       # after we've had a chance for these false positives to be weeded out)
@@ -619,15 +630,15 @@ class HTTPTest(SearchBasedTest):
 
     # if we have no content, we had a connection error
     if pcontent == "":
-      plog("NOTICE", exit_node+" failed to fetch content for "+address)
-      result = HttpTestResult(exit_node, address, TEST_INCONCLUSIVE,
-                              INCONCLUSIVE_NOEXITCONTENT)
+      plog("ERROR", exit_node+" failed to fetch content for "+address)
+      result = HttpTestResult(exit_node, address, TEST_FAILURE,
+                              FAILURE_NOEXITCONTENT)
       self.results.append(result)
       self.datahandler.saveResult(result)
       # Restore cookie jars
       self.cookie_jar = orig_cookie_jar
       self.tor_cookie_jar = orig_tor_cookie_jar
-      return TEST_INCONCLUSIVE
+      return TEST_FAILURE
 
     # compare the content
     # if content matches, everything is ok
@@ -1058,37 +1069,40 @@ class SSLTest(SearchBasedTest):
 
     # open an ssl connection
     # FIXME: Hrmmm. handshake considerations
-    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    c = SSL.Connection(ctx, s)
-    c.set_connect_state()
-  
     try:
+      s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+      c = SSL.Connection(ctx, s)
+      c.set_connect_state()
       c.connect((address, 443)) # DNS OK.
       c.send(crypto.dump_certificate_request(crypto.FILETYPE_PEM,request))
     except socket.error, e:
       plog('WARN','An error occured while opening an ssl connection to '+address+": "+str(e))
-      return 0
-    except (IndexError, TypeError, socks.Socks5Error), e:
-      plog('WARN', 'An error occured while negotiating socks5 for '+address+': '+str(e))
-      return 0
+      return e
+    except socks.Socks5Error, e:
+      if e.value[0] == 1 or e.value[0] == 6: # Timeout or 'general'
+        plog('NOTICE', 'An error occured while negotiating socks5 for '+address+': '+str(e))
+        return -1
+      else:
+        plog('WARN', 'An error occured while negotiating socks5 for '+address+': '+str(e))
+        return e
     except KeyboardInterrupt:
       raise KeyboardInterrupt
     except Exception, e:
       plog('WARN', 'An unknown SSL error occured for '+address+': '+str(e))
       traceback.print_exc()
-      return 0
+      return e
     
     # return the cert
     return c.get_peer_certificate()
 
   def get_resolved_ip(self, hostname):
-    mappings = self.mt.__control.get_address_mappings("cache")
+    mappings = self.mt.control.get_address_mappings("cache")
     ret = None
     for m in mappings:
-      if m.from_name == hostname:
+      if m.from_addr == hostname:
         if ret:
           plog("WARN", "Multiple maps for "+hostname)
-        ret = m.to_name
+        ret = m.to_addr
     return ret
 
   def _update_cert_list(self, ssl_domain, check_ips):
@@ -1097,7 +1111,7 @@ class SSLTest(SearchBasedTest):
       if not ssl_domain.seen_ip(ip):
         plog('INFO', 'Ssl connection to new ip '+ip+" for "+ssl_domain.domain)
         raw_cert = self.ssl_request(ip)
-        if not raw_cert:
+        if not raw_cert or isinstance(raw_cert, Exception):
           plog('WARN', 'Error getting the correct cert for '+ssl_domain.domain+":"+ip)
           continue
         ssl_domain.add_cert(ip,
@@ -1165,6 +1179,16 @@ class SSLTest(SearchBasedTest):
         self.remove_target(address, FALSEPOSITIVE_DYNAMIC)
         return TEST_INCONCLUSIVE
 
+    if not ssl_domain.num_certs():
+        plog("NOTICE", "No non-tor certs available for "+address)
+        result = SSLTestResult("NoExit", address, ssl_file_name, 
+                               TEST_INCONCLUSIVE,
+                               INCONCLUSIVE_NOLOCALCONTENT)
+        self.datahandler.saveResult(result)
+        self.results.append(result)
+        self.remove_target(address, FALSEPOSITIVE_DEADSITE)
+        return TEST_INCONCLUSIVE
+
     # get the cert via tor
     defaultsocket = socket.socket
     socks.setdefaultproxy(socks.PROXY_TYPE_SOCKS5, tor_host, tor_port)
@@ -1178,19 +1202,47 @@ class SSLTest(SearchBasedTest):
     exit_node = self.mt.get_exit_node()
     if not exit_node or exit_node == '0':
       plog('WARN', 'We had no exit node to test, skipping to the next test.')
-      return TEST_FAILURE
+      return TEST_INCONCLUSIVE
 
-    # if we got no cert, there was an ssl error
-    if cert == 0:
+    if cert == -1:
+      plog('NOTICE', 'SSL test inconclusive for: '+address)
       result = SSLTestResult(exit_node, address, ssl_file_name, 
                              TEST_INCONCLUSIVE,
-                             INCONCLUSIVE_NOEXITCONTENT)
+                             INCONCLUSIVE_TORBREAKAGE)
       self.datahandler.saveResult(result)
       self.results.append(result)
       return TEST_INCONCLUSIVE
 
-    # get an easily comparable representation of the certs
-    cert_pem = crypto.dump_certificate(crypto.FILETYPE_PEM, cert)
+    # if we got no cert, there was an ssl error
+    if not cert:
+      plog('ERROR', 'SSL failure with empty cert for: '+address+' via '+exit_node)
+      result = SSLTestResult(exit_node, address, ssl_file_name, 
+                             TEST_FAILURE,
+                             FAILURE_NOEXITCONTENT)
+      self.datahandler.saveResult(result)
+      self.results.append(result)
+      return TEST_FAILURE
+
+    if isinstance(cert, Exception):
+      plog('ERROR', 'SSL failure with exception '+str(cert)+' for: '+address+' via '+exit_node)
+      result = SSLTestResult(exit_node, address, ssl_file_name, TEST_FAILURE, 
+                             FAILURE_MISCEXCEPTION+str(cert)) 
+      self.results.append(result)
+      self.datahandler.saveResult(result)
+      self.register_dynamic_failure(address, exit_node)
+      return TEST_FAILURE
+   
+    try:
+      # get an easily comparable representation of the certs
+      cert_pem = crypto.dump_certificate(crypto.FILETYPE_PEM, cert)
+    except OpenSSL.crypto.Error, e:
+      plog('ERROR', 'SSL failure with exception '+str(e)+' for: '+address+' via '+exit_node)
+      result = SSLTestResult(exit_node, address, ssl_file_name, TEST_FAILURE, 
+                             FAILURE_MISCEXCEPTION+str(e)) 
+      self.results.append(result)
+      self.datahandler.saveResult(result)
+      self.register_dynamic_failure(address, exit_node)
+      return TEST_FAILURE
 
     # if certs match, everything is ok
     if ssl_domain.seen_cert(cert_pem):
@@ -1892,7 +1944,7 @@ class Metaconnection:
       s.connect((control_host, control_port))
       c = Connection(s)
       c.authenticate()
-      self.__control = c
+      self.control = c
     except socket.error, e:
       plog('ERROR', 'Couldn\'t connect to the control port')
       plog('ERROR', e)
@@ -1958,7 +2010,7 @@ class Metaconnection:
     '''
 
     # get the structure
-    routers = self.__control.read_routers(self.__control.get_network_status())
+    routers = self.control.read_routers(self.control.get_network_status())
     bad_exits = Set([])
     specific_bad_exits = [None]*len(ports_to_check)
     for i in range(len(ports_to_check)):
@@ -2195,12 +2247,11 @@ def main(argv):
     plog("NOTICE", "Scanning only "+scan_exit)
     mt.set_new_exit(scan_exit)
     mt.get_new_circuit()
- 
-    for test in tests.values():
-      result = test.run_test()
-      plog("INFO", test.proto+" test via "+scan_exit+" has result "+str(result))
-    plog('INFO', 'Done.')
-    sys.exit(0)
+
+    while 1:
+      for test in tests.values():
+        result = test.run_test()
+        plog("INFO", test.proto+" test via "+scan_exit+" has result "+str(result))
  
   # start testing
   while 1:
