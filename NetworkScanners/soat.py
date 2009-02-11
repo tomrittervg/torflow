@@ -207,7 +207,7 @@ class Test:
         # Save this new result file in false positive dir 
         # and remove old one
         try:
-          os.unlink(self.datahandler.resultFilename(r))
+          os.unlink(r.filename)
         except:
           pass
         r.mark_false_positive(reason)
@@ -513,7 +513,7 @@ class HTTPTest(SearchBasedTest):
     ''' check whether a http connection to a given address is molested '''
 
     # an address representation acceptable for a filename 
-    address_file = self.datahandler.safeFilename(address[7:])
+    address_file = DataHandler.safeFilename(address[7:])
     content_prefix = http_content_dir+address_file
     
     # Keep a copy of the cookie jar before mods for refetch or
@@ -730,15 +730,14 @@ class HTTPTest(SearchBasedTest):
   def _check_http_worker(self, address, http_ret):
     (mime_type,pcontent,psha1sum,content,sha1sum,content_new,sha1sum_new,exit_node) = http_ret
      
-    address_file = self.datahandler.safeFilename(address[7:])
+    address_file = DataHandler.safeFilename(address[7:])
     content_prefix = http_content_dir+address_file
     failed_prefix = http_failed_dir+address_file
 
     # compare the new and old content
     # if they match, means the node has been changing the content
     if sha1sum.hexdigest() == sha1sum_new.hexdigest():
-      # XXX: Check for existence of this file before overwriting
-      exit_content_file = open(failed_prefix+'.'+exit_node[1:]+'.content', 'w')
+      exit_content_file = open(DataHandler.uniqueFilename(failed_prefix+'.'+exit_node[1:]+'.content'), 'w')
       exit_content_file.write(pcontent)
       exit_content_file.close()
 
@@ -752,8 +751,7 @@ class HTTPTest(SearchBasedTest):
       self.register_exit_failure(address, exit_node)
       return TEST_FAILURE
 
-    # XXX: Check for existence of this file before overwriting
-    exit_content_file = open(failed_prefix+'.'+exit_node[1:]+'.dyn-content','w')
+    exit_content_file = open(DataHandler.uniqueFilename(failed_prefix+'.'+exit_node[1:]+'.dyn-content'),'w')
     exit_content_file.write(pcontent)
     exit_content_file.close()
 
@@ -891,12 +889,11 @@ class HTMLTest(HTTPTest):
       else: self.successes[address]=1
       return TEST_SUCCESS
     else:
-      address_file = self.datahandler.safeFilename(address[7:])
+      address_file = DataHandler.safeFilename(address[7:])
       content_prefix = http_content_dir+address_file
       failed_prefix = http_failed_dir+address_file
 
-      # XXX: Check for existence of this file before overwriting
-      exit_content_file = open(failed_prefix+'.'+exit_node[1:]+'.dyn-content',
+      exit_content_file = open(DataHandler.uniqueFilename(failed_prefix+'.'+exit_node[1:]+'.dyn-content'),
                                 'w')
       exit_content_file.write(tor_js)
       exit_content_file.close()
@@ -932,7 +929,7 @@ class HTMLTest(HTTPTest):
         return self._check_http_worker(address, http_ret)
 
     # an address representation acceptable for a filename 
-    address_file = self.datahandler.safeFilename(address[7:])
+    address_file = DataHandler.safeFilename(address[7:])
     content_prefix = http_content_dir+address_file
     failed_prefix = http_failed_dir+address_file
 
@@ -971,8 +968,7 @@ class HTMLTest(HTTPTest):
     # compare the new and old content
     # if they match, means the node has been changing the content
     if str(orig_soup) == str(new_soup):
-      # XXX: Check for existence of this file before overwriting
-      exit_content_file = open(failed_prefix+'.'+exit_node[1:]+'.content', 'w')
+      exit_content_file = open(DataHandler.uniqueFilename(failed_prefix+'.'+exit_node[1:]+'.content'), 'w')
       exit_content_file.write(tor_html)
       exit_content_file.close()
 
@@ -1004,7 +1000,7 @@ class HTMLTest(HTTPTest):
                             old_vs_new.changed_attributes_by_tag(),
                             new_vs_old.changed_attributes_by_tag())
 
-    changed_content = bool(old_vs_new.changed_content() or old_vs_new.changed_content())
+    changed_content = bool(new_vs_old.changed_content() or old_vs_new.changed_content())
  
     # Verify all of our changed tags are present here 
     if new_vs_tor.has_more_changed_tags(changed_tags) or \
@@ -1013,11 +1009,14 @@ class HTMLTest(HTTPTest):
       false_positive = False
     else:
       false_positive = True
+      
+    plog("INFO", "SoupDiffer predicts false_positive="+str(false_positive))
 
     if false_positive:
       jsdiff = JSSoupDiffer(orig_soup)
       jsdiff.prune_differences(new_soup)
       false_positive = not jsdiff.contains_differences(tor_soup)
+      plog("INFO", "JSSoupDiffer predicts false_positive="+str(false_positive))
 
     if false_positive:
       plog("NOTICE", "False positive detected for dynamic change at "+address+" via "+exit_node)
@@ -1028,8 +1027,7 @@ class HTMLTest(HTTPTest):
       else: self.successes[address]=1
       return TEST_SUCCESS
 
-    # XXX: Check for existence of this file before overwriting
-    exit_content_file = open(failed_prefix+'.'+exit_node[1:]+'.dyn-content','w')
+    exit_content_file = open(DataHandler.uniqueFilename(failed_prefix+'.'+exit_node[1:]+'.dyn-content'),'w')
     exit_content_file.write(tor_html)
     exit_content_file.close()
 
@@ -1124,7 +1122,7 @@ class SSLTest(SearchBasedTest):
     plog('INFO', 'Conducting an ssl test with destination ' + address)
 
     # an address representation acceptable for a filename 
-    address_file = self.datahandler.safeFilename(address[8:])
+    address_file = DataHandler.safeFilename(address[8:])
     ssl_file_name = ssl_certs_dir + address_file + '.ssl'
 
     # load the original cert and compare

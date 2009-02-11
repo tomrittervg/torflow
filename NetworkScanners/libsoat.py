@@ -74,7 +74,8 @@ class TestResult(object):
     self.reason = reason
     self.false_positive=False
     self.false_positive_reason="None"
-    self.verbose=False
+    self.verbose=0
+    self.filename=None
 
   def _rebase(self, filename, new_data_root):
     if not filename: return filename
@@ -83,7 +84,8 @@ class TestResult(object):
     return os.path.normpath(os.path.join(new_data_root, *split_file[1:]))
 
   def rebase(self, new_data_root):
-    pass
+    if 'filename' in self.__dict__: # XXX: Kill this...
+      self.filename = self._rebase(self.filename, new_data_root)
  
   def mark_false_positive(self, reason):
     self.false_positive=True
@@ -147,15 +149,14 @@ class SSLTestResult(TestResult):
     if self.verbose:
       for cert in ssl_domain.cert_map.iterkeys():
         ret += "\nCert for "+ssl_domain.cert_map[cert]+":\n"
-        ret += cert
+        if self.verbose > 1: ret += cert
         ret += self._dump_cert(cert)
       if self.exit_cert:
-        # XXX: Kill the first part of this clause after restart:
-        if 'exit_ip' in self.__dict__ and self.exit_ip: 
+        if self.exit_ip: 
           ret += "\nExit node's cert for "+self.exit_ip+":\n"
         else:
           ret += "\nExit node's cert:\n"
-        ret += self.exit_cert
+        if self.verbose > 1: ret += self.exit_cert
         ret += self._dump_cert(self.exit_cert)
     return ret 
 
@@ -332,28 +333,34 @@ class HtmlTestResult(TestResult):
     ret = TestResult.__str__(self)
     if self.verbose:
       soup = old_soup = tor_soup = None
-      if self.content and self.content_old:
+      if self.content:
         content = open(self.content).read().decode('ascii', 'ignore')
+        soup = FullyStrainedSoup(content)
+
+      if self.content_old:
         content_old = open(self.content_old).read().decode('ascii', 'ignore')
-        soup = FullyStrainedSoup(content)
         old_soup = FullyStrainedSoup(content_old)
-        tags = map(str, soup.findAll())
-        old_tags = map(str, old_soup.findAll())
-        diff = difflib.unified_diff(old_tags, tags, "Non-Tor1", "Non-Tor2",
-                                    lineterm="")
-        for line in diff:
-          ret+=line+"\n"
-      if self.content and self.content_exit:
-        content = open(self.content).read().decode('ascii', 'ignore')
+
+      if self.content_exit:
         content_exit = open(self.content_exit).read().decode('ascii', 'ignore')
-        soup = FullyStrainedSoup(content)
         tor_soup = FullyStrainedSoup(content_exit)
-        tags = map(str, soup.findAll())
-        tor_tags = map(str, tor_soup.findAll())
-        diff = difflib.unified_diff(tags, tor_tags, "Non-Tor", "Exit",
-                                    lineterm="")
-        for line in diff:
-          ret+=line+"\n"
+
+      if self.verbose > 1:
+        if self.content and self.content_old:
+          tags = map(str, soup.findAll())
+          old_tags = map(str, old_soup.findAll())
+          diff = difflib.unified_diff(old_tags, tags, "Non-Tor1", "Non-Tor2",
+                                      lineterm="")
+          for line in diff:
+            ret+=line+"\n"
+
+        if self.content and self.content_exit:
+          tags = map(str, soup.findAll())
+          tor_tags = map(str, tor_soup.findAll())
+          diff = difflib.unified_diff(tags, tor_tags, "Non-Tor", "Exit",
+                                      lineterm="")
+          for line in diff:
+            ret+=line+"\n"
 
       if soup and tor_soup and old_soup:
         old_vs_new = SoupDiffer(old_soup, soup)
@@ -369,15 +376,28 @@ class HtmlTestResult(TestResult):
                                 old_vs_new.changed_attributes_by_tag(),
                                 new_vs_old.changed_attributes_by_tag())
 
-        changed_content = bool(old_vs_new.changed_content() or old_vs_new.changed_content())
-     
-        ret += "\nTor changed tags:\n"
-        ret += new_vs_tor.more_changed_tags(changed_tags)
-        ret += "\nTor changed attrs:\n"
-        ret += new_vs_tor.more_changed_attrs(changed_attributes)
-        if not changed_content:
+        changed_content = bool(new_vs_old.changed_content() or old_vs_new.changed_content())
+
+        more_tags = new_vs_tor.more_changed_tags(changed_tags)     
+        more_attrs = new_vs_tor.more_changed_attrs(changed_attributes)
+        more_content = new_vs_tor.changed_content()
+
+        if more_tags:
+          ret += "\nTor changed tags:\n"
+          ret += more_tags
+        if more_attrs:
+          ret += "\nTor changed attrs:\n"
+          ret += more_attrs
+        if not changed_content and more_content:
           ret += "\nChanged Content:\n"
-          ret += "\n".join(new_vs_tor.changed_content())+"\n"
+          ret += "\n".join(more_content)+"\n"
+        if (changed_content or not more_content) and not more_tags and not more_attrs:
+          ret += "\nSoupDiffer claims false positive.\n"
+          jsdiff = JSSoupDiffer(old_soup)
+          jsdiff.prune_differences(soup)
+          jsdifferences = jsdiff.show_differences(tor_soup)
+          if not jsdifferences: jsdifferences = "None."
+          ret += "Javascript Differences: "+jsdifferences+"\n"
     else:
       if self.content:
         ret += " "+self.content+"\n"
@@ -512,15 +532,17 @@ class DataHandler:
     fh = open(file, 'r')
     return pickle.load(fh)
 
-  def uniqueFilename(self, afile):
+  def uniqueFilename(afile):
     if not os.path.exists(afile):
       return afile
+    (prefix,suffix)=os.path.splitext(afile)
     i=1
-    while os.path.exists(afile+"."+str(i)):
+    while os.path.exists(prefix+"."+str(i)+suffix):
       i+=1
-    return afile+"."+str(i) 
+    return prefix+"."+str(i)+suffix
+  uniqueFilename = Callable(uniqueFilename)
   
-  def safeFilename(self, unsafe_file):
+  def safeFilename(unsafe_file):
     ''' 
     remove characters illegal in some systems 
     and trim the string to a reasonable length
@@ -528,16 +550,16 @@ class DataHandler:
     unsafe_file = unsafe_file.decode('ascii', 'ignore')
     safe_file = re.sub(unsafe_filechars, "_", unsafe_file)
     return str(safe_file[:200])
+  safeFilename = Callable(safeFilename)
 
-  def resultFilename(self, result):
-    # XXX: Check existance and make a secondary name if exists.
+  def __resultFilename(self, result):
     address = ''
     if result.__class__.__name__ == 'HtmlTestResult' or result.__class__.__name__ == 'HttpTestResult':
-      address = self.safeFilename(result.site[7:])
+      address = DataHandler.safeFilename(result.site[7:])
     elif result.__class__.__name__ == 'SSLTestResult':
-      address = self.safeFilename(result.site[8:])
+      address = DataHandler.safeFilename(result.site[8:])
     elif 'TestResult' in result.__class__.__name__:
-      address = self.safeFilename(result.site)
+      address = DataHandler.safeFilename(result.site)
     else:
       raise Exception, 'This doesn\'t seems to be a result instance.'
 
@@ -551,11 +573,12 @@ class DataHandler:
     elif result.status == TEST_FAILURE:
       rdir += 'failed/'
 
-    return str((rdir+address+'.'+result.exit_node[1:]+".result").decode('ascii', 'ignore'))
+    return DataHandler.uniqueFilename(str((rdir+address+'.'+result.exit_node[1:]+".result").decode('ascii', 'ignore')))
 
   def saveResult(self, result):
     ''' generic method for saving test results '''
-    result_file = open(self.resultFilename(result), 'w')
+    result.filename = self.__resultFilename(result)
+    result_file = open(result.filename, 'w')
     pickle.dump(result, result_file)
     result_file.close()
 
@@ -805,6 +828,31 @@ class JSDiffer:
         return True
     return False
 
+  def _difference_printer(self, other_cnts):
+    ret = ""
+    missing = []
+    miscount = []
+    new = []
+    for node in self.ast_cnts.iterkeys():
+      if not self.ast_cnts[node]: continue # pruned difference
+      if node not in other_cnts:
+        missing.append(str(node))
+      elif self.ast_cnts[node] != other_cnts[node]:
+        miscount.append(str(node))
+    for node in other_cnts.iterkeys():
+      if node not in self.ast_cnts:
+        new.append(str(node))
+    if missing:
+      ret += "\nMissing: "
+      for node in missing: ret += node
+    if new:
+      ret += "\nNew: "
+      for node in new: ret += node
+    if miscount:
+      ret += "\nMiscount: "
+      for node in miscount: ret += node
+    return ret
+
   def prune_differences(self, other_string):
     if not HAVE_PYPY: return
     other_cnts = self._count_ast_elements(other_string)
@@ -816,6 +864,14 @@ class JSDiffer:
       return False
     other_cnts = self._count_ast_elements(other_string)
     return self._difference_checker(other_cnts) 
+
+  def show_differences(self, other_string):
+    ret = ""
+    if not HAVE_PYPY:
+      return "PyPy import not present. Not diffing javascript"
+    other_cnts = self._count_ast_elements(other_string)
+    return self._difference_printer(other_cnts) 
+
 
 class JSSoupDiffer(JSDiffer):
   def _add_cnts(tag_cnts, ast_cnts):
@@ -855,14 +911,4 @@ class JSSoupDiffer(JSDiffer):
         ast_cnts = JSSoupDiffer._add_cnts(tag_cnts, ast_cnts)
     return ast_cnts
 
-  def prune_differences(self, other_soup):
-    if not HAVE_PYPY: return
-    other_cnts = self._count_ast_elements(other_soup)
-    self._difference_pruner(other_cnts)
 
-  def contains_differences(self, other_soup):
-    if not HAVE_PYPY:
-      plog("NOTICE", "PyPy import not present. Not diffing javascript")
-      return False
-    other_cnts = self._count_ast_elements(other_soup)
-    return self._difference_checker(other_cnts) 

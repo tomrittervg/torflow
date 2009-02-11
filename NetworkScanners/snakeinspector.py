@@ -36,7 +36,7 @@ def getargs(argv):
   node=None
   reason=None
   result=None
-  verbose=False
+  verbose=0
   proto=None
   resultfilter=None
   for o,a in opts:
@@ -49,7 +49,7 @@ def getargs(argv):
     elif o == '-r' or o == '--reason': 
       reason = a
     elif o == '-v' or o == '--verbose': 
-      verbose = True
+      verbose += 1
     elif o == '-t' or o == '--resultfilter':
       resultfilter = a
     elif o == '-p' or o == '--proto':
