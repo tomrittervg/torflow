@@ -37,12 +37,13 @@ TEST_FAILURE = 2
 
 # Sorry, we sort of rely on the ordinal nature of the above constants
 RESULT_STRINGS = {TEST_SUCCESS:"Success", TEST_INCONCLUSIVE:"Inconclusive", TEST_FAILURE:"Failure"}
+RESULT_CODES=dict([v,k] for k,v in RESULT_STRINGS.iteritems())
 
 # Inconclusive reasons
 INCONCLUSIVE_NOEXITCONTENT = "InconclusiveNoExitContent"
 INCONCLUSIVE_NOLOCALCONTENT = "InconclusiveNoLocalContent"
-INCONCLUSIVE_BADHTTPCODE = "InconclusiveBadHTTPCode"
 INCONCLUSIVE_DYNAMICSSL = "InconclusiveDynamicSSL"
+INCONCLUSIVE_TORBREAKAGE = "InconclusiveTorBreakage"
 
 # Failed reasons
 FAILURE_EXITONLY = "FailureExitOnly"
@@ -51,6 +52,7 @@ FAILURE_DYNAMICJS = "FailureDynamicJS"
 FAILURE_DYNAMICBINARY = "FailureDynamicBinary" 
 FAILURE_DYNAMICCERTS = "FailureDynamicCerts"
 FAILURE_COOKIEMISMATCH = "FailureCookieMismatch"
+FAILURE_BADHTTPCODE = "FailureBadHTTPCode"
 
 # False positive reasons
 FALSEPOSITIVE_HTTPERRORS = "FalsePositiveHTTPErrors"
@@ -70,6 +72,15 @@ class TestResult(object):
     self.false_positive=False
     self.false_positive_reason="None"
     self.verbose=False
+
+  def _rebase(self, filename, new_data_root):
+    if not filename: return filename
+    filename = os.path.normpath(filename)
+    split_file = filename.split("/")
+    return os.path.normpath(os.path.join(new_data_root, *split_file[1:]))
+
+  def rebase(self, new_data_root):
+    pass
  
   def mark_false_positive(self, reason):
     self.false_positive=True
@@ -102,11 +113,15 @@ class TestResult(object):
 class SSLTestResult(TestResult):
   ''' Represents the result of an openssl test '''
   def __init__(self, exit_node, ssl_site, ssl_file, status, reason=None, 
-               exit_cert_pem=None):
+               exit_ip=None, exit_cert_pem=None):
     super(SSLTestResult, self).__init__(exit_node, ssl_site, status, reason)
     self.ssl_file = ssl_file
     self.exit_cert = exit_cert_pem # Meh, not that much space
+    self.exit_ip = exit_ip
     self.proto = "ssl"
+
+  def rebase(self, new_data_root):
+    self.ssl_file = self._rebase(self.ssl_file, new_data_root)
 
   def mark_false_positive(self, reason):
     TestResult.mark_false_positive(self, reason)
@@ -124,7 +139,11 @@ class SSLTestResult(TestResult):
         ret += "\nCert for "+ssl_domain.cert_map[cert]+":\n"
         ret += cert+"\n"
       if self.exit_cert:
-        ret += "\nExit node's cert:\n"
+        # XXX: Kill the first part of this clause after restart:
+        if 'exit_ip' in self.__dict__ and self.exit_ip: 
+          ret += "\nExit node's cert for "+self.exit_ip+":\n"
+        else:
+          ret += "\nExit node's cert:\n"
         ret += self.exit_cert+"\n" 
     return ret 
 
@@ -167,6 +186,11 @@ class HttpTestResult(TestResult):
     self.content_exit = content_exit
     self.content_old = content_old
 
+  def rebase(self, new_data_root):
+    self.content = self._rebase(self.content, new_data_root)
+    self.content_exit = self._rebase(self.content_exit, new_data_root)
+    self.content_old = self._rebase(self.content_old, new_data_root)
+
   def mark_false_positive(self, reason):
     TestResult.mark_false_positive(self, reason)
     self.content=self.move_file(self.content, http_falsepositive_dir)
@@ -200,6 +224,12 @@ class CookieTestResult(TestResult):
     self.tor_cookies = tor_cookies
     self.plain_cookies = plain_cookies
 
+  def __str__(self):
+    ret = TestResult.__str__(self)
+    ret += " Plain Cookies:"+self.plain_cookies
+    ret += " Tor Cookies:"+self.tor_cookies
+    return ret
+
 class JsTestResult(TestResult):
   ''' Represents the result of a JS test '''
   def __init__(self, exit_node, website, status, reason=None, 
@@ -209,6 +239,11 @@ class JsTestResult(TestResult):
     self.content = content
     self.content_exit = content_exit
     self.content_old = content_old
+
+  def rebase(self, new_data_root):
+    self.content = self._rebase(self.content, new_data_root)
+    self.content_exit = self._rebase(self.content_exit, new_data_root)
+    self.content_old = self._rebase(self.content_old, new_data_root)
 
   def mark_false_positive(self, reason):
     TestResult.mark_false_positive(self, reason)
@@ -260,6 +295,11 @@ class HtmlTestResult(TestResult):
     self.content_exit = content_exit
     self.content_old = content_old
 
+  def rebase(self, new_data_root):
+    self.content = self._rebase(self.content, new_data_root)
+    self.content_exit = self._rebase(self.content_exit, new_data_root)
+    self.content_old = self._rebase(self.content_old, new_data_root)
+
   def mark_false_positive(self, reason):
     TestResult.mark_false_positive(self, reason)
     self.content=self.move_file(self.content,http_falsepositive_dir)
@@ -284,7 +324,7 @@ class HtmlTestResult(TestResult):
         old_soup = FullyStrainedSoup(content_old)
         tags = map(str, soup.findAll())
         old_tags = map(str, old_soup.findAll())
-        diff = difflib.unified_diff(tags, old_tags, "Non-Tor1", "Non-Tor1",
+        diff = difflib.unified_diff(old_tags, tags, "Non-Tor1", "Non-Tor2",
                                     lineterm="")
         for line in diff:
           ret+=line+"\n"
@@ -345,6 +385,9 @@ class POPTestResult(TestResult):
     self.proto = "pop"
 
 class DataHandler:
+  def __init__(self, my_data_dir=data_dir):
+    self.data_dir = my_data_dir
+
   ''' Class for saving and managing test result data '''
   def filterResults(self, results, protocols=[], show_good=False, 
       show_bad=False, show_inconclusive=False):
@@ -376,39 +419,39 @@ class DataHandler:
 
   def getAll(self):
     ''' get all available results'''
-    return self.__getResults(data_dir)
+    return self.__getResults(self.data_dir)
 
   def getSsh(self):
     ''' get results of ssh tests '''
-    return self.__getResults(data_dir + 'ssh/')
+    return self.__getResults(self.data_dir + 'ssh/')
     
   def getHttp(self):
     ''' get results of http tests '''
-    return self.__getResults(data_dir + 'http/')
+    return self.__getResults(self.data_dir + 'http/')
 
   def getSsl(self):
     ''' get results of ssl tests '''
-    return self.__getResults(data_dir + 'ssl/')
+    return self.__getResults(self.data_dir + 'ssl/')
 
   def getSmtp(self):
     ''' get results of smtp tests '''
-    return self.__getResults(data_dir + 'smtp/')
+    return self.__getResults(self.data_dir + 'smtp/')
 
   def getPop(self):
     ''' get results of pop tests '''
-    return self.__getResults(data_dir + 'pop/')
+    return self.__getResults(self.data_dir + 'pop/')
 
   def getImap(self):
     ''' get results of imap tests '''
-    return self.__getResults(data_dir + 'imap/')
+    return self.__getResults(self.data_dir + 'imap/')
 
   def getDns(self):
     ''' get results of basic dns tests '''
-    return self.__getResults(data_dir + 'dns')
+    return self.__getResults(self.data_dir + 'dns')
 
   def getDnsRebind(self):
     ''' get results of dns rebind tests '''
-    return self.__getResults(data_dir + 'dnsbrebind/')
+    return self.__getResults(self.data_dir + 'dnsbrebind/')
 
   def __getResults(self, rdir):
     ''' 
@@ -422,6 +465,7 @@ class DataHandler:
         if f.endswith('.result'):
           fh = open(os.path.join(root, f))
           result = pickle.load(fh)
+          result.rebase(self.data_dir)
           results.append(result)
     return results
 
@@ -458,7 +502,7 @@ class DataHandler:
     else:
       raise Exception, 'This doesn\'t seems to be a result instance.'
 
-    rdir = data_dir+result.proto.lower()+'/'
+    rdir = self.data_dir+result.proto.lower()+'/'
     if result.false_positive:
       rdir += 'falsepositive/'
     elif result.status == TEST_SUCCESS:

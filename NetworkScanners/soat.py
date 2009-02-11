@@ -134,23 +134,23 @@ def http_request(address, cookie_jar=None, headers=firefox_headers):
     mime_type = reply.info().type
     content = decompress_response_data(reply)
   except urllib2.HTTPError, e:
-    plog('WARN', "HTTP Error during request of "+address+": "+str(e))
+    plog('NOTICE', "HTTP Error during request of "+address+": "+str(e))
     traceback.print_exc()
-    return (e.code, [], "", "") 
+    return (e.code, [], "", str(e)) 
   except (ValueError, urllib2.URLError):
     plog('WARN', 'The http-request address ' + address + ' is malformed')
     traceback.print_exc()
     return (0, [], "", "")
   except (IndexError, TypeError, socks.Socks5Error), e:
-    plog('WARN', 'An error occured while negotiating socks5 with Tor: '+str(e))
+    plog('NOTICE', 'An error occured while negotiating socks5 with Tor: '+str(e))
     traceback.print_exc()
     return (0, [], "", "")
   except KeyboardInterrupt:
     raise KeyboardInterrupt
-  except e:
+  except Exception, e:
     plog('WARN', 'An unknown HTTP error occured for '+address+": "+str(e))
     traceback.print_exc()
-    return (0, [], "", "")
+    return (666, [], "", str(e))
 
   # TODO: Consider also returning mime type here
   return (reply.code, new_cookies, mime_type, content)
@@ -170,6 +170,7 @@ class Test:
     self.results = []
     self.dynamic_fails = {}
     self.dynamic_limit = max_dynamic_failure
+    self.banned_targets = sets.Set([])
 
   def run_test(self): 
     raise NotImplemented()
@@ -181,6 +182,7 @@ class Test:
     return random.choice(self.nodes)
 
   def remove_target(self, target, reason="None"):
+    self.banned_targets.add(target)
     if target in self.targets: self.targets.remove(target)
     if len(self.targets) < self.min_targets:
       plog("NOTICE", self.proto+" scanner short on targets. Adding more")
@@ -293,6 +295,8 @@ class SearchBasedTest(Test):
         return False
     if valid_schemes and scheme not in valid_schemes:
       return False
+    if url in self.banned_targets:
+      return False
     if filetypes: # Must be checked last
       for filetype in filetypes:
         if url[-len(filetype):] == filetype:
@@ -370,7 +374,9 @@ class SearchBasedTest(Test):
             if host_only:
               # FIXME: %-encoding, @'s, etc?
               host = urlparse.urlparse(url)[1]
-              type_urls.add(host)
+              # Have to check again here after parsing the url: 
+              if host not in self.banned_targets:
+                type_urls.add(host)
             else:
               type_urls.add(url)
           else:
@@ -396,6 +402,7 @@ class HTTPTest(SearchBasedTest):
   def check_cookies(self):
     tor_cookies = "\n"
     plain_cookies = "\n"
+    # XXX: do we need to sort these?
     for cookie in self.tor_cookie_jar:
       tor_cookies += "\t"+cookie.name+":"+cookie.domain+cookie.path+" discard="+str(cookie.discard)+"\n"
     for cookie in self.cookie_jar:
@@ -478,7 +485,6 @@ class HTTPTest(SearchBasedTest):
     # TODO: use nocontent to cause us to not load content into memory.
     # This will require refactoring http_response though.
     ''' check whether a http connection to a given address is molested '''
-    plog('INFO', 'Conducting an http test with destination ' + address)
 
     # an address representation acceptable for a filename 
     address_file = self.datahandler.safeFilename(address[7:])
@@ -505,6 +511,7 @@ class HTTPTest(SearchBasedTest):
       added_cookie_jar.load(content_prefix+'.cookies', ignore_discard=True)
       self.cookie_jar.load(content_prefix+'.cookies', ignore_discard=True)
       content = None 
+      mime_type = None 
 
     except IOError:
       (code, new_cookies, mime_type, content) = http_request(address, self.cookie_jar, self.headers)
@@ -568,18 +575,32 @@ class HTTPTest(SearchBasedTest):
 
     if pcode - (pcode % 100) != 200:
       plog("NOTICE", exit_node+" had error "+str(pcode)+" fetching content for "+address)
-      # FIXME: Timeouts and socks errors give error code 0. Maybe
-      # break them up into more detailed reasons?
-      result = HttpTestResult(exit_node, address, TEST_INCONCLUSIVE,
-                              INCONCLUSIVE_BADHTTPCODE+str(pcode))
-      self.results.append(result)
-      self.datahandler.saveResult(result)
-      if pcode != 0:
-        self.register_httpcode_failure(address, exit_node)
       # Restore cookie jars
       self.cookie_jar = orig_cookie_jar
       self.tor_cookie_jar = orig_tor_cookie_jar
-      return TEST_INCONCLUSIVE
+      if pcode == 0:
+        result = HttpTestResult(exit_node, address, TEST_INCONCLUSIVE,
+                              INCONCLUSIVE_TORBREAKAGE+str(pcontent))
+        self.results.append(result)
+        self.datahandler.saveResult(result)
+        return TEST_INCONCLUSIVE
+      else:
+        BindingSocket.bind_to = refetch_ip
+        (code_new, new_cookies_new, mime_type_new, content_new) = http_request(address, orig_tor_cookie_jar, self.headers)
+        BindingSocket.bind_to = None
+        
+        if code_new == pcode:
+          plog("NOTICE", "Non-tor HTTP error "+str(code_new)+" fetching content for "+address)
+          # Just remove it
+          self.remove_target(address, FALSEPOSITIVE_HTTPERRORS)
+          return TEST_INCONCLUSIVE 
+
+        result = HttpTestResult(exit_node, address, TEST_FAILURE,
+                              FAILURE_BADHTTPCODE+str(pcode)+":"+str(pcontent))
+        self.results.append(result)
+        self.datahandler.saveResult(result)
+        self.register_httpcode_failure(address, exit_node)
+        return TEST_FAILURE
 
     # if we have no content, we had a connection error
     if pcontent == "":
@@ -662,17 +683,26 @@ class HTTPTest(SearchBasedTest):
       content_file = open(load_file, 'r')
       content = content_file.read()
       content_file.close()
+    
+    if not ((mime_type == mime_type_new or not mime_type) \
+               and mime_type_new == pmime_type):
+      plog("WARN", "Mime type change: 1st: "+mime_type+", 2nd: "+mime_type_new+", Tor: "+pmime_type)
+      # TODO: If this actually happens, store a result.
+      mime_type = 'text/html'; 
 
     # Dirty dirty dirty...
-    return (pcontent, psha1sum, content, sha1sum, content_new, sha1sum_new,
-            exit_node)
+    return (mime_type_new, pcontent, psha1sum, content, sha1sum, content_new, 
+            sha1sum_new, exit_node)
 
   def check_http(self, address):
+    plog('INFO', 'Conducting an http test with destination ' + address)
     ret = self.check_http_nodynamic(address)
     if type(ret) == int:
       return ret
-   
-    (pcontent, psha1sum, content, sha1sum, content_new, sha1sum_new, exit_node) = ret
+    return self._check_http_worker(address, ret) 
+
+  def _check_http_worker(self, address, http_ret):
+    (mime_type,pcontent,psha1sum,content,sha1sum,content_new,sha1sum_new,exit_node) = http_ret
      
     address_file = self.datahandler.safeFilename(address[7:])
     content_prefix = http_content_dir+address_file
@@ -745,8 +775,9 @@ class HTMLTest(HTTPTest):
     while not self.fetch_queue.empty():
       (test, url, referer) = self.fetch_queue.get_nowait()
       if referer: self.headers['Referer'] = referer
-      if test == "html": result = self.check_html(url)
-      elif test == "http": result = self.check_http(url)
+      # Technically both html and js tests check and dispatch via mime types
+      # but I want to know when link tags lie
+      if test == "html" or test == "http": result = self.check_html(url)
       elif test == "js": result = self.check_js(url)
       else: 
         plog("WARN", "Unknown test type: "+test+" for "+url)
@@ -779,7 +810,7 @@ class HTMLTest(HTTPTest):
             elif t.name in recurse_script:
               if t.name == "link":
                 for a in t.attrs:
-                  if a[0] == "type" and a[1] in link_script_types:
+                  if a[0] == "type" and a[1] in script_mime_types:
                     targets.append(("js", urlparse.urljoin(orig_addr, attr_tgt)))
               else:
                 targets.append(("js", urlparse.urljoin(orig_addr, attr_tgt)))
@@ -797,7 +828,7 @@ class HTMLTest(HTTPTest):
         self.fetch_queue.put_nowait((i[0], i[1], orig_addr))
       else:
         plog("NOTICE", "Skipping "+i[0]+" target: "+i[1])
- 
+
   def check_js(self, address):
     plog('INFO', 'Conducting a js test with destination ' + address)
 
@@ -808,8 +839,18 @@ class HTMLTest(HTTPTest):
 
     if type(ret) == int:
       return ret
-    (tor_js, tsha, orig_js, osha, new_js, nsha, exit_node) = ret
+    return self._check_js_worker(address, ret)
 
+  def _check_js_worker(self, address, http_ret):
+    (mime_type, tor_js, tsha, orig_js, osha, new_js, nsha, exit_node) = http_ret
+
+    if mime_type not in script_mime_types:
+      plog("WARN", "Non-script mime type "+mime_type+" fed to JS test")
+      if mime_type in html_mime_types:
+        return self._check_html_worker(address, http_ret)
+      else:
+        return self._check_http_worker(address, http_ret)
+ 
     jsdiff = JSDiffer(orig_js)
     jsdiff.prune_differences(new_js)
     has_js_changes = jsdiff.contains_differences(tor_js)
@@ -844,12 +885,23 @@ class HTMLTest(HTTPTest):
 
   def check_html(self, address):
     plog('INFO', 'Conducting an html test with destination ' + address)
-
     ret = self.check_http_nodynamic(address)
     
     if type(ret) == int:
       return ret
-    (tor_html, tsha, orig_html, osha, new_html, nsha, exit_node) = ret
+
+    return self._check_html_worker(address, ret)
+
+  def _check_html_worker(self, address, http_ret):
+    (mime_type,tor_html,tsha,orig_html,osha,new_html,nsha,exit_node)=http_ret
+
+    if mime_type not in html_mime_types:
+      # XXX: Keep an eye on this logline.
+      plog("INFO", "Non-html mime type "+mime_type+" fed to HTML test")
+      if mime_type in script_mime_types:
+        return self._check_js_worker(address, http_ret)
+      else:
+        return self._check_http_worker(address, http_ret)
 
     # an address representation acceptable for a filename 
     address_file = self.datahandler.safeFilename(address[7:])
@@ -1002,7 +1054,7 @@ class SSLTest(SearchBasedTest):
       return 0
     except KeyboardInterrupt:
       raise KeyboardInterrupt
-    except e:
+    except Exception, e:
       plog('WARN', 'An unknown SSL error occured for '+address+': '+str(e))
       traceback.print_exc()
       return 0
@@ -1131,7 +1183,8 @@ class SSLTest(SearchBasedTest):
     # failure... Need to prune all results for this cert and give up.
     if ssl_domain.cert_rotates:
       result = SSLTestResult(exit_node, address, ssl_file_name, TEST_FAILURE, 
-                             FAILURE_DYNAMICCERTS, cert_pem)
+                             FAILURE_DYNAMICCERTS, 
+                             self.get_resolved_ip(address), cert_pem)
       self.results.append(result)
       self.datahandler.saveResult(result)
       self.register_dynamic_failure(address, exit_node)
@@ -1139,7 +1192,8 @@ class SSLTest(SearchBasedTest):
 
     # if certs dont match, means the exit node has been messing with the cert
     result = SSLTestResult(exit_node, address, ssl_file_name, TEST_FAILURE,
-                           FAILURE_EXITONLY, cert_pem)
+                           FAILURE_EXITONLY, self.get_resolved_ip(address), 
+                           cert_pem)
     self.datahandler.saveResult(result)
     self.results.append(result)
     self.register_exit_failure(address, exit_node)
@@ -1664,6 +1718,8 @@ class Client:
     return response 
 
 class NodeManager(EventHandler):
+  # FIXME: Periodically check to see if we are accumulating stalte
+  # descriptors and prune them..
   ''' 
   A tor control event handler extending TorCtl.EventHandler.
   Monitors NS and NEWDESC events, and updates each test
@@ -2138,7 +2194,6 @@ def main(argv):
     mt.get_new_circuit()
  
     for test in tests.values():
-      # Keep testing failures and inconclusives
       result = test.run_test()
       plog("INFO", test.proto+" test via "+scan_exit+" has result "+str(result))
     plog('INFO', 'Done.')
@@ -2151,7 +2206,7 @@ def main(argv):
       plog("INFO", "Got signal for node update.")
       for test in avail_tests:
         test.update_nodes()
-      plog("INFO", "Note update complete.")
+      plog("INFO", "Node update complete.")
 
     # Get as much milage out of each exit as we safely can:
     # Run a random subset of our tests in random order
