@@ -147,11 +147,11 @@ class SSLTestResult(TestResult):
     ret += " Rotates: "+str(ssl_domain.cert_rotates)
     ret += " Changed: "+str(ssl_domain.cert_changed)+"\n" 
     if self.verbose:
-      for cert in ssl_domain.cert_map.iterkeys():
-        ret += "\nCert for "+ssl_domain.cert_map[cert]+":\n"
-        if self.verbose > 1: ret += cert
-        ret += self._dump_cert(cert)
       if self.exit_cert:
+        for cert in ssl_domain.cert_map.iterkeys():
+          ret += "\nCert for "+ssl_domain.cert_map[cert]+":\n"
+          if self.verbose > 1: ret += cert
+          ret += self._dump_cert(cert)
         if self.exit_ip: 
           ret += "\nExit node's cert for "+self.exit_ip+":\n"
         else:

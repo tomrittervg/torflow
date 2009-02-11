@@ -422,11 +422,13 @@ class HTTPTest(SearchBasedTest):
     self.httpcode_fails = {}
 
   def check_cookies(self):
-    tor_cookies = "\n"
-    plain_cookies = "\n"
-    # XXX: do we need to sort these? So far we have worse problems..
+    # FIXME: This test is badly broken..
     # We probably only want to do this on a per-url basis.. Then
     # we can do the 3-way compare..
+    return TEST_SUCCESS
+    tor_cookies = "\n"
+    plain_cookies = "\n"
+    # FIXME: do we need to sort these? So far we have worse problems..
     for cookie in self.tor_cookie_jar:
       tor_cookies += "\t"+cookie.name+":"+cookie.domain+cookie.path+" discard="+str(cookie.discard)+"\n"
     for cookie in self.cookie_jar:
@@ -439,11 +441,9 @@ class HTTPTest(SearchBasedTest):
                             tor_cookies)
       self.results.append(result)
       self.datahandler.saveResult(result)
-      # XXX: this test is pretty spammy with false positives.. 
-      # It should not affect if a node "passes" or not yet.
-      #return TEST_FAILURE
-
+      return TEST_FAILURE
     return TEST_SUCCESS
+
 
   def run_test(self):
     # A single test should have a single cookie jar
@@ -1219,6 +1219,7 @@ class SSLTest(SearchBasedTest):
                              FAILURE_NOEXITCONTENT)
       self.datahandler.saveResult(result)
       self.results.append(result)
+      self.register_exit_failure(address, exit_node)
       return TEST_FAILURE
 
     if isinstance(cert, Exception):
@@ -1227,7 +1228,7 @@ class SSLTest(SearchBasedTest):
                              FAILURE_MISCEXCEPTION+str(cert)) 
       self.results.append(result)
       self.datahandler.saveResult(result)
-      self.register_dynamic_failure(address, exit_node)
+      self.register_exit_failure(address, exit_node)
       return TEST_FAILURE
    
     try:
@@ -1239,7 +1240,7 @@ class SSLTest(SearchBasedTest):
                              FAILURE_MISCEXCEPTION+str(e)) 
       self.results.append(result)
       self.datahandler.saveResult(result)
-      self.register_dynamic_failure(address, exit_node)
+      self.register_exit_failure(address, exit_node)
       return TEST_FAILURE
 
     # if certs match, everything is ok
