@@ -54,7 +54,7 @@ To run SoaT you will need to compile a custom Tor binary due to bug XXX.
 The patch to fix this bug is present in ../tordiffs/XXX.
 
 It is also strongly recommended that you have a custom Tor instance that
-it devoted only to exit scanning, and is not performing any other
+is devoted only to exit scanning, and is not performing any other
 function (including serving as a relay or a directory authority).
 
 
@@ -91,6 +91,9 @@ you to use separate keywords for obtaining SSL, HTML, and Filetype
 urls. This can be useful if you believe it likely for an adversary to
 target only certain keywords/concepts/sites in a particular context.
 
+You can edit the contents of the wordlist files while SoaT runs. It will
+pick up the changes after it completes a full network scan with the old 
+list.
 
 
 IV. Running Tor, The Metatroller, and SoaT

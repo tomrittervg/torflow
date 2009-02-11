@@ -99,54 +99,6 @@ def main(argv):
       if node.counts[test].inconclusive != 0:
         print `node.idhex` + "\t" + `node.counts[test].inconclusive`
 
-
-  # False positive test left in for verifcation and tweaking
-  # TODO: Remove this bit eventually
-  for result in data:
-    if result.__class__.__name__ == "HtmlTestResult":
-      if not result.tags_old or not result.tags or not result.exit_tags:
-        continue
-      print result.exit_node
-
-      print result.tags
-      print result.tags_old
-      print result.exit_tags
-
-      new_soup = BeautifulSoup(open(result.tags, "r").read())
-      old_soup = BeautifulSoup(open(result.tags_old, "r").read())
-      tor_soup = BeautifulSoup(open(result.exit_tags, "r").read())
-
-      new_vs_old = SoupDiffer(new_soup, old_soup)
-      old_vs_new = SoupDiffer(old_soup, new_soup)
-      new_vs_tor = SoupDiffer(new_soup, tor_soup)
-
-      # I'm an evil man and I'm going to CPU hell..
-      changed_tags = old_vs_new.changed_tags_with_attrs()
-      changed_tags.update(new_vs_old.changed_tags_with_attrs())
-
-      changed_attributes = old_vs_new.changed_attributes_by_tag()
-      changed_attributes.update(new_vs_old.changed_attributes_by_tag())
-
-      changed_content = bool(old_vs_new.changed_content() or old_vs_new.changed_content())
- 
-      # Verify all of our changed tags are present here
-      # XXX: Have this print out more info on changed tags..
-      if new_vs_tor.has_more_changed_tags(changed_tags) or \
-        new_vs_tor.has_more_changed_attrs(changed_attributes) or \
-        new_vs_tor.changed_content() and not changed_content:
-        false_positive = False
-      else:
-        false_positive = True
-
-      if false_positive:
-        # Use http://codespeak.net/pypy/dist/pypy/lang/js/ to parse
-        # links and attributes that contain javascript
-        jsdiff = JSSoupDiffer(old_soup)
-        jsdiff.prune_differences(new_soup)
-        false_positive = not jsdiff.contains_differences(tor_soup)
-  
-      print false_positive      
-
   print ""
 
 if __name__ == "__main__":

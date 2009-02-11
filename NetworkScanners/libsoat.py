@@ -10,6 +10,7 @@ import time
 import traceback
 import difflib
 import re
+import copy
 sys.path.append("./libs")
 from BeautifulSoup.BeautifulSoup import Tag, SoupStrainer
 
@@ -317,6 +318,7 @@ class HtmlTestResult(TestResult):
   def __str__(self):
     ret = TestResult.__str__(self)
     if self.verbose:
+      soup = old_soup = tor_soup = None
       if self.content and self.content_old:
         content = open(self.content).read().decode('ascii', 'ignore')
         content_old = open(self.content_old).read().decode('ascii', 'ignore')
@@ -339,6 +341,30 @@ class HtmlTestResult(TestResult):
                                     lineterm="")
         for line in diff:
           ret+=line+"\n"
+
+      if soup and tor_soup and old_soup:
+        old_vs_new = SoupDiffer(old_soup, soup)
+        new_vs_old = SoupDiffer(soup, old_soup)
+        new_vs_tor = SoupDiffer(soup, tor_soup)
+
+        # I'm an evil man and I'm going to CPU hell..
+        changed_tags = SoupDiffer.merge_tag_maps(
+                            old_vs_new.changed_tags_with_attrs(),
+                            new_vs_old.changed_tags_with_attrs())
+
+        changed_attributes = SoupDiffer.merge_tag_maps(
+                                old_vs_new.changed_attributes_by_tag(),
+                                new_vs_old.changed_attributes_by_tag())
+
+        changed_content = bool(old_vs_new.changed_content() or old_vs_new.changed_content())
+     
+        ret += "\nTor changed tags:\n"
+        ret += new_vs_tor.more_changed_tags(changed_tags)
+        ret += "\nTor changed attrs:\n"
+        ret += new_vs_tor.more_changed_attrs(changed_attributes)
+        if not changed_content:
+          ret += "\nChanged Content:\n"
+          ret += "\n".join(new_vs_tor.changed_content())+"\n"
     else:
       if self.content:
         ret += " "+self.content+"\n"
@@ -595,6 +621,7 @@ class SoupDiffer:
           changed_tags[t.name].add(attr[0])
     return changed_tags
 
+
   def has_more_changed_tags(self, tag_attr_map):
     """ Returns true if we have additional tags with additional
         attributes that were not present in tag_attr_map 
@@ -608,6 +635,18 @@ class SoupDiffer:
             if attr[0] not in tag_attr_map[t.name]:
               return True
     return False
+
+  def more_changed_tags(self, tag_attr_map):
+    ret = ""
+    for tags in map(TheChosenSoup, self.changed_tags()):
+      for t in tags.findAll():
+        if t.name not in tag_attr_map:
+          ret += " New Tag: "+str(t)+"\n"
+        else:
+          for attr in t.attrs:
+            if attr[0] not in tag_attr_map[t.name]:
+              ret += " New Attr "+attr[0]+": "+str(t)+"\n"
+    return ret
 
   def _get_attributes(self):
     attrs_old = [(tag.name, tag.attrs) for tag in self.soup_old.findAll()]
@@ -640,6 +679,17 @@ class SoupDiffer:
       changed_attributes[tag].add(attr[0])
     return changed_attributes 
 
+  def merge_tag_maps(tag_map1, tag_map2):
+    " Merges either two tag_attr_maps or two attrs_by_tag maps "
+    ret = copy.deepcopy(tag_map1)
+    for tag in tag_map2:
+      if tag not in ret:
+        ret[tag] = copy.deepcopy(tag_map2[tag])
+      else:
+        ret[tag].union_update(tag_map2[tag])
+    return ret
+  merge_tag_maps = Callable(merge_tag_maps)
+
   def has_more_changed_attrs(self, attrs_by_tag):
     """ Returns true if we have any tags with additional
         changed attributes that were not present in attrs_by_tag
@@ -651,6 +701,17 @@ class SoupDiffer:
       else:
         return True
     return False
+
+  def more_changed_attrs(self, attrs_by_tag):
+    ret = ""
+    for (tag, attr) in self.changed_attributes():
+      if tag in attrs_by_tag:
+        if attr[0] not in attrs_by_tag[tag]:
+          ret += " New Attr "+attr[0]+": "+tag+" "+attr[0]+'="'+attr[1]+'"\n'
+      else:
+        ret += " New Tag: "+tag+" "+attr[0]+'="'+attr[1]+'"\n'
+    return ret
+
 
   def changed_content(self):
     """ Return a list of tag contents changed in soup_new """

@@ -152,7 +152,6 @@ def http_request(address, cookie_jar=None, headers=firefox_headers):
     traceback.print_exc()
     return (666, [], "", str(e))
 
-  # TODO: Consider also returning mime type here
   return (reply.code, new_cookies, mime_type, content)
 
 class Test:
@@ -163,13 +162,13 @@ class Test:
     self.mt = mt
     self.datahandler = DataHandler()
     self.min_targets = min_targets
+    self.exit_limit_pct = max_exit_fail_pct
+    self.dynamic_limit = max_dynamic_failure
     self.marked_nodes = sets.Set([])
     self.exit_fails = {}
     self.successes = {}
-    self.exit_limit_pct = max_exit_fail_pct
     self.results = []
     self.dynamic_fails = {}
-    self.dynamic_limit = max_dynamic_failure
     self.banned_targets = sets.Set([])
 
   def run_test(self): 
@@ -239,6 +238,12 @@ class Test:
     self.tests_run = 0
     self.nodes_marked = 0
     self.marked_nodes = sets.Set([])
+    self.exit_fails = {}
+    self.successes = {}
+    self.dynamic_fails = {}
+    # TODO: report these results as BadExit before clearing
+    self.results = []
+
 
   def register_exit_failure(self, address, exit_node):
     if address in self.exit_fails:
@@ -277,9 +282,13 @@ class Test:
 
 
 class SearchBasedTest(Test):
-  def __init__(self, mt, proto, port, wordlist):
-    self.wordlist = wordlist
+  def __init__(self, mt, proto, port, wordlist_file):
+    self.wordlist_file = wordlist_file
     Test.__init__(self, mt, proto, port)
+
+  def rewind(self):
+    self.wordlist = load_wordlist(self.wordlist_file)
+    Test.rewind(self)
 
   def _is_useable_url(self, url, valid_schemes=None, filetypes=None):
     (scheme, netloc, path, params, query, fragment) = urlparse.urlparse(url)
@@ -399,10 +408,14 @@ class HTTPTest(SearchBasedTest):
     self.httpcode_limit_pct = max_exit_httpcode_pct
     self.scan_filetypes = filetypes
 
+  def rewind(self):
+    SearchBasedTest.rewind(self)
+    self.httpcode_fails = {}
+
   def check_cookies(self):
     tor_cookies = "\n"
     plain_cookies = "\n"
-    # XXX: do we need to sort these?
+    # XXX: do we need to sort these? So far we have worse problems..
     for cookie in self.tor_cookie_jar:
       tor_cookies += "\t"+cookie.name+":"+cookie.domain+cookie.path+" discard="+str(cookie.discard)+"\n"
     for cookie in self.cookie_jar:
@@ -415,7 +428,9 @@ class HTTPTest(SearchBasedTest):
                             tor_cookies)
       self.results.append(result)
       self.datahandler.saveResult(result)
-      return TEST_FAILURE
+      # XXX: this test is pretty spammy with false positives.. 
+      # It should not affect if a node "passes" or not yet.
+      #return TEST_FAILURE
 
     return TEST_SUCCESS
 
@@ -811,8 +826,10 @@ class HTMLTest(HTTPTest):
               if t.name == "link":
                 for a in t.attrs:
                   if a[0] == "type" and a[1] in script_mime_types:
+                    plog("INFO", "Adding link script for: "+str(t))
                     targets.append(("js", urlparse.urljoin(orig_addr, attr_tgt)))
               else:
+                plog("INFO", "Adding script tag for: "+str(t))
                 targets.append(("js", urlparse.urljoin(orig_addr, attr_tgt)))
             elif t.name == 'a':
               if attr_name == "href":
@@ -845,7 +862,7 @@ class HTMLTest(HTTPTest):
     (mime_type, tor_js, tsha, orig_js, osha, new_js, nsha, exit_node) = http_ret
 
     if mime_type not in script_mime_types:
-      plog("WARN", "Non-script mime type "+mime_type+" fed to JS test")
+      plog("WARN", "Non-script mime type "+mime_type+" fed to JS test for "+address)
       if mime_type in html_mime_types:
         return self._check_html_worker(address, http_ret)
       else:
@@ -897,7 +914,7 @@ class HTMLTest(HTTPTest):
 
     if mime_type not in html_mime_types:
       # XXX: Keep an eye on this logline.
-      plog("INFO", "Non-html mime type "+mime_type+" fed to HTML test")
+      plog("INFO", "Non-html mime type "+mime_type+" fed to HTML test for "+address)
       if mime_type in script_mime_types:
         return self._check_js_worker(address, http_ret)
       else:
@@ -968,11 +985,13 @@ class HTMLTest(HTTPTest):
     new_vs_tor = SoupDiffer(new_soup, tor_soup)
 
     # I'm an evil man and I'm going to CPU hell..
-    changed_tags = old_vs_new.changed_tags_with_attrs()
-    changed_tags.update(new_vs_old.changed_tags_with_attrs())
+    changed_tags = SoupDiffer.merge_tag_maps(
+                        old_vs_new.changed_tags_with_attrs(),
+                        new_vs_old.changed_tags_with_attrs())
 
-    changed_attributes = old_vs_new.changed_attributes_by_tag()
-    changed_attributes.update(new_vs_old.changed_attributes_by_tag())
+    changed_attributes = SoupDiffer.merge_tag_maps(
+                            old_vs_new.changed_attributes_by_tag(),
+                            new_vs_old.changed_attributes_by_tag())
 
     changed_content = bool(old_vs_new.changed_content() or old_vs_new.changed_content())
  
@@ -1044,7 +1063,7 @@ class SSLTest(SearchBasedTest):
     c.set_connect_state()
   
     try:
-      c.connect((address, 443)) # XXX: Verify TorDNS here too..
+      c.connect((address, 443)) # DNS OK.
       c.send(crypto.dump_certificate_request(crypto.FILETYPE_PEM,request))
     except socket.error, e:
       plog('WARN','An error occured while opening an ssl connection to '+address+": "+str(e))
@@ -1177,6 +1196,8 @@ class SSLTest(SearchBasedTest):
     if ssl_domain.seen_cert(cert_pem):
       result = SSLTestResult(exit_node, address, ssl_file_name, TEST_SUCCESS)
       #self.datahandler.saveResult(result)
+      if address in self.successes: self.successes[address]+=1
+      else: self.successes[address]=1
       return TEST_SUCCESS
 
     # False positive case.. Can't help it if the cert rotates AND we have a
@@ -2145,46 +2166,28 @@ def main(argv):
   tests = {}
 
   if do_ssl:
-    try:
-      tests["SSL"] = SSLTest(mt, load_wordlist(ssl_wordlist_file))
-    except NoURLsFound, e:
-      plog('ERROR', e.message)
+    tests["SSL"] = SSLTest(mt, ssl_wordlist_file)
 
   if do_http:
-    try:
-      tests["HTTP"] = HTTPTest(mt, load_wordlist(filetype_wordlist_file))
-    except NoURLsFound, e:
-      plog('ERROR', e.message)
+    tests["HTTP"] = HTTPTest(mt, filetype_wordlist_file)
 
   if do_html:
-    try:
-      tests["HTML"] = HTMLTest(mt, load_wordlist(html_wordlist_file))
-    except NoURLsFound, e:
-      plog('ERROR', e.message)
+    tests["HTML"] = HTMLTest(mt, html_wordlist_file)
 
   if do_smtp:
-    try:
-      tests["SMTPS"] = SMTPSTest(mt)
-    except NoURLsFound, e:
-      plog('ERROR', e.message)
+    tests["SMTPS"] = SMTPSTest(mt)
     
   if do_pop:
-    try:
-      tests["POPS"] = POP3STest(mt) 
-    except NoURLsFound, e:
-      plog('ERROR', e.message)
+    tests["POPS"] = POP3STest(mt) 
 
   if do_imap:
-    try:
-      tests["IMAPS"] = IMAPSTest(mt)
-    except NoURLsFound, e:
-      plog('ERROR', e.message)
+    tests["IMAPS"] = IMAPSTest(mt)
 
   # maybe no tests could be initialized
   if not (do_ssl or do_html or do_http or do_ssh or do_smtp or do_pop or do_imap):
     plog('INFO', 'Done.')
     sys.exit(0)
-  
+
   for test in tests.itervalues():
     test.rewind()
  
@@ -2250,7 +2253,7 @@ def main(argv):
     for test in tests.itervalues():
       if test.finished():
         plog("NOTICE", test.proto+" test has finished all nodes.  Rewinding")
-        test.rewind() 
+        test.rewind()
     
 
 # initiate the program
