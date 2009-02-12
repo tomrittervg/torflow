@@ -154,19 +154,19 @@ to tail the soat.log file to make sure it is putting out recent loglines
 and is continuing to run. If there are any issues, please mail me your
 soat.log.
 
-If/When SoaT crashes, you should be able to restart it exactly where it
+If/When SoaT crashes, you should be able to resume it exactly where it
 left off with:
 
-# ./soat.py --restart --ssl --html --http --dnsrebind >& soat.log &
+# ./soat.py --resume --ssl --html --http --dnsrebind >& soat.log &
 
-Keeping the same options during a --restart is a Really Good Idea.
+Keeping the same options during a --resume is a Really Good Idea.
 
 Soat actually saves a snapshot to a unique name each time you run it, so
-you can go back in time and restart arbitrary runs by specifying their
+you can go back in time and resume arbitrary runs by specifying their
 number:
 
 # ls ./data/soat/
-# ./soat.py --restart 2 --ssl --html --http --dnsrebind >& soat.log &
+# ./soat.py --resume 2 --ssl --html --http --dnsrebind >& soat.log &
 
 
 C. Handling Results
@@ -208,7 +208,7 @@ fresh URLs:
 
 # ./soat.py --rescan --ssl --html --http --dnsrebind >& soat.log &
 
-Rescans can also be restarted with --restart should they fail.
+Rescans can also be resumed with --resume should they fail.
 
 By default, soat also does a rescan at the end of every loop through the
 node list, though this may change, because we can't apply the network-wide

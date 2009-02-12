@@ -2234,7 +2234,7 @@ def main(argv):
     print ''
     print 'Please provide at least one test option:'
     print '--pernode <n>'
-    print '--restart [<n>]'
+    print '--resume [<n>]'
     print '--rescan [<n>]'
     print '--ssl'
     print '--http'
@@ -2249,11 +2249,11 @@ def main(argv):
     print ''
     return
 
-  opts = ['ssl','rescan', 'pernode=', 'restart', 'html','http','ssh','smtp','pop','imap','dns','dnsrebind','policies','exit=']
+  opts = ['ssl','rescan', 'pernode=', 'resume', 'html','http','ssh','smtp','pop','imap','dns','dnsrebind','policies','exit=']
   flags, trailer = getopt.getopt(argv[1:], [], opts)
   
   # get specific test types
-  do_restart = False
+  do_resume = False
   do_rescan = ('--rescan','') in flags
   do_ssl = ('--ssl','') in flags
   do_http = ('--http','') in flags
@@ -2275,14 +2275,14 @@ def main(argv):
     if flag[0] == "--rescan" and flag[1]:
       global num_rescan_tests_per_node
       num_rescan_tests_per_node = int(flag[1])
-    if flag[0] == "--restart":
-      do_restart = True
+    if flag[0] == "--resume":
+      do_resume = True
       if flag[1]:
-        restart_run=int(flag[1])
+        resume_run=int(flag[1])
       else:
-        restart_run=-1
+        resume_run=-1
 
-  # Make logs go to disk so restarts are less painful
+  # Make logs go to disk so resumes are less painful
   #TorUtil.logfile = open(log_file_name, "a")
 
   # initiate the connection to the metatroller
@@ -2313,15 +2313,15 @@ def main(argv):
 
   tests = {}
 
-  if do_restart:
+  if do_resume:
     if do_ssl:
-      tests["SSL"] = datahandler.loadTest("SSLTest", restart_run)
+      tests["SSL"] = datahandler.loadTest("SSLTest", resume_run)
 
     if do_http:
-      tests["HTTP"] = datahandler.loadTest("HTTPTest", restart_run)
+      tests["HTTP"] = datahandler.loadTest("HTTPTest", resume_run)
 
     if do_html:
-      tests["HTML"] = datahandler.loadTest("HTMLTest", restart_run)
+      tests["HTML"] = datahandler.loadTest("HTMLTest", resume_run)
   else:
     if do_ssl:
       tests["SSL"] = SSLTest(ssl_wordlist_file)
@@ -2342,7 +2342,7 @@ def main(argv):
     for test in tests.itervalues():
       test.load_rescan(TEST_FAILURE)
 
-  if not do_restart:
+  if not do_resume:
     for test in tests.itervalues():
       test.rewind()
  
