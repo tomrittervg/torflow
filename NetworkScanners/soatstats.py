@@ -35,6 +35,7 @@ def main(argv):
   dh = DataHandler()
   data = dh.getAll()
 
+  reason_counts = {}
   nodeResults = {}
   tests = Set([])
 
@@ -60,6 +61,10 @@ def main(argv):
     elif result.status == TEST_FAILURE:
       rn.total.bad += 1
       rn.counts[result.__class__.__name__].bad += 1
+      if result.reason not in reason_counts:
+        reason_counts[result.reason] = 1
+      else:
+        reason_counts[result.reason] += 1
     
   # Sort by total counts, print out nodes with highest counts first
   failed_nodes = nodeResults.values()
@@ -82,10 +87,10 @@ def main(argv):
     if node.total.bad != 0:
       print `node.idhex` + "\t" + `node.total.bad`
 
-  print "\nInconclusive test results"
-  for node in inconclusive_nodes:
-    if node.total.inconclusive != 0:
-      print `node.idhex` + "\t" + `node.total.inconclusive`
+  #print "\nInconclusive test results"
+  #for node in inconclusive_nodes:
+  #  if node.total.inconclusive != 0:
+  #    print `node.idhex` + "\t" + `node.total.inconclusive`
 
   for test in tests:
     print "\n" + test[:(-6)] + " failures"
@@ -93,13 +98,19 @@ def main(argv):
       if node.counts[test].bad != 0:
         print `node.idhex` + "\t" + `node.counts[test].bad`
 
-  for test in tests:
-    print "\n" + test[:(-6)] + " inconclusive results"
-    for node in inconclusive_nodes_specific[test]:
-      if node.counts[test].inconclusive != 0:
-        print `node.idhex` + "\t" + `node.counts[test].inconclusive`
+  #for test in tests:
+  #  print "\n" + test[:(-6)] + " inconclusive results"
+  #  for node in inconclusive_nodes_specific[test]:
+  #    if node.counts[test].inconclusive != 0:
+  #      print `node.idhex` + "\t" + `node.counts[test].inconclusive`
 
   print ""
+
+  reasons = sorted(reason_counts.iterkeys(), lambda x, y:
+cmp(reason_counts[x], reason_counts[y]))
+
+  for r in reasons:
+    print r+": "+str(reason_counts[r])
 
 if __name__ == "__main__":
   main(sys.argv)

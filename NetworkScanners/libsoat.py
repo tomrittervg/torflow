@@ -872,13 +872,13 @@ class JSDiffer:
         new.append(str(node))
     if missing:
       ret += "\nMissing: "
-      for node in missing: ret += node
+      for node in missing: ret += node+" "
     if new:
       ret += "\nNew: "
-      for node in new: ret += node
+      for node in new: ret += node+" "
     if miscount:
       ret += "\nMiscount: "
-      for node in miscount: ret += node
+      for node in miscount: ret += node+" "
     return ret
 
   def prune_differences(self, other_string):

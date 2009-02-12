@@ -946,8 +946,7 @@ class HTMLTest(HTTPTest):
       content_prefix = http_content_dir+address_file
       failed_prefix = http_failed_dir+address_file
 
-      exit_content_file = open(DataHandler.uniqueFilename(failed_prefix+'.'+exit_node[1:]+'.dyn-content'),
-                                'w')
+      exit_content_file = open(DataHandler.uniqueFilename(failed_prefix+'.'+exit_node[1:]+'.dyn-content'), 'w')
       exit_content_file.write(tor_js)
       exit_content_file.close()
 

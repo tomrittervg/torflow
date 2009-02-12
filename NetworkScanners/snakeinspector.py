@@ -22,9 +22,16 @@ from TorCtl.TorUtil import *
 
 TorCtl.TorUtil.loglevel="NOTICE"
 
-def usage():
-  # TODO: Don't be a jerk.
-  print "Use teh src, luke."
+def usage(argv):
+  print "Usage: "+argv[0]+" with 0 or more of the following filters: "
+  print "  --dir <datadir>"
+  print "  --file <.result file>"
+  print "  --exit <idhex>"
+  print "  --reason <soat failure reason>"
+  print "  --proto <protocol>"
+  print "  --resultfilter <TestResult class name>"
+  print "  --statuscode <'Failure' or 'Inconclusive'>"
+  print "  --verbose"
   sys.exit(1)
 
 def getargs(argv):
@@ -34,7 +41,7 @@ def getargs(argv):
               "verbose", "statuscode="])
   except getopt.GetoptError,err:
     print str(err)
-    usage()
+    usage(argv)
   use_dir="./data/"
   use_file=None
   node=None
@@ -83,7 +90,10 @@ def main(argv):
        (not reason or r.reason == reason) and \
        (not proto or r.proto == proto) and \
        (not resultfilter or r.__class__.__name__ == resultfilter):
-      print r
+      try:
+        print r
+      except IOError, e:
+        traceback.print_exc()
       print "\n-----------------------------\n"
 
 if __name__ == "__main__":
