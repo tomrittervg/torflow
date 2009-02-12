@@ -16,7 +16,11 @@ import libsoat
 from libsoat import *
 
 sys.path.append("../")
+
+import TorCtl.TorUtil
 from TorCtl.TorUtil import *
+
+TorCtl.TorUtil.loglevel="NOTICE"
 
 def usage():
   # TODO: Don't be a jerk.
@@ -35,8 +39,8 @@ def getargs(argv):
   use_file=None
   node=None
   reason=None
-  result=None
-  verbose=0
+  result=2
+  verbose=1
   proto=None
   resultfilter=None
   for o,a in opts:

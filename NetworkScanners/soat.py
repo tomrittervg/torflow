@@ -69,6 +69,8 @@ import Pyssh.pyssh
 from soat_config import *
 
 search_cookies=None
+metacon=None
+datahandler=None
 linebreak = '\r\n'
 
 
@@ -91,6 +93,7 @@ class NoDNSHTTPConnection(httplib.HTTPConnection):
   def connect(self):
     try:
       self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM, 0)
+      self.sock.settimeout(read_timeout) # Mnemotronic tonic
       if self.debuglevel > 0:
         print "connect: (%s, %s)" % (self.host, self.port)
       self.sock.connect((str(self.host), self.port))
@@ -118,6 +121,7 @@ def http_request(address, cookie_jar=None, headers=firefox_headers):
   new_cookies = []
   mime_type = ""
   try:
+    plog("DEBUG", "Starting request for: "+address)
     if cookie_jar != None:
       opener = urllib2.build_opener(NoDNSHTTPHandler, urllib2.HTTPCookieProcessor(cookie_jar))
       reply = opener.open(request)
@@ -132,7 +136,12 @@ def http_request(address, cookie_jar=None, headers=firefox_headers):
       plog("WARN", "Max content size exceeded for "+address+": "+length)
       return (reply.code, [], "", "")
     mime_type = reply.info().type
+    plog("DEBUG", "Mime type is "+mime_type+", length "+str(length))
     content = decompress_response_data(reply)
+  except socket.timeout, e:
+    plog("WARN", "Socket timeout for "+address+": "+str(e))
+    traceback.print_exc()
+    return (666, [], "", e.__class__.__name__+str(e)) 
   except urllib2.HTTPError, e:
     plog('NOTICE', "HTTP Error during request of "+address+": "+str(e))
     traceback.print_exc()
@@ -161,33 +170,29 @@ def http_request(address, cookie_jar=None, headers=firefox_headers):
 
 class Test:
   """ Base class for our tests """
-  def __init__(self, mt, proto, port):
+  def __init__(self, proto, port):
     self.proto = proto
     self.port = port
-    self.mt = mt
-    self.datahandler = DataHandler()
     self.min_targets = min_targets
     self.exit_limit_pct = max_exit_fail_pct
     self.dynamic_limit = max_dynamic_failure
-    self.marked_nodes = sets.Set([])
-    self.exit_fails = {}
-    self.successes = {}
-    self.results = []
-    self.dynamic_fails = {}
-    self.banned_targets = sets.Set([])
-    self.total_nodes = 0
+    self.filename = None
+    self.rescan_nodes = sets.Set([])
     self.nodes = []
     self.node_map = {}
-    self.all_nodes = sets.Set([])
+    self.banned_targets = sets.Set([])
+    self.total_nodes = 0
+    self.scan_nodes = 0
+    self.nodes_to_mark = 0
+    self.tests_per_node = num_tests_per_node
+    self._reset()
+    self._pickle_revision = 0 # Will increment as fields are added
 
   def run_test(self): 
     raise NotImplemented()
 
   def get_targets(self): 
     raise NotImplemented()
-
-  def get_node(self):
-    return random.choice(self.nodes)
 
   def remove_target(self, target, reason="None"):
     self.banned_targets.add(target)
@@ -211,28 +216,79 @@ class Test:
         except:
           pass
         r.mark_false_positive(reason)
-        self.datahandler.saveResult(r)
+        datahandler.saveResult(r)
       self.results.remove(r)
 
-  def update_nodes(self):
-    self.nodes = self.mt.node_manager.get_nodes_for_port(self.port)
-    self.node_map = {}
-    for n in self.nodes: 
-      self.node_map[n.idhex] = n
-    self.total_nodes = len(self.nodes)
-    self.all_nodes = sets.Set(self.nodes)
+  def load_rescan(self, type, since=None):
+    self.rescan_nodes = sets.Set([])
+    results = datahandler.getAll()
+    for r in results:
+      if r.status == type:
+        if not since or r.timestamp >= since:
+          self.rescan_nodes.add(r.exit_node[1:])
+    plog("INFO", "Loaded "+str(len(self.rescan_nodes))+" nodes to rescan")
+    if self.nodes and self.rescan_nodes:
+      self.nodes &= self.rescan_nodes
+    self.scan_nodes = len(self.nodes)
+    self.tests_per_node = num_rescan_tests_per_node
+    self.nodes_to_mark = self.scan_nodes*self.tests_per_node
 
-  def mark_chosen(self, node):
+  def toggle_rescan(self):
+    if self.rescan_nodes:
+      plog("NOTICE", self.proto+" rescan complete. Switching back to normal scan")
+      self.rescan_nodes = sets.Set([])
+      self.tests_per_node = num_tests_per_node
+      self.update_nodes()
+    else:
+      plog("NOTICE", self.proto+" switching to recan mode.")
+      self.load_rescan(TEST_FAILURE, self.run_start)
+
+  def get_node(self):
+    return random.choice(list(self.nodes))
+
+  def update_nodes(self):
+    nodes = metacon.node_manager.get_nodes_for_port(self.port)
+    self.node_map = {}
+    for n in nodes: 
+      self.node_map[n.idhex] = n
+    self.total_nodes = len(nodes)
+    self.nodes = sets.Set(map(lambda n: n.idhex, nodes))
+    # Only scan the stuff loaded from the rescan
+    if self.rescan_nodes: self.nodes &= self.rescan_nodes
+    if not self.nodes:
+      plog("ERROR", "No nodes remain after rescan load!")
+    self.scan_nodes = len(self.nodes)
+    self.nodes_to_mark = self.scan_nodes*self.tests_per_node
+
+  def mark_chosen(self, node, result):
+    exit_node = metacon.get_exit_node()[1:]
+    if exit_node != node:
+      plog("ERROR", "Asked to mark a node that is not current: "+node+" vs "+exit_node)
     self.nodes_marked += 1
-    self.marked_nodes.add(node)
+    if not node in self.node_results: self.node_results[node] = []
+    self.node_results[node].append(result)
+    if len(self.node_results[node]) >= self.tests_per_node:
+      self.nodes.remove(node)
      
   def finished(self):
-    return not self.marked_nodes ^ self.all_nodes
-
+    return not self.nodes
+   
   def percent_complete(self):
-    return round(100.0*self.nodes_marked/self.total_nodes, 1)
+    return round(100.0*self.nodes_marked/(self.nodes_to_mark), 1)
+
+  def _reset(self):
+    self.exit_fails = {}
+    self.successes = {}
+    self.dynamic_fails = {}
+    self.results = []
+    self.targets = []
+    self.tests_run = 0
+    self.nodes_marked = 0
+    self.node_results = {}
+    self.run_start = time.time()
  
   def rewind(self):
+    self._reset()
     self.targets = self.get_targets()
     if not self.targets:
       raise NoURLsFound("No URLS found for protocol "+self.proto)
@@ -244,15 +300,6 @@ class Test:
     else:
       targets = "\n\t".join(self.targets)
       plog("INFO", "Using the following urls for "+self.proto+" scan:\n\t"+targets) 
-    self.tests_run = 0
-    self.nodes_marked = 0
-    self.marked_nodes = sets.Set([])
-    self.exit_fails = {}
-    self.successes = {}
-    self.dynamic_fails = {}
-    # TODO: report these results as BadExit before clearing
-    self.results = []
-
 
   def register_exit_failure(self, address, exit_node):
     if address in self.exit_fails:
@@ -291,9 +338,9 @@ class Test:
 
 
 class SearchBasedTest(Test):
-  def __init__(self, mt, proto, port, wordlist_file):
+  def __init__(self, proto, port, wordlist_file):
     self.wordlist_file = wordlist_file
-    Test.__init__(self, mt, proto, port)
+    Test.__init__(self, proto, port)
 
   def rewind(self):
     self.wordlist = load_wordlist(self.wordlist_file)
@@ -409,9 +456,9 @@ class SearchBasedTest(Test):
     return list(urllist)
 
 class HTTPTest(SearchBasedTest):
-  def __init__(self, mt, wordlist, filetypes=scan_filetypes):
+  def __init__(self, wordlist, filetypes=scan_filetypes):
     # FIXME: Handle http urls w/ non-80 ports..
-    SearchBasedTest.__init__(self, mt, "HTTP", 80, wordlist)
+    SearchBasedTest.__init__(self, "HTTP", 80, wordlist)
     self.fetch_targets = urls_per_filetype
     self.httpcode_fails = {}
     self.httpcode_limit_pct = max_exit_httpcode_pct
@@ -434,13 +481,13 @@ class HTTPTest(SearchBasedTest):
     for cookie in self.cookie_jar:
       plain_cookies += "\t"+cookie.name+":"+cookie.domain+cookie.path+" discard="+str(cookie.discard)+"\n"
     if tor_cookies != plain_cookies:
-      exit_node = self.mt.get_exit_node()
+      exit_node = metacon.get_exit_node()
       plog("ERROR", "Cookie mismatch at "+exit_node+":\nTor Cookies:"+tor_cookies+"\nPlain Cookies:\n"+plain_cookies)
       result = CookieTestResult(exit_node, TEST_FAILURE, 
                             FAILURE_COOKIEMISMATCH, plain_cookies, 
                             tor_cookies)
       self.results.append(result)
-      self.datahandler.saveResult(result)
+      datahandler.saveResult(result)
       return TEST_FAILURE
     return TEST_SUCCESS
 
@@ -553,6 +600,8 @@ class HTTPTest(SearchBasedTest):
 
       if not content:
         plog("WARN", "Failed to direct load "+address)
+        # Just remove it
+        self.remove_target(address, INCONCLUSIVE_NOLOCALCONTENT)
         # Restore cookie jar
         self.cookie_jar = orig_cookie_jar
         self.tor_cookie_jar = orig_tor_cookie_jar
@@ -591,7 +640,7 @@ class HTTPTest(SearchBasedTest):
     # reset the connection to direct
     socket.socket = defaultsocket
 
-    exit_node = self.mt.get_exit_node()
+    exit_node = metacon.get_exit_node()
     if exit_node == 0 or exit_node == '0' or not exit_node:
       plog('WARN', 'We had no exit node to test, skipping to the next test.')
       # Restore cookie jars
@@ -608,7 +657,7 @@ class HTTPTest(SearchBasedTest):
         result = HttpTestResult(exit_node, address, TEST_INCONCLUSIVE,
                               INCONCLUSIVE_TORBREAKAGE+str(pcontent))
         self.results.append(result)
-        self.datahandler.saveResult(result)
+        datahandler.saveResult(result)
         return TEST_INCONCLUSIVE
       else:
         BindingSocket.bind_to = refetch_ip
@@ -624,7 +673,7 @@ class HTTPTest(SearchBasedTest):
         result = HttpTestResult(exit_node, address, TEST_FAILURE,
                               FAILURE_BADHTTPCODE+str(pcode)+":"+str(pcontent))
         self.results.append(result)
-        self.datahandler.saveResult(result)
+        datahandler.saveResult(result)
         self.register_httpcode_failure(address, exit_node)
         return TEST_FAILURE
 
@@ -634,7 +683,7 @@ class HTTPTest(SearchBasedTest):
       result = HttpTestResult(exit_node, address, TEST_FAILURE,
                               FAILURE_NOEXITCONTENT)
       self.results.append(result)
-      self.datahandler.saveResult(result)
+      datahandler.saveResult(result)
       # Restore cookie jars
       self.cookie_jar = orig_cookie_jar
       self.tor_cookie_jar = orig_tor_cookie_jar
@@ -645,7 +694,7 @@ class HTTPTest(SearchBasedTest):
     if psha1sum.hexdigest() == sha1sum.hexdigest():
       result = HttpTestResult(exit_node, address, TEST_SUCCESS)
       self.results.append(result)
-      #self.datahandler.saveResult(result)
+      #datahandler.saveResult(result)
       if address in self.successes: self.successes[address]+=1
       else: self.successes[address]=1
       return TEST_SUCCESS
@@ -664,7 +713,7 @@ class HTTPTest(SearchBasedTest):
       result = HttpTestResult(exit_node, address, TEST_INCONCLUSIVE, 
                               INCONCLUSIVE_NOLOCALCONTENT)
       self.results.append(result)
-      self.datahandler.saveResult(result)
+      datahandler.saveResult(result)
       return TEST_INCONCLUSIVE
 
     sha1sum_new = sha.sha(content_new)
@@ -696,7 +745,7 @@ class HTTPTest(SearchBasedTest):
     if psha1sum.hexdigest() == sha1sum_new.hexdigest():
       result = HttpTestResult(exit_node, address, TEST_SUCCESS)
       self.results.append(result)
-      #self.datahandler.saveResult(result)
+      #datahandler.saveResult(result)
       if address in self.successes: self.successes[address]+=1
       else: self.successes[address]=1
       return TEST_SUCCESS
@@ -746,7 +795,7 @@ class HTTPTest(SearchBasedTest):
                               psha1sum.hexdigest(), content_prefix+".content",
                               exit_content_file.name)
       self.results.append(result)
-      self.datahandler.saveResult(result)
+      datahandler.saveResult(result)
 
       self.register_exit_failure(address, exit_node)
       return TEST_FAILURE
@@ -762,7 +811,7 @@ class HTTPTest(SearchBasedTest):
                             content_prefix+'.content-old',
                             sha1sum.hexdigest())
     self.results.append(result)
-    self.datahandler.saveResult(result)
+    datahandler.saveResult(result)
 
     # The HTTP Test should remove address immediately.
     plog("WARN", "HTTP Test is removing dynamic URL "+address)
@@ -770,12 +819,12 @@ class HTTPTest(SearchBasedTest):
     return TEST_FAILURE
 
 class HTMLTest(HTTPTest):
-  def __init__(self, mt, wordlist, recurse_filetypes=scan_filetypes):
-    HTTPTest.__init__(self, mt, wordlist, recurse_filetypes)
+  def __init__(self, wordlist, recurse_filetypes=scan_filetypes):
+    HTTPTest.__init__(self, wordlist, recurse_filetypes)
     self.fetch_targets = num_html_urls
     self.proto = "HTML"
     self.recurse_filetypes = recurse_filetypes
-    self.fetch_queue = Queue.Queue()
+    self.fetch_queue = []
  
   def run_test(self):
     # A single test should have a single cookie jar
@@ -795,9 +844,9 @@ class HTMLTest(HTTPTest):
     # Keep a trail log for this test and check for loops
     address = random.choice(self.targets)
 
-    self.fetch_queue.put_nowait(("html", address, first_referer))
-    while not self.fetch_queue.empty():
-      (test, url, referer) = self.fetch_queue.get_nowait()
+    self.fetch_queue.append(("html", address, first_referer))
+    while self.fetch_queue:
+      (test, url, referer) = self.fetch_queue.pop(0)
       if referer: self.headers['Referer'] = referer
       # Technically both html and js tests check and dispatch via mime types
       # but I want to know when link tags lie
@@ -811,6 +860,10 @@ class HTMLTest(HTTPTest):
     result = self.check_cookies()
     if result > ret_result:
       ret_result = result
+
+    # Need to clear because the cookiejars use locks...
+    self.tor_cookie_jar = None
+    self.cookie_jar = None
     return ret_result
 
   def get_targets(self):
@@ -851,7 +904,7 @@ class HTMLTest(HTTPTest):
     for i in sets.Set(targets):
       if self._is_useable_url(i[1], html_schemes):
         plog("NOTICE", "Adding "+i[0]+" target: "+i[1])
-        self.fetch_queue.put_nowait((i[0], i[1], orig_addr))
+        self.fetch_queue.append((i[0], i[1], orig_addr))
       else:
         plog("NOTICE", "Skipping "+i[0]+" target: "+i[1])
 
@@ -884,7 +937,7 @@ class HTMLTest(HTTPTest):
     if not has_js_changes:
       result = JsTestResult(exit_node, address, TEST_SUCCESS)
       self.results.append(result)
-      #self.datahandler.saveResult(result)
+      #datahandler.saveResult(result)
       if address in self.successes: self.successes[address]+=1
       else: self.successes[address]=1
       return TEST_SUCCESS
@@ -903,7 +956,7 @@ class HTMLTest(HTTPTest):
                               exit_content_file.name, 
                               content_prefix+'.content-old')
       self.results.append(result)
-      self.datahandler.saveResult(result)
+      datahandler.saveResult(result)
       plog("ERROR", "Javascript 3-way failure at "+exit_node+" for "+address)
 
       return TEST_FAILURE
@@ -949,7 +1002,7 @@ class HTMLTest(HTTPTest):
       plog("INFO", "Successful soup comparison after SHA1 fail for "+address+" via "+exit_node)
       result = HtmlTestResult(exit_node, address, TEST_SUCCESS)
       self.results.append(result)
-      #self.datahandler.saveResult(result)
+      #datahandler.saveResult(result)
       if address in self.successes: self.successes[address]+=1
       else: self.successes[address]=1
       return TEST_SUCCESS
@@ -960,7 +1013,7 @@ class HTMLTest(HTTPTest):
       result = HtmlTestResult(exit_node, address, TEST_INCONCLUSIVE, 
                               INCONCLUSIVE_NOLOCALCONTENT)
       self.results.append(result)
-      self.datahandler.saveResult(result)
+      datahandler.saveResult(result)
       return TEST_INCONCLUSIVE
 
     new_soup = FullyStrainedSoup(content_new)
@@ -976,7 +1029,7 @@ class HTMLTest(HTTPTest):
                               FAILURE_EXITONLY, content_prefix+".content",
                               exit_content_file.name)
       self.results.append(result)
-      self.datahandler.saveResult(result)
+      datahandler.saveResult(result)
  
       self.register_exit_failure(address, exit_node)
       return TEST_FAILURE
@@ -1022,7 +1075,7 @@ class HTMLTest(HTTPTest):
       plog("NOTICE", "False positive detected for dynamic change at "+address+" via "+exit_node)
       result = HtmlTestResult(exit_node, address, TEST_SUCCESS)
       self.results.append(result)
-      #self.datahandler.saveResult(result)
+      #datahandler.saveResult(result)
       if address in self.successes: self.successes[address]+=1
       else: self.successes[address]=1
       return TEST_SUCCESS
@@ -1036,16 +1089,16 @@ class HTMLTest(HTTPTest):
                             exit_content_file.name, 
                             content_prefix+'.content-old')
     self.results.append(result)
-    self.datahandler.saveResult(result)
+    datahandler.saveResult(result)
 
     self.register_dynamic_failure(address, exit_node)
     return TEST_FAILURE
     
 
 class SSLTest(SearchBasedTest):
-  def __init__(self, mt, wordlist):
+  def __init__(self, wordlist):
     self.test_hosts = num_ssl_hosts
-    SearchBasedTest.__init__(self, mt, "SSL", 443, wordlist)
+    SearchBasedTest.__init__(self, "SSL", 443, wordlist)
 
   def run_test(self):
     self.tests_run += 1
@@ -1060,6 +1113,7 @@ class SSLTest(SearchBasedTest):
      
     # specify the context
     ctx = SSL.Context(SSL.TLSv1_METHOD)
+    ctx.set_timeout(int(read_timeout))
     ctx.set_verify_depth(1)
 
     # ready the certificate request
@@ -1069,10 +1123,15 @@ class SSLTest(SearchBasedTest):
     # FIXME: Hrmmm. handshake considerations
     try:
       s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+      # SSL has its own timeouts handled above. Undo ours from BindingSocket
+      s.settimeout(None) 
       c = SSL.Connection(ctx, s)
       c.set_connect_state()
       c.connect((address, 443)) # DNS OK.
       c.send(crypto.dump_certificate_request(crypto.FILETYPE_PEM,request))
+    except socket.timeout, e:
+      plog('WARN','Socket timeout for '+address+": "+str(e))
+      return e
     except socket.error, e:
       plog('WARN','An error occured while opening an ssl connection to '+address+": "+str(e))
       return e
@@ -1094,7 +1153,7 @@ class SSLTest(SearchBasedTest):
     return c.get_peer_certificate()
 
   def get_resolved_ip(self, hostname):
-    mappings = self.mt.control.get_address_mappings("cache")
+    mappings = metacon.control.get_address_mappings("cache")
     ret = None
     for m in mappings:
       if m.from_addr == hostname:
@@ -1135,10 +1194,23 @@ class SSLTest(SearchBasedTest):
       ssl_domain = SSLDomain(address)
 
     check_ips = []
-    resolved = socket.getaddrinfo(address, 443)
+    # Make 3 resolution attempts
+    for attempt in xrange(1,4):
+      try:
+        resolved = []
+        resolved = socket.getaddrinfo(address, 443)
+        break
+      except socket.gaierror:
+        plog("NOTICE", "Local resolution failure #"+str(attempt)+" for "+address)
+       
     for res in resolved:
       if res[0] == socket.AF_INET and res[2] == socket.IPPROTO_TCP:
         check_ips.append(res[4][0])
+
+    if not check_ips:
+      plog("WARN", "Local resolution failure for "+address)
+      self.remove_target(address, INCONCLUSIVE_NOLOCALCONTENT)
+      return TEST_INCONCLUSIVE
 
     try:
       if self._update_cert_list(ssl_domain, check_ips):
@@ -1146,12 +1218,14 @@ class SSLTest(SearchBasedTest):
         pickle.dump(ssl_domain, ssl_file)
         ssl_file.close()
     except OpenSSL.crypto.Error:
-      plog('WARN', 'Crypto error.')
+      plog('WARN', 'Local crypto error for '+address)
       traceback.print_exc()
+      self.remove_target(address, INCONCLUSIVE_NOLOCALCONTENT)
       return TEST_INCONCLUSIVE
 
     if not ssl_domain.cert_map:
       plog('WARN', 'Error getting the correct cert for ' + address)
+      self.remove_target(address, INCONCLUSIVE_NOLOCALCONTENT)
       return TEST_INCONCLUSIVE
 
     if ssl_domain.cert_changed:
@@ -1163,8 +1237,9 @@ class SSLTest(SearchBasedTest):
           pickle.dump(ssl_domain, ssl_file)
           ssl_file.close()
       except OpenSSL.crypto.Error:
-        plog('WARN', 'Crypto error.')
+        plog('WARN', 'Local crypto error for '+address)
         traceback.print_exc()
+        self.remove_target(address, INCONCLUSIVE_NOLOCALCONTENT)
         return TEST_INCONCLUSIVE
       if ssl_domain.cert_changed:
         plog("NOTICE", "Fully dynamic certificate host "+address)
@@ -1172,7 +1247,7 @@ class SSLTest(SearchBasedTest):
         result = SSLTestResult("NoExit", address, ssl_file_name, 
                                TEST_INCONCLUSIVE,
                                INCONCLUSIVE_DYNAMICSSL)
-        self.datahandler.saveResult(result)
+        datahandler.saveResult(result)
         self.results.append(result)
         self.remove_target(address, FALSEPOSITIVE_DYNAMIC)
         return TEST_INCONCLUSIVE
@@ -1182,7 +1257,7 @@ class SSLTest(SearchBasedTest):
         result = SSLTestResult("NoExit", address, ssl_file_name, 
                                TEST_INCONCLUSIVE,
                                INCONCLUSIVE_NOLOCALCONTENT)
-        self.datahandler.saveResult(result)
+        datahandler.saveResult(result)
         self.results.append(result)
         self.remove_target(address, FALSEPOSITIVE_DEADSITE)
         return TEST_INCONCLUSIVE
@@ -1197,7 +1272,7 @@ class SSLTest(SearchBasedTest):
     # reset the connection method back to direct
     socket.socket = defaultsocket
 
-    exit_node = self.mt.get_exit_node()
+    exit_node = metacon.get_exit_node()
     if not exit_node or exit_node == '0':
       plog('WARN', 'We had no exit node to test, skipping to the next test.')
       return TEST_INCONCLUSIVE
@@ -1207,7 +1282,7 @@ class SSLTest(SearchBasedTest):
       result = SSLTestResult(exit_node, address, ssl_file_name, 
                              TEST_INCONCLUSIVE,
                              INCONCLUSIVE_TORBREAKAGE)
-      self.datahandler.saveResult(result)
+      datahandler.saveResult(result)
       self.results.append(result)
       return TEST_INCONCLUSIVE
 
@@ -1217,7 +1292,7 @@ class SSLTest(SearchBasedTest):
       result = SSLTestResult(exit_node, address, ssl_file_name, 
                              TEST_FAILURE,
                              FAILURE_NOEXITCONTENT)
-      self.datahandler.saveResult(result)
+      datahandler.saveResult(result)
       self.results.append(result)
       self.register_exit_failure(address, exit_node)
       return TEST_FAILURE
@@ -1227,7 +1302,7 @@ class SSLTest(SearchBasedTest):
       result = SSLTestResult(exit_node, address, ssl_file_name, TEST_FAILURE, 
               FAILURE_MISCEXCEPTION+":"+cert.__class__.__name__+str(cert)) 
       self.results.append(result)
-      self.datahandler.saveResult(result)
+      datahandler.saveResult(result)
       self.register_exit_failure(address, exit_node)
       return TEST_FAILURE
    
@@ -1239,14 +1314,14 @@ class SSLTest(SearchBasedTest):
       result = SSLTestResult(exit_node, address, ssl_file_name, TEST_FAILURE, 
               FAILURE_MISCEXCEPTION+":"+e.__class__.__name__+str(e)) 
       self.results.append(result)
-      self.datahandler.saveResult(result)
+      datahandler.saveResult(result)
       self.register_exit_failure(address, exit_node)
       return TEST_FAILURE
 
     # if certs match, everything is ok
     if ssl_domain.seen_cert(cert_pem):
       result = SSLTestResult(exit_node, address, ssl_file_name, TEST_SUCCESS)
-      #self.datahandler.saveResult(result)
+      #datahandler.saveResult(result)
       if address in self.successes: self.successes[address]+=1
       else: self.successes[address]=1
       return TEST_SUCCESS
@@ -1258,7 +1333,7 @@ class SSLTest(SearchBasedTest):
                              FAILURE_DYNAMICCERTS, 
                              self.get_resolved_ip(address), cert_pem)
       self.results.append(result)
-      self.datahandler.saveResult(result)
+      datahandler.saveResult(result)
       self.register_dynamic_failure(address, exit_node)
       return TEST_FAILURE
 
@@ -1266,14 +1341,14 @@ class SSLTest(SearchBasedTest):
     result = SSLTestResult(exit_node, address, ssl_file_name, TEST_FAILURE,
                            FAILURE_EXITONLY, self.get_resolved_ip(address), 
                            cert_pem)
-    self.datahandler.saveResult(result)
+    datahandler.saveResult(result)
     self.results.append(result)
     self.register_exit_failure(address, exit_node)
     return TEST_FAILURE
 
 class POP3STest(Test):
-  def __init__(self, mt):
-    Test.__init__(self, mt, "POP3S", 110)
+  def __init__(self):
+    Test.__init__(self, "POP3S", 110)
 
   def run_test(self):
     self.tests_run += 1
@@ -1371,7 +1446,7 @@ class POP3STest(Test):
     socket.socket = defaultsocket
 
     # check whether the test was valid at all
-    exit_node = self.mt.get_exit_node()
+    exit_node = metacon.get_exit_node()
     if exit_node == 0 or exit_node == '0':
       plog('INFO', 'We had no exit node to test, skipping to the next test.')
       return TEST_SUCCESS
@@ -1450,16 +1525,16 @@ class POP3STest(Test):
     if (capabilities_ok != capabilities_ok_d or starttls_present != starttls_present_d or 
         tls_started != tls_started_d or tls_succeeded != tls_succeeded_d):
       result = POPTestResult(exit_node, address, TEST_FAILURE)
-      self.datahandler.saveResult(result)
+      datahandler.saveResult(result)
       return TEST_FAILURE
     
     result = POPTestResult(exit_node, address, TEST_SUCCESS)
-    self.datahandler.saveResult(result)
+    datahandler.saveResult(result)
     return TEST_SUCCESS
 
 class SMTPSTest(Test):
-  def __init__(self, mt):
-    Test.__init__(self, mt, "SMTPS", 587)
+  def __init__(self):
+    Test.__init__(self, "SMTPS", 587)
 
   def run_test(self):
     self.tests_run += 1
@@ -1511,7 +1586,7 @@ class SMTPSTest(Test):
     socket.socket = defaultsocket 
 
     # check whether the test was valid at all
-    exit_node = self.mt.get_exit_node()
+    exit_node = metacon.get_exit_node()
     if exit_node == 0 or exit_node == '0':
       plog('INFO', 'We had no exit node to test, skipping to the next test.')
       return TEST_SUCCESS
@@ -1549,17 +1624,17 @@ class SMTPSTest(Test):
     # compare
     if ehlo1_reply != ehlo1_reply_d or has_starttls != has_starttls_d or ehlo2_reply != ehlo2_reply_d:
       result = SMTPTestResult(exit_node, address, TEST_FAILURE)
-      self.datahandler.saveResult(result)
+      datahandler.saveResult(result)
       return TEST_FAILURE
 
     result = SMTPTestResult(exit_node, address, TEST_SUCCESS)
-    self.datahandler.saveResult(result)
+    datahandler.saveResult(result)
     return TEST_SUCCESS
 
 
 class IMAPSTest(Test):
-  def __init__(self, mt):
-    Test.__init__(self, mt, "IMAPS", 143)
+  def __init__(self):
+    Test.__init__(self, "IMAPS", 143)
 
   def run_test(self):
     self.tests_run += 1
@@ -1646,7 +1721,7 @@ class IMAPSTest(Test):
     socket.socket = defaultsocket 
 
     # check whether the test was valid at all
-    exit_node = self.mt.get_exit_node()
+    exit_node = metacon.get_exit_node()
     if exit_node == 0 or exit_node == '0':
       plog('INFO', 'We had no exit node to test, skipping to the next test.')
       return TEST_SUCCESS
@@ -1716,11 +1791,11 @@ class IMAPSTest(Test):
     if (capabilities_ok != capabilities_ok_d or starttls_present != starttls_present_d or 
       tls_started != tls_started_d or tls_succeeded != tls_succeeded_d):
       result = IMAPTestResult(exit_node, address, TEST_FAILURE)
-      self.datahandler.saveResult(result)
+      datahandler.saveResult(result)
       return TEST_FAILURE
 
     result = IMAPTestResult(exit_node, address, TEST_SUCCESS)
-    self.datahandler.saveResult(result)
+    datahandler.saveResult(result)
     return TEST_SUCCESS
 
 class DNSTest(Test):
@@ -1734,7 +1809,7 @@ class DNSTest(Test):
     ip = tor_resolve(address)
 
     # check whether the test was valid at all
-    exit_node = self.mt.get_exit_node()
+    exit_node = metacon.get_exit_node()
     if exit_node == 0 or exit_node == '0':
       plog('INFO', 'We had no exit node to test, skipping to the next test.')
       return TEST_SUCCESS
@@ -2159,6 +2234,9 @@ def main(argv):
   if len(argv) < 2:
     print ''
     print 'Please provide at least one test option:'
+    print '--pernode <n>'
+    print '--restart [<n>]'
+    print '--rescan [<n>]'
     print '--ssl'
     print '--http'
     print '--html'
@@ -2172,17 +2250,19 @@ def main(argv):
     print ''
     return
 
-  opts = ['ssl','html','http','ssh','smtp','pop','imap','dns','dnsrebind','policies','exit=']
+  opts = ['ssl','rescan', 'pernode=', 'restart', 'html','http','ssh','smtp','pop','imap','dns','dnsrebind','policies','exit=']
   flags, trailer = getopt.getopt(argv[1:], [], opts)
   
   # get specific test types
+  do_restart = False
+  do_rescan = ('--rescan','') in flags
   do_ssl = ('--ssl','') in flags
   do_http = ('--http','') in flags
   do_html = ('--html','') in flags
-  do_ssh = ('--ssh','') in flags
-  do_smtp = ('--smtp','') in flags
-  do_pop = ('--pop','') in flags
-  do_imap = ('--imap','') in flags
+  #do_ssh = ('--ssh','') in flags
+  #do_smtp = ('--smtp','') in flags
+  #do_pop = ('--pop','') in flags
+  #do_imap = ('--imap','') in flags
   do_dns_rebind = ('--dnsrebind','') in flags
   do_consistency = ('--policies','') in flags
 
@@ -2190,20 +2270,38 @@ def main(argv):
   for flag in flags:
     if flag[0] == "--exit":
       scan_exit = flag[1]
+    if flag[0] == "--pernode":
+      global num_tests_per_node
+      num_tests_per_node = int(flag[1])
+    if flag[0] == "--rescan" and flag[1]:
+      global num_rescan_tests_per_node
+      num_rescan_tests_per_node = int(flag[1])
+    if flag[0] == "--restart":
+      do_restart = True
+      if flag[1]:
+        restart_run=int(flag[1])
+      else:
+        restart_run=-1
+
+  # Make logs go to disk so restarts are less painful
+  #TorUtil.logfile = open(log_file_name, "a")
 
   # initiate the connection to the metatroller
-  mt = Metaconnection()
+  global metacon
+  metacon = Metaconnection()
+  global datahandler
+  datahandler = DataHandler()
 
   # initiate the passive dns rebind attack monitor
   if do_dns_rebind:
-    mt.check_dns_rebind()
+    metacon.check_dns_rebind()
 
   # check for sketchy exit policies
   if do_consistency:
-    mt.check_all_exits_port_consistency()
+    metacon.check_all_exits_port_consistency()
 
   # maybe only the consistency test was required
-  if not (do_ssl or do_html or do_http or do_ssh or do_smtp or do_pop or do_imap):
+  if not (do_ssl or do_html or do_http):
     plog('INFO', 'Done.')
     return
 
@@ -2216,46 +2314,53 @@ def main(argv):
 
   tests = {}
 
-  if do_ssl:
-    tests["SSL"] = SSLTest(mt, ssl_wordlist_file)
+  if do_restart:
+    if do_ssl:
+      tests["SSL"] = datahandler.loadTest("SSLTest", restart_run)
 
-  if do_http:
-    tests["HTTP"] = HTTPTest(mt, filetype_wordlist_file)
+    if do_http:
+      tests["HTTP"] = datahandler.loadTest("HTTPTest", restart_run)
 
-  if do_html:
-    tests["HTML"] = HTMLTest(mt, html_wordlist_file)
+    if do_html:
+      tests["HTML"] = datahandler.loadTest("HTMLTest", restart_run)
+  else:
+    if do_ssl:
+      tests["SSL"] = SSLTest(ssl_wordlist_file)
 
-  if do_smtp:
-    tests["SMTPS"] = SMTPSTest(mt)
-    
-  if do_pop:
-    tests["POPS"] = POP3STest(mt) 
+    if do_http:
+      tests["HTTP"] = HTTPTest(filetype_wordlist_file)
 
-  if do_imap:
-    tests["IMAPS"] = IMAPSTest(mt)
+    if do_html:
+      tests["HTML"] = HTMLTest(html_wordlist_file)
+
 
   # maybe no tests could be initialized
-  if not (do_ssl or do_html or do_http or do_ssh or do_smtp or do_pop or do_imap):
+  if not tests:
     plog('INFO', 'Done.')
     sys.exit(0)
 
-  for test in tests.itervalues():
-    test.rewind()
+  if do_rescan:
+    for test in tests.itervalues():
+      test.load_rescan(TEST_FAILURE)
+
+  if not do_restart:
+    for test in tests.itervalues():
+      test.rewind()
  
   if scan_exit:
     plog("NOTICE", "Scanning only "+scan_exit)
-    mt.set_new_exit(scan_exit)
-    mt.get_new_circuit()
+    metacon.set_new_exit(scan_exit)
+    metacon.get_new_circuit()
 
     while 1:
       for test in tests.values():
         result = test.run_test()
         plog("INFO", test.proto+" test via "+scan_exit+" has result "+str(result))
- 
+
   # start testing
   while 1:
     avail_tests = tests.values()
-    if mt.node_manager.has_new_nodes():
+    if metacon.node_manager.has_new_nodes():
       plog("INFO", "Got signal for node update.")
       for test in avail_tests:
         test.update_nodes()
@@ -2270,39 +2375,44 @@ def main(argv):
     common_nodes = None
     # Do set intersection and reuse nodes for shared tests
     for test in to_run:
-      if not common_nodes: common_nodes = Set(map(lambda n: n.idhex, test.nodes))
-      else: common_nodes &= Set(map(lambda n: n.idhex, test.nodes))
+      if not common_nodes: common_nodes = copy.copy(test.nodes)
+      else: common_nodes &= test.nodes
 
     if common_nodes:
       current_exit_idhex = random.choice(list(common_nodes))
       plog("DEBUG", "Chose to run "+str(n_tests)+" tests via "+current_exit_idhex+" (tests share "+str(len(common_nodes))+" exit nodes)")
 
-      mt.set_new_exit(current_exit_idhex)
-      mt.get_new_circuit()
+      metacon.set_new_exit(current_exit_idhex)
+      metacon.get_new_circuit()
       for test in to_run:
         # Keep testing failures and inconclusives
         result = test.run_test()
-        if result == TEST_SUCCESS:
-          test.mark_chosen(test.node_map[current_exit_idhex])
+        if result != TEST_INCONCLUSIVE:
+          test.mark_chosen(current_exit_idhex, result)
+        datahandler.saveTest(test)
         plog("INFO", test.proto+" test via "+current_exit_idhex+" has result "+str(result))
-        plog("INFO", test.proto+" attempts: "+str(test.tests_run)+". Completed: "+str(test.nodes_marked)+"/"+str(test.total_nodes)+" ("+str(test.percent_complete())+"%)")
+        plog("INFO", test.proto+" attempts: "+str(test.tests_run)+".  Completed: "+str(test.nodes_marked)+"/"+str(test.nodes_to_mark)+" ("+str(test.percent_complete())+"%)")
     else:
       plog("NOTICE", "No nodes in common between "+", ".join(map(lambda t: t.proto, to_run)))
       for test in to_run:
         current_exit = test.get_node()
-        mt.set_new_exit(current_exit.idhex)
-        mt.get_new_circuit()
+        metacon.set_new_exit(current_exit.idhex)
+        metacon.get_new_circuit()
         # Keep testing failures and inconclusives
         result = test.run_test()
+        if result != TEST_INCONCLUSIVE:
+          test.mark_chosen(current_exit_idhex, result)
+        datahandler.saveTest(test)
         plog("INFO", test.proto+" test via "+current_exit.idhex+" has result "+str(result))
-        plog("INFO", test.proto+" attempts: "+str(test.tests_run)+". Completed: "+str(test.nodes_marked)+"/"+str(test.total_nodes)+" ("+str(test.percent_complete())+"%)")
-        if result == TEST_SUCCESS:
-          test.mark_chosen(current_exit)
+        plog("INFO", test.proto+" attempts: "+str(test.tests_run)+".  Completed: "+str(test.nodes_marked)+"/"+str(test.nodes_to_mark)+" ("+str(test.percent_complete())+"%)")
      
     # Check each test for rewind 
     for test in tests.itervalues():
       if test.finished():
-        plog("NOTICE", test.proto+" test has finished all nodes.  Rewinding")
+        plog("NOTICE", test.proto+" test has finished all nodes.")
+        datahandler.saveTest(test)
+        if not do_rescan and rescan_at_finish:
+          test.toggle_rescan()
         test.rewind()
     
 

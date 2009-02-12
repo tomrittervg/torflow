@@ -95,9 +95,11 @@ class TestResult(object):
     try:
       basename = os.path.basename(file)
       new_file = to_dir+basename
+      if not os.path.exists(file) and os.path.exists(new_file):
+        return new_file # Already moved by another test (ex: content file)
       os.rename(file, new_file)
       return new_file
-    except:
+    except Exception, e:
       traceback.print_exc()
       plog("WARN", "Error moving "+file+" to "+to_dir)
       return file
@@ -532,10 +534,8 @@ class DataHandler:
     return pickle.load(fh)
 
   def uniqueFilename(afile):
-    if not os.path.exists(afile):
-      return afile
     (prefix,suffix)=os.path.splitext(afile)
-    i=1
+    i=0
     while os.path.exists(prefix+"."+str(i)+suffix):
       i+=1
     return prefix+"."+str(i)+suffix
@@ -581,6 +581,31 @@ class DataHandler:
     pickle.dump(result, result_file)
     result_file.close()
 
+  def __testFilename(self, test, position=-1):
+    if position == -1:
+      return DataHandler.uniqueFilename(self.data_dir+test.__class__.__name__+".test")
+    else:
+      return self.data_dir+test.__class__.__name__+"."+str(position)+".test"
+
+  def loadTest(self, testname, position=-1):
+    filename = self.data_dir+testname
+    if position == -1:
+      i=0
+      while os.path.exists(filename+"."+str(i)+".test"):
+        i+=1
+      position = i-1
+
+    test_file = open(filename+"."+str(position)+".test", 'r')
+    test = pickle.load(test_file)
+    test_file.close()
+    return test
+
+  def saveTest(self, test):
+    if not test.filename:
+      test.filename = self.__testFilename(test)
+    test_file = open(test.filename, 'w')
+    pickle.dump(test, test_file)
+    test_file.close()
 
 # These three bits are needed to fully recursively strain the parsed soup.
 # For some reason, the SoupStrainer does not get applied recursively..

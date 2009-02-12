@@ -146,13 +146,30 @@ to restart soat more times than with just Google alone, but then if both
 Yahoo and Google begin to hate you, you can't scan at all.
 
 
-B. Handling Results
+B. Handling Crashes
 
 At this stage in the game, your primary task will be to periodically
 check the scanner for exceptions and hangs. For that you'll just want
 to tail the soat.log file to make sure it is putting out recent loglines
 and is continuing to run. If there are any issues, please mail me your
-soat.log. 
+soat.log.
+
+If/When SoaT crashes, you should be able to restart it exactly where it
+left off with:
+
+# ./soat.py --restart --ssl --html --http --dnsrebind >& soat.log &
+
+Keeping the same options during a --restart is a Really Good Idea.
+
+Soat actually saves a snapshot to a unique name each time you run it, so
+you can go back in time and restart arbitrary runs by specifying their
+number:
+
+# ls ./data/soat/
+# ./soat.py --restart 2 --ssl --html --http --dnsrebind >& soat.log &
+
+
+C. Handling Results
 
 As things stabilize, you'll want to begin grepping your soat.log for
 ERROR lines. These indicate serious scanning errors and content
@@ -162,10 +179,41 @@ to me to improve the filters for them:
 
 # tar -jcf soat-data.tbz2 ./data/soat ./soat.log
 
+If you're feeling adventurous, you can inspect the results yourself by
+running snakeinspector.py. Running it with no arguments will dump all
+failures to your screen in a semi-human readable format. You can add a
+--verbose to get unified diffs of content modifications, and you can
+filter on specific Test Result types with --resultfilter, and on
+specific exit idhexes with --exit. Ex:
+
+# ./snakeinspector.py --verbose --exit 80972D30FE33CB8AD60726C5272AFCEBB05CD6F7
+   --resultfilter SSLTestResult 
+
+or just:
+
+# ./snakeinspector.py | less
+
 At some point in the future, I hope to have a script prepared that will
 mail false positives and actual results to me when you run it. Later
 still, soat will automatically mail these results to an email list we
 are all subscribed to as they happen.
 
 
-Alright, let's get those motherfuckin snakes off this motherfuckin Tor!
+D. Verifying Results
+
+If you would like to verify a set of results, you can use the --rescan
+option of soat, which crawls your data directory and creates a list of
+nodes to scan that consist only of failures, and then scans those with
+fresh URLs:
+
+# ./soat.py --rescan --ssl --html --http --dnsrebind >& soat.log &
+
+Rescans can also be restarted with --restart should they fail.
+
+By default, soat also does a rescan at the end of every loop through the
+node list, though this may change, because we can't apply the network-wide
+false positive filter to URLs during rescan mode.
+
+
+Alright that covers the basics. Let's get those motherfuckin snakes off
+this motherfuckin Tor!
