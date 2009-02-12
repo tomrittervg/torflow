@@ -141,7 +141,7 @@ def http_request(address, cookie_jar=None, headers=firefox_headers):
   except socket.timeout, e:
     plog("WARN", "Socket timeout for "+address+": "+str(e))
     traceback.print_exc()
-    return (666, [], "", e.__class__.__name__+str(e)) 
+    return (888, [], "", e.__class__.__name__+str(e)) 
   except urllib2.HTTPError, e:
     plog('NOTICE', "HTTP Error during request of "+address+": "+str(e))
     traceback.print_exc()
@@ -153,12 +153,10 @@ def http_request(address, cookie_jar=None, headers=firefox_headers):
   except socks.Socks5Error, e:
     if e.value[0] == 6: #  or e.value[0] == 1: # Timeout or 'general'
       plog('NOTICE', 'An error occured while negotiating socks5 with Tor: '+str(e))
-      traceback.print_exc()
       return (0, [], "", "")
     else:
       plog('WARN', 'An unknown SOCKS5 error occured for '+address+": "+str(e))
-      traceback.print_exc()
-      return (666, [], "", e.__class__.__name__+str(e))
+      return (777, [], "", e.__class__.__name__+str(e))
   except KeyboardInterrupt:
     raise KeyboardInterrupt
   except Exception, e:
@@ -486,6 +484,7 @@ class HTTPTest(SearchBasedTest):
       result = CookieTestResult(exit_node, TEST_FAILURE, 
                             FAILURE_COOKIEMISMATCH, plain_cookies, 
                             tor_cookies)
+      if self.rescan_nodes: result.from_rescan = True
       self.results.append(result)
       datahandler.saveResult(result)
       return TEST_FAILURE
@@ -655,7 +654,9 @@ class HTTPTest(SearchBasedTest):
       self.tor_cookie_jar = orig_tor_cookie_jar
       if pcode == 0:
         result = HttpTestResult(exit_node, address, TEST_INCONCLUSIVE,
-                              INCONCLUSIVE_TORBREAKAGE+str(pcontent))
+                              INCONCLUSIVE_TORBREAKAGE)
+        result.extra_info = str(pcontent)
+        if self.rescan_nodes: result.from_rescan = True
         self.results.append(result)
         datahandler.saveResult(result)
         return TEST_INCONCLUSIVE
@@ -670,8 +671,17 @@ class HTTPTest(SearchBasedTest):
           self.remove_target(address, FALSEPOSITIVE_HTTPERRORS)
           return TEST_INCONCLUSIVE 
 
+        if pcode == 666:
+          fail_reason = FAILURE_MISCEXCEPTION
+        elif pcode == 777:
+          fail_reason = FAILURE_SOCKSERROR
+        elif pcode == 888:
+          fail_reason = FAILURE_TIMEOUT
+        else: fail_reason = FAILURE_BADHTTPCODE+str(pcode)
         result = HttpTestResult(exit_node, address, TEST_FAILURE,
-                              FAILURE_BADHTTPCODE+str(pcode)+":"+str(pcontent))
+                              fail_reason)
+        result.extra_info = str(pcontent)
+        if self.rescan_nodes: result.from_rescan = True
         self.results.append(result)
         datahandler.saveResult(result)
         self.register_httpcode_failure(address, exit_node)
@@ -682,6 +692,7 @@ class HTTPTest(SearchBasedTest):
       plog("ERROR", exit_node+" failed to fetch content for "+address)
       result = HttpTestResult(exit_node, address, TEST_FAILURE,
                               FAILURE_NOEXITCONTENT)
+      if self.rescan_nodes: result.from_rescan = True
       self.results.append(result)
       datahandler.saveResult(result)
       # Restore cookie jars
@@ -693,6 +704,7 @@ class HTTPTest(SearchBasedTest):
     # if content matches, everything is ok
     if psha1sum.hexdigest() == sha1sum.hexdigest():
       result = HttpTestResult(exit_node, address, TEST_SUCCESS)
+      if self.rescan_nodes: result.from_rescan = True
       self.results.append(result)
       #datahandler.saveResult(result)
       if address in self.successes: self.successes[address]+=1
@@ -712,6 +724,7 @@ class HTTPTest(SearchBasedTest):
       plog("WARN", "Failed to re-frech "+address+" outside of Tor. Did our network fail?")
       result = HttpTestResult(exit_node, address, TEST_INCONCLUSIVE, 
                               INCONCLUSIVE_NOLOCALCONTENT)
+      if self.rescan_nodes: result.from_rescan = True
       self.results.append(result)
       datahandler.saveResult(result)
       return TEST_INCONCLUSIVE
@@ -744,6 +757,7 @@ class HTTPTest(SearchBasedTest):
     # if it matches, everything is ok
     if psha1sum.hexdigest() == sha1sum_new.hexdigest():
       result = HttpTestResult(exit_node, address, TEST_SUCCESS)
+      if self.rescan_nodes: result.from_rescan = True
       self.results.append(result)
       #datahandler.saveResult(result)
       if address in self.successes: self.successes[address]+=1
@@ -794,6 +808,7 @@ class HTTPTest(SearchBasedTest):
                               FAILURE_EXITONLY, sha1sum.hexdigest(), 
                               psha1sum.hexdigest(), content_prefix+".content",
                               exit_content_file.name)
+      if self.rescan_nodes: result.from_rescan = True
       self.results.append(result)
       datahandler.saveResult(result)
 
@@ -805,11 +820,12 @@ class HTTPTest(SearchBasedTest):
     exit_content_file.close()
 
     result = HttpTestResult(exit_node, address, TEST_FAILURE, 
-                            FAILURE_DYNAMICBINARY, sha1sum_new.hexdigest(), 
+                            FAILURE_DYNAMIC, sha1sum_new.hexdigest(), 
                             psha1sum.hexdigest(), content_prefix+".content",
                             exit_content_file.name, 
                             content_prefix+'.content-old',
                             sha1sum.hexdigest())
+    if self.rescan_nodes: result.from_rescan = True
     self.results.append(result)
     datahandler.saveResult(result)
 
@@ -856,7 +872,7 @@ class HTMLTest(HTTPTest):
         plog("WARN", "Unknown test type: "+test+" for "+url)
         result = TEST_SUCCESS
       if result > ret_result:
-		ret_result = result
+        ret_result = result
     result = self.check_cookies()
     if result > ret_result:
       ret_result = result
@@ -936,6 +952,7 @@ class HTMLTest(HTTPTest):
 
     if not has_js_changes:
       result = JsTestResult(exit_node, address, TEST_SUCCESS)
+      if self.rescan_nodes: result.from_rescan = True
       self.results.append(result)
       #datahandler.saveResult(result)
       if address in self.successes: self.successes[address]+=1
@@ -951,9 +968,10 @@ class HTMLTest(HTTPTest):
       exit_content_file.close()
 
       result = JsTestResult(exit_node, address, TEST_FAILURE, 
-                              FAILURE_DYNAMICJS, content_prefix+".content",
+                              FAILURE_DYNAMIC, content_prefix+".content",
                               exit_content_file.name, 
                               content_prefix+'.content-old')
+      if self.rescan_nodes: result.from_rescan = True
       self.results.append(result)
       datahandler.saveResult(result)
       plog("ERROR", "Javascript 3-way failure at "+exit_node+" for "+address)
@@ -1000,6 +1018,7 @@ class HTMLTest(HTTPTest):
     if str(orig_soup) == str(tor_soup):
       plog("INFO", "Successful soup comparison after SHA1 fail for "+address+" via "+exit_node)
       result = HtmlTestResult(exit_node, address, TEST_SUCCESS)
+      if self.rescan_nodes: result.from_rescan = True
       self.results.append(result)
       #datahandler.saveResult(result)
       if address in self.successes: self.successes[address]+=1
@@ -1011,6 +1030,7 @@ class HTMLTest(HTTPTest):
       plog("WARN", "Failed to re-frech "+address+" outside of Tor. Did our network fail?")
       result = HtmlTestResult(exit_node, address, TEST_INCONCLUSIVE, 
                               INCONCLUSIVE_NOLOCALCONTENT)
+      if self.rescan_nodes: result.from_rescan = True
       self.results.append(result)
       datahandler.saveResult(result)
       return TEST_INCONCLUSIVE
@@ -1027,6 +1047,7 @@ class HTMLTest(HTTPTest):
       result = HtmlTestResult(exit_node, address, TEST_FAILURE, 
                               FAILURE_EXITONLY, content_prefix+".content",
                               exit_content_file.name)
+      if self.rescan_nodes: result.from_rescan = True
       self.results.append(result)
       datahandler.saveResult(result)
  
@@ -1073,6 +1094,7 @@ class HTMLTest(HTTPTest):
     if false_positive:
       plog("NOTICE", "False positive detected for dynamic change at "+address+" via "+exit_node)
       result = HtmlTestResult(exit_node, address, TEST_SUCCESS)
+      if self.rescan_nodes: result.from_rescan = True
       self.results.append(result)
       #datahandler.saveResult(result)
       if address in self.successes: self.successes[address]+=1
@@ -1084,9 +1106,10 @@ class HTMLTest(HTTPTest):
     exit_content_file.close()
 
     result = HtmlTestResult(exit_node, address, TEST_FAILURE, 
-                            FAILURE_DYNAMICTAGS, content_prefix+".content",
+                            FAILURE_DYNAMIC, content_prefix+".content",
                             exit_content_file.name, 
                             content_prefix+'.content-old')
+    if self.rescan_nodes: result.from_rescan = True
     self.results.append(result)
     datahandler.saveResult(result)
 
@@ -1246,6 +1269,7 @@ class SSLTest(SearchBasedTest):
         result = SSLTestResult("NoExit", address, ssl_file_name, 
                                TEST_INCONCLUSIVE,
                                INCONCLUSIVE_DYNAMICSSL)
+        if self.rescan_nodes: result.from_rescan = True
         datahandler.saveResult(result)
         self.results.append(result)
         self.remove_target(address, FALSEPOSITIVE_DYNAMIC)
@@ -1256,6 +1280,7 @@ class SSLTest(SearchBasedTest):
         result = SSLTestResult("NoExit", address, ssl_file_name, 
                                TEST_INCONCLUSIVE,
                                INCONCLUSIVE_NOLOCALCONTENT)
+        if self.rescan_nodes: result.from_rescan = True
         datahandler.saveResult(result)
         self.results.append(result)
         self.remove_target(address, FALSEPOSITIVE_DEADSITE)
@@ -1281,6 +1306,7 @@ class SSLTest(SearchBasedTest):
       result = SSLTestResult(exit_node, address, ssl_file_name, 
                              TEST_INCONCLUSIVE,
                              INCONCLUSIVE_TORBREAKAGE)
+      if self.rescan_nodes: result.from_rescan = True
       datahandler.saveResult(result)
       self.results.append(result)
       return TEST_INCONCLUSIVE
@@ -1291,6 +1317,7 @@ class SSLTest(SearchBasedTest):
       result = SSLTestResult(exit_node, address, ssl_file_name, 
                              TEST_FAILURE,
                              FAILURE_NOEXITCONTENT)
+      if self.rescan_nodes: result.from_rescan = True
       datahandler.saveResult(result)
       self.results.append(result)
       self.register_exit_failure(address, exit_node)
@@ -1298,8 +1325,15 @@ class SSLTest(SearchBasedTest):
 
     if isinstance(cert, Exception):
       plog('ERROR', 'SSL failure with exception '+str(cert)+' for: '+address+' via '+exit_node)
+      if isinstance(cert, socks.Socks5Error):
+        fail_reason = FAILURE_SOCKSERROR
+      elif isinstance(cert, socket.timeout):
+        fail_reason = FAILURE_TIMEOUT
+      else: fail_reason = FAILURE_MISCEXCEPTION
       result = SSLTestResult(exit_node, address, ssl_file_name, TEST_FAILURE, 
-              FAILURE_MISCEXCEPTION+":"+cert.__class__.__name__+str(cert)) 
+                             fail_reason) 
+      if self.rescan_nodes: result.from_rescan = True
+      result.extra_info = cert.__class__.__name__+str(cert)
       self.results.append(result)
       datahandler.saveResult(result)
       self.register_exit_failure(address, exit_node)
@@ -1311,7 +1345,9 @@ class SSLTest(SearchBasedTest):
     except OpenSSL.crypto.Error, e:
       plog('ERROR', 'SSL failure with exception '+str(e)+' for: '+address+' via '+exit_node)
       result = SSLTestResult(exit_node, address, ssl_file_name, TEST_FAILURE, 
-              FAILURE_MISCEXCEPTION+":"+e.__class__.__name__+str(e)) 
+              FAILURE_MISCEXCEPTION)
+      if self.rescan_nodes: result.from_rescan = True
+      self.extra_info=e.__class__.__name__+str(e)
       self.results.append(result)
       datahandler.saveResult(result)
       self.register_exit_failure(address, exit_node)
@@ -1320,6 +1356,7 @@ class SSLTest(SearchBasedTest):
     # if certs match, everything is ok
     if ssl_domain.seen_cert(cert_pem):
       result = SSLTestResult(exit_node, address, ssl_file_name, TEST_SUCCESS)
+      if self.rescan_nodes: result.from_rescan = True
       #datahandler.saveResult(result)
       if address in self.successes: self.successes[address]+=1
       else: self.successes[address]=1
@@ -1329,8 +1366,9 @@ class SSLTest(SearchBasedTest):
     # failure... Need to prune all results for this cert and give up.
     if ssl_domain.cert_rotates:
       result = SSLTestResult(exit_node, address, ssl_file_name, TEST_FAILURE, 
-                             FAILURE_DYNAMICCERTS, 
+                             FAILURE_DYNAMIC, 
                              self.get_resolved_ip(address), cert_pem)
+      if self.rescan_nodes: result.from_rescan = True
       self.results.append(result)
       datahandler.saveResult(result)
       self.register_dynamic_failure(address, exit_node)
@@ -1340,6 +1378,7 @@ class SSLTest(SearchBasedTest):
     result = SSLTestResult(exit_node, address, ssl_file_name, TEST_FAILURE,
                            FAILURE_EXITONLY, self.get_resolved_ip(address), 
                            cert_pem)
+    if self.rescan_nodes: result.from_rescan = True
     datahandler.saveResult(result)
     self.results.append(result)
     self.register_exit_failure(address, exit_node)

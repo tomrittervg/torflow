@@ -210,9 +210,13 @@ fresh URLs:
 
 Rescans can also be resumed with --resume should they fail.
 
-By default, soat also does a rescan at the end of every loop through the
-node list, though this may change, because we can't apply the network-wide
-false positive filter to URLs during rescan mode.
+SoaT can also do a rescan at the end of every loop through the node
+list. This is governed by the rescan_at_finish soat_config option.
+
+Note that rescanning does not prune out geolocated URLs that differ
+across the majority of exit nodes. It can thus cause many more false
+positives to accumulate than a regular scan.
+
 
 
 Alright that covers the basics. Let's get those motherfuckin snakes off

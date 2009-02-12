@@ -47,14 +47,13 @@ INCONCLUSIVE_TORBREAKAGE = "InconclusiveTorBreakage"
 
 # Failed reasons
 FAILURE_EXITONLY = "FailureExitOnly"
-FAILURE_DYNAMICTAGS = "FailureDynamicTags" 
-FAILURE_DYNAMICJS = "FailureDynamicJS" 
-FAILURE_DYNAMICBINARY = "FailureDynamicBinary" 
-FAILURE_DYNAMICCERTS = "FailureDynamicCerts"
+FAILURE_DYNAMIC = "FailureDynamic" 
 FAILURE_COOKIEMISMATCH = "FailureCookieMismatch"
 FAILURE_BADHTTPCODE = "FailureBadHTTPCode"
 FAILURE_MISCEXCEPTION = "FailureMiscException"
 FAILURE_NOEXITCONTENT = "FailureNoExitContent"
+FAILURE_SOCKSERROR = "FailureSocksError"
+FAILURE_TIMEOUT = "FailureTimeout"
 
 # False positive reasons
 FALSEPOSITIVE_HTTPERRORS = "FalsePositiveHTTPErrors"
@@ -72,9 +71,11 @@ class TestResult(object):
     self.timestamp = time.time()
     self.status = status
     self.reason = reason
+    self.extra_info = None
     self.false_positive=False
     self.false_positive_reason="None"
     self.verbose=0
+    self.from_rescan = False
     self.filename=None
 
   def _rebase(self, filename, new_data_root):
@@ -111,8 +112,12 @@ class TestResult(object):
     ret += " "+str(RESULT_STRINGS[self.status])
     if self.reason:
       ret += " Reason: "+self.reason
+    if self.extra_info:
+      ret += " "+self.extra_info 
     if self.false_positive:
       ret += " (False positive: "+self.false_positive_reason+")"
+    if self.from_rescan:
+      ret += "\nFrom rescan: "+str(self.from_rescan)
     ret += "\n"
     return ret
 
