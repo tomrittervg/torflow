@@ -514,6 +514,10 @@ class HTTPTest(SearchBasedTest):
     result = self.check_cookies()
     if result > ret_result:
       ret_result = result
+
+    # Cookie jars contain locks and can't be pickled. Clear them away.
+    self.tor_cookie_jar = None
+    self.cookie_jar = None
     return ret_result
 
   def remove_target(self, address, reason):
