@@ -1074,22 +1074,31 @@ class HTMLTest(HTTPTest):
                             new_vs_old.changed_attributes_by_tag())
 
     changed_content = bool(new_vs_old.changed_content() or old_vs_new.changed_content())
+
+    more_tags = new_vs_tor.more_changed_tags(changed_tags)     
+    more_attrs = new_vs_tor.more_changed_attrs(changed_attributes)
+    more_content = new_vs_tor.changed_content()
  
     # Verify all of our changed tags are present here 
-    if new_vs_tor.has_more_changed_tags(changed_tags) or \
-      new_vs_tor.has_more_changed_attrs(changed_attributes) or \
-      new_vs_tor.changed_content() and not changed_content:
+    if more_tags or more_attrs or (more_content and not changed_content):
       false_positive = False
+      plog("NOTICE", "SoupDiffer finds differences for "+address)
+      plog("NOTICE", "New Tags:\n"+more_tags)
+      plog("NOTICE", "New Attrs:\n"+more_attrs)
+      if more_content and not changed_content:
+        plog("NOTICE", "New Content:\n"+more_content)
     else:
+      plog("INFO", "SoupDiffer predicts false_positive")
       false_positive = True
-      
-    plog("INFO", "SoupDiffer predicts false_positive="+str(false_positive))
 
     if false_positive:
       jsdiff = JSSoupDiffer(orig_soup)
       jsdiff.prune_differences(new_soup)
-      false_positive = not jsdiff.contains_differences(tor_soup)
+      differences = jsdiff.show_differences(tor_soup)
+      false_positive = not differences
       plog("INFO", "JSSoupDiffer predicts false_positive="+str(false_positive))
+      if not false_positive:
+        plog("NOTICE", "JSSoupDiffer finds differences: "+differences)
 
     if false_positive:
       plog("NOTICE", "False positive detected for dynamic change at "+address+" via "+exit_node)
@@ -2353,6 +2362,7 @@ def main(argv):
   tests = {}
 
   if do_resume:
+    plog("NOTICE", "Resuming previous SoaT run")
     if do_ssl:
       tests["SSL"] = datahandler.loadTest("SSLTest", resume_run)
 
@@ -2378,6 +2388,7 @@ def main(argv):
     sys.exit(0)
 
   if do_rescan:
+    plog("NOTICE", "Loading rescan.")
     for test in tests.itervalues():
       test.load_rescan(TEST_FAILURE)
 

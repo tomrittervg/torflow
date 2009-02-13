@@ -31,14 +31,15 @@ def usage(argv):
   print "  --proto <protocol>"
   print "  --resultfilter <TestResult class name>"
   print "  --statuscode <'Failure' or 'Inconclusive'>"
+  print "  --sortby <'proto' or 'url' or 'exit' or 'reason'>"
   print "  --verbose"
   sys.exit(1)
 
 def getargs(argv):
   try:
-    opts,args = getopt.getopt(argv[1:],"d:f:e:r:vt:p:s:", 
+    opts,args = getopt.getopt(argv[1:],"d:f:e:r:vt:p:s:o:", 
              ["dir=", "file=", "exit=", "reason=", "resultfilter=", "proto=", 
-              "verbose", "statuscode="])
+              "verbose", "statuscode=", "sortby="])
   except getopt.GetoptError,err:
     print str(err)
     usage(argv)
@@ -50,6 +51,7 @@ def getargs(argv):
   verbose=1
   proto=None
   resultfilter=None
+  sortby="proto"
   for o,a in opts:
     if o == '-d' or o == '--dir':
       use_dir = a
@@ -65,15 +67,19 @@ def getargs(argv):
       resultfilter = a
     elif o == '-p' or o == '--proto':
       proto = a
+    elif o == '-s' or o == '--sortby': 
+      if a not in ["proto", "site", "exit", "reason"]:
+        usage(argv)
+      else: sortby = a 
     elif o == '-s' or o == '--statuscode': 
       try:
         result = int(a)
       except ValueError:
         result = RESULT_CODES[a]
-  return use_dir,use_file,node,reason,result,verbose,resultfilter,proto
+  return use_dir,use_file,node,reason,result,verbose,resultfilter,proto,sortby
  
 def main(argv):
-  use_dir,use_file,node,reason,result,verbose,resultfilter,proto=getargs(argv)
+  use_dir,use_file,node,reason,result,verbose,resultfilter,proto,sortby=getargs(argv)
   dh = DataHandler(use_dir)
   print dh.data_dir
 
@@ -83,6 +89,13 @@ def main(argv):
     results = dh.filterByNode(dh.getAll(), node)
   else:
     results = dh.getAll()
+
+  if sortby == "url":
+    results.sort(lambda x, y: cmp(x.site, y.site))
+  elif sortby == "reason":
+    results.sort(lambda x, y: cmp(x.reason, y.reason))
+  elif sortby == "exit":
+    results.sort(lambda x, y: cmp(x.exit_node, y.exit_node))
 
   for r in results:
     r.verbose = verbose
