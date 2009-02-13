@@ -44,6 +44,7 @@ RESULT_CODES=dict([v,k] for k,v in RESULT_STRINGS.iteritems())
 INCONCLUSIVE_NOLOCALCONTENT = "InconclusiveNoLocalContent"
 INCONCLUSIVE_DYNAMICSSL = "InconclusiveDynamicSSL"
 INCONCLUSIVE_TORBREAKAGE = "InconclusiveTorBreakage"
+INCONCLUSIVE_NOEXIT = "InconclusiveNoExit"
 
 # Failed reasons
 FAILURE_EXITONLY = "FailureExitOnly"

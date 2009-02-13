@@ -660,11 +660,17 @@ class HTTPTest(SearchBasedTest):
 
     exit_node = metacon.get_exit_node()
     if exit_node == 0 or exit_node == '0' or not exit_node:
-      plog('WARN', 'We had no exit node to test, skipping to the next test.')
+      plog('NOTICE', 'We had no exit node to test, skipping to the next test.')
+      result = HttpTestResult(exit_node, address, TEST_INCONCLUSIVE,
+                              INCONCLUSIVE_NOEXIT)
+      if self.rescan_nodes: result.from_rescan = True
+      self.results.append(result)
+      datahandler.saveResult(result)
+
       # Restore cookie jars
       self.cookie_jar = orig_cookie_jar
       self.tor_cookie_jar = orig_tor_cookie_jar
-      return TEST_SUCCESS
+      return TEST_INCONCLUSIVE
 
     if pcode - (pcode % 100) != 200:
       plog("NOTICE", exit_node+" had error "+str(pcode)+" fetching content for "+address)
@@ -860,6 +866,7 @@ class HTMLTest(HTTPTest):
     self.proto = "HTML"
     self.recurse_filetypes = recurse_filetypes
     self.fetch_queue = []
+
  
   def run_test(self):
     # A single test should have a single cookie jar
@@ -900,6 +907,11 @@ class HTMLTest(HTTPTest):
     self.tor_cookie_jar = None
     self.cookie_jar = None
     return ret_result
+
+  # FIXME: This is pretty lame.. We should change how
+  # the HTTPTest stores URLs so we don't have to do this.
+  def refill_targets(self):
+    Test.refill_targets(self)
 
   def get_targets(self):
     return self.get_search_urls('http', self.fetch_targets) 
@@ -1326,7 +1338,13 @@ class SSLTest(SearchBasedTest):
 
     exit_node = metacon.get_exit_node()
     if not exit_node or exit_node == '0':
-      plog('WARN', 'We had no exit node to test, skipping to the next test.')
+      plog('NOTICE', 'We had no exit node to test, skipping to the next test.')
+      result = SSLTestResult(exit_node, address, ssl_file_name, 
+                              TEST_INCONCLUSIVE,
+                              INCONCLUSIVE_NOEXIT)
+      if self.rescan_nodes: result.from_rescan = True
+      self.results.append(result)
+      datahandler.saveResult(result)
       return TEST_INCONCLUSIVE
 
     if cert == -1:
@@ -1515,7 +1533,7 @@ class POP3STest(Test):
     exit_node = metacon.get_exit_node()
     if exit_node == 0 or exit_node == '0':
       plog('INFO', 'We had no exit node to test, skipping to the next test.')
-      return TEST_SUCCESS
+      return TEST_INCONCLUSIVE
 
     # do the same for the direct connection
 
@@ -1655,7 +1673,7 @@ class SMTPSTest(Test):
     exit_node = metacon.get_exit_node()
     if exit_node == 0 or exit_node == '0':
       plog('INFO', 'We had no exit node to test, skipping to the next test.')
-      return TEST_SUCCESS
+      return TEST_INCONCLUSIVE
 
     # now directly
 
@@ -1789,8 +1807,8 @@ class IMAPSTest(Test):
     # check whether the test was valid at all
     exit_node = metacon.get_exit_node()
     if exit_node == 0 or exit_node == '0':
-      plog('INFO', 'We had no exit node to test, skipping to the next test.')
-      return TEST_SUCCESS
+      plog('NOTICE', 'We had no exit node to test, skipping to the next test.')
+      return TEST_INCONCLUSIVE
 
     # do the same for the direct connection
     capabilities_ok_d = None

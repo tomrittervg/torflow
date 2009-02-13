@@ -167,9 +167,9 @@ left off with:
 
 Keeping the same options during a --resume is a Really Good Idea.
 
-Soat actually saves a snapshot to a unique name each time you run it, so
-you can go back in time and resume arbitrary runs by specifying their
-number:
+Soat actually saves a snapshot to a unique name each time you run it
+without --resume, so you can suspend and resume arbitrary runs by
+specifying their number:
 
 # ls ./data/soat/
 # ./soat.py --resume 2 --ssl --html --http --dnsrebind >& soat.log &
