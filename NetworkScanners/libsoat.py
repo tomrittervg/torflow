@@ -571,6 +571,8 @@ class DataHandler:
     rdir = self.data_dir+result.proto.lower()+'/'
     if result.false_positive:
       rdir += 'falsepositive/'
+    elif result.from_rescan:
+      rdir += 'rescan/'
     elif result.status == TEST_SUCCESS:
       rdir += 'successful/'
     elif result.status == TEST_INCONCLUSIVE:
@@ -604,6 +606,7 @@ class DataHandler:
     test_file = open(filename+"."+str(position)+".test", 'r')
     test = pickle.load(test_file)
     test_file.close()
+    test.depickle_upgrade()
     return test
 
   def saveTest(self, test):

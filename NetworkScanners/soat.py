@@ -135,7 +135,7 @@ def http_request(address, cookie_jar=None, headers=firefox_headers):
     if length and int(length) > max_content_size:
       plog("WARN", "Max content size exceeded for "+address+": "+length)
       return (reply.code, [], "", "")
-    mime_type = reply.info().type
+    mime_type = reply.info().type.lower()
     plog("DEBUG", "Mime type is "+mime_type+", length "+str(length))
     content = decompress_response_data(reply)
   except socket.timeout, e:
@@ -172,8 +172,6 @@ class Test:
     self.proto = proto
     self.port = port
     self.min_targets = min_targets
-    self.exit_limit_pct = max_exit_fail_pct
-    self.dynamic_limit = max_dynamic_failure
     self.filename = None
     self.rescan_nodes = sets.Set([])
     self.nodes = []
@@ -184,7 +182,7 @@ class Test:
     self.nodes_to_mark = 0
     self.tests_per_node = num_tests_per_node
     self._reset()
-    self._pickle_revision = 0 # Will increment as fields are added
+    self._pickle_revision = 1 # Will increment as fields are added
 
   def run_test(self): 
     raise NotImplemented()
@@ -192,15 +190,27 @@ class Test:
   def get_targets(self): 
     raise NotImplemented()
 
+  def depickle_upgrade(self):
+    if self._pickle_revision < 1:
+      # Convert self.successes table from integers to sets.
+      # Yes, this is a hack, and yes, it will bias results
+      # away from the filter, but hey, at least it will still run.
+      for addr in self.successes.keys():
+        self.successes[addr] = sets.Set(xrange(0,self.successes[addr]))
+      plog("INFO", "Upgraded "+self.__class__.__name__+" to v1")
+
   def refill_targets(self):
     if len(self.targets) < self.min_targets:
       plog("NOTICE", self.proto+" scanner short on targets. Adding more")
       self.targets.extend(self.get_targets())
 
+  def _remove_target_addr(self, target):
+    if target in self.targets: self.targets.remove(target)
+
   def remove_target(self, target, reason="None"):
     self.banned_targets.add(target)
     self.refill_targets()
-    if target in self.targets: self.targets.remove(target)
+    self._remove_target_addr(target)
     if target in self.dynamic_fails: del self.dynamic_fails[target]
     if target in self.successes: del self.successes[target]
     if target in self.exit_fails: del self.exit_fails[target]
@@ -277,6 +287,28 @@ class Test:
   def percent_complete(self):
     return round(100.0*self.nodes_marked/(self.nodes_to_mark), 1)
 
+  def _remove_false_positive_type(self, failset, failtype, max_rate):
+    if self.rescan_nodes: return
+    for address in failset:
+      if address not in self.successes: successes = 0
+      else: successes = len(self.successes[address])
+      fails = len(failset[address])
+
+      if (100.0*fails)/(fails+successes) > max_rate:
+        plog("NOTICE", "Excessive "+self.proto+" "+failtype+" ("+str(fails)+"/"+str(fails+successes)+") for "+address+". Removing.")
+        self.remove_target(address, failtype)
+
+  def remove_false_positives(self):
+    if self.rescan_nodes: 
+      plog("INFO", "Not removing false positives for rescan of "+self.__class__.__name__)
+    else:
+      plog("INFO", "Removing false positives for "+self.__class__.__name__)
+    self._remove_false_positive_type(self.exit_fails,
+                                     FALSEPOSITIVE_DYNAMIC_TOR,
+                                     max_exit_fail_pct)
+    self._remove_false_positive_type(self.dynamic_fails,
+                                     FALSEPOSITIVE_DYNAMIC,
+                                     max_dynamic_fail_pct)
   def _reset(self):
     self.exit_fails = {}
     self.successes = {}
@@ -302,40 +334,33 @@ class Test:
       targets = "\n\t".join(self.targets)
       plog("INFO", "Using the following urls for "+self.proto+" scan:\n\t"+targets) 
 
-  def register_exit_failure(self, address, exit_node):
-    if address in self.exit_fails:
-      self.exit_fails[address].add(exit_node)
-    else:
-      self.exit_fails[address] = sets.Set([exit_node])
+  def register_success(self, address, exit_node):
+    if address in self.successes: self.successes[address].add(exit_node)
+    else: self.successes[address]=sets.Set([exit_node])
 
-    # TODO: Do something if abundance of succesful tests?
-    # Problem is this can still trigger for localized content
+  def register_exit_failure(self, address, exit_node):
+    if address in self.exit_fails: self.exit_fails[address].add(exit_node)
+    else: self.exit_fails[address] = sets.Set([exit_node])
+
     err_cnt = len(self.exit_fails[address])
-    if self.total_nodes and err_cnt > self.exit_limit_pct*self.total_nodes/100.0:
-      if address not in self.successes: self.successes[address] = 0
-      plog("NOTICE", "Excessive "+self.proto+" exit-only failure ("+str(err_cnt)+" vs "+str(self.successes[address])+") for "+address+". Removing.")
-  
-      self.remove_target(address, FALSEPOSITIVE_DYNAMIC_TOR)
-    else:
-      plog("ERROR", self.proto+" exit-only failure at "+exit_node+". This makes "+str(err_cnt)+" node failures for "+address)
+    if address in self.successes:
+      tot_cnt = err_cnt+len(self.successes[address])
+    else: tot_cnt = err_cnt
+
+    plog("ERROR", self.proto+" exit-only failure at "+exit_node+". This makes "+str(err_cnt)+"/"+str(tot_cnt)+" node failures for "+address)
 
   def register_dynamic_failure(self, address, exit_node):
     if address in self.dynamic_fails:
       self.dynamic_fails[address].add(exit_node)
     else:
       self.dynamic_fails[address] = sets.Set([exit_node])
-    
-    err_cnt = len(self.dynamic_fails[address])
-    if err_cnt > self.dynamic_limit:
-      # Remove all associated data for this url.
-      # (Note, this also seems to imply we should report BadExit in bulk,
-      # after we've had a chance for these false positives to be weeded out)
-      if address not in self.successes: self.successes[address] = 0
-      plog("NOTICE", "Excessive "+self.proto+" dynamic failure ("+str(err_cnt)+" vs "+str(self.successes[address])+") for "+address+". Removing.")
 
-      self.remove_target(address, FALSEPOSITIVE_DYNAMIC)
-    else:
-      plog("ERROR", self.proto+" dynamic failure at "+exit_node+". This makes "+str(err_cnt)+" node failures for "+address)
+    err_cnt = len(self.dynamic_fails[address])
+    if address in self.successes:
+      tot_cnt = err_cnt+len(self.successes[address])
+    else: tot_cnt = err_cnt
+
+    plog("ERROR", self.proto+" dynamic failure at "+exit_node+". This makes "+str(err_cnt)+"/"+str(tot_cnt)+" node failures for "+address)
 
 
 class SearchBasedTest(Test):
@@ -462,7 +487,7 @@ class HTTPTest(SearchBasedTest):
     SearchBasedTest.__init__(self, "HTTP", 80, wordlist)
     self.fetch_targets = urls_per_filetype
     self.httpcode_fails = {}
-    self.httpcode_limit_pct = max_exit_httpcode_pct
+    self.httpcode_limit_pct = max_httpcode_fail_pct
     self.scan_filetypes = filetypes
 
   def _reset(self):
@@ -527,6 +552,10 @@ class HTTPTest(SearchBasedTest):
     self.cookie_jar = None
     return ret_result
 
+  def _remove_target_addr(self, target):
+    for ftype in self.targets:
+      if target in self.targets[ftype]: self.targets[ftype].remove(target)
+
   def remove_target(self, address, reason):
     SearchBasedTest.remove_target(self, address, reason)
     if address in self.httpcode_fails: del self.httpcode_fails[address]
@@ -551,7 +580,12 @@ class HTTPTest(SearchBasedTest):
         if url[-len(ftype):] == ftype:
           urls[ftype].append(url)
     return urls     
- 
+
+  def remove_false_positives(self):
+    SearchBasedTest.remove_false_positives(self)
+    self._remove_false_positive_type(self.httpcode_fails,
+                                     FALSEPOSITIVE_HTTPERRORS,
+                                     max_httpcode_fail_pct)
     
   def register_httpcode_failure(self, address, exit_node):
     if address in self.httpcode_fails:
@@ -560,16 +594,11 @@ class HTTPTest(SearchBasedTest):
       self.httpcode_fails[address] = sets.Set([exit_node])
     
     err_cnt = len(self.httpcode_fails[address])
-    if self.total_nodes and err_cnt > self.httpcode_limit_pct*self.total_nodes/100.0:
-      # Remove all associated data for this url.
-      # (Note, this also seems to imply we should report BadExit in bulk,
-      # after we've had a chance for these false positives to be weeded out)
-      if address not in self.successes: self.successes[address] = 0
-      plog("NOTICE", "Excessive HTTP error code failure ("+str(err_cnt)+" vs "+str(self.successes[address])+") for "+address+". Removing.")
+    if address in self.successes:
+      tot_cnt = err_cnt+len(self.successes[address])
+    else: tot_cnt = err_cnt
 
-      self.remove_target(address, FALSEPOSITIVE_HTTPERRORS)
-    else:
-      plog("ERROR", self.proto+" http error code failure at "+exit_node+". This makes "+str(err_cnt)+" node failures for "+address)
+    plog("ERROR", self.proto+" http error code failure at "+exit_node+" This makes "+str(err_cnt)+"/"+str(tot_cnt)+" node failures for "+address)
     
 
   def check_http_nodynamic(self, address, nocontent=False):
@@ -732,8 +761,7 @@ class HTTPTest(SearchBasedTest):
       if self.rescan_nodes: result.from_rescan = True
       self.results.append(result)
       #datahandler.saveResult(result)
-      if address in self.successes: self.successes[address]+=1
-      else: self.successes[address]=1
+      self.register_success(address, exit_node)
       return TEST_SUCCESS
 
     # if content doesnt match, update the direct content and use new cookies
@@ -785,8 +813,7 @@ class HTTPTest(SearchBasedTest):
       if self.rescan_nodes: result.from_rescan = True
       self.results.append(result)
       #datahandler.saveResult(result)
-      if address in self.successes: self.successes[address]+=1
-      else: self.successes[address]=1
+      self.register_success(address, exit_node)
       return TEST_SUCCESS
  
     if not content and not nocontent:
@@ -867,7 +894,6 @@ class HTMLTest(HTTPTest):
     self.recurse_filetypes = recurse_filetypes
     self.fetch_queue = []
 
- 
   def run_test(self):
     # A single test should have a single cookie jar
     self.tor_cookie_jar = cookielib.MozillaCookieJar()
@@ -910,6 +936,8 @@ class HTMLTest(HTTPTest):
 
   # FIXME: This is pretty lame.. We should change how
   # the HTTPTest stores URLs so we don't have to do this.
+  def _remove_target_addr(self, target):
+    Test._remove_target_addr(self, target)
   def refill_targets(self):
     Test.refill_targets(self)
 
@@ -986,8 +1014,7 @@ class HTMLTest(HTTPTest):
       if self.rescan_nodes: result.from_rescan = True
       self.results.append(result)
       #datahandler.saveResult(result)
-      if address in self.successes: self.successes[address]+=1
-      else: self.successes[address]=1
+      self.register_success(address, exit_node)
       return TEST_SUCCESS
     else:
       address_file = DataHandler.safeFilename(address[7:])
@@ -1052,8 +1079,7 @@ class HTMLTest(HTTPTest):
       if self.rescan_nodes: result.from_rescan = True
       self.results.append(result)
       #datahandler.saveResult(result)
-      if address in self.successes: self.successes[address]+=1
-      else: self.successes[address]=1
+      self.register_success(address, exit_node)
       return TEST_SUCCESS
 
     content_new = new_html.decode('ascii', 'ignore')
@@ -1137,8 +1163,7 @@ class HTMLTest(HTTPTest):
       if self.rescan_nodes: result.from_rescan = True
       self.results.append(result)
       #datahandler.saveResult(result)
-      if address in self.successes: self.successes[address]+=1
-      else: self.successes[address]=1
+      self.register_success(address, exit_node)
       return TEST_SUCCESS
 
     exit_content_file = open(DataHandler.uniqueFilename(failed_prefix+'.'+exit_node[1:]+'.dyn-content'),'w')
@@ -1404,8 +1429,7 @@ class SSLTest(SearchBasedTest):
       result = SSLTestResult(exit_node, address, ssl_file_name, TEST_SUCCESS)
       if self.rescan_nodes: result.from_rescan = True
       #datahandler.saveResult(result)
-      if address in self.successes: self.successes[address]+=1
-      else: self.successes[address]=1
+      self.register_success(address, exit_node)
       return TEST_SUCCESS
 
     # False positive case.. Can't help it if the cert rotates AND we have a
@@ -2408,6 +2432,7 @@ def main(argv):
 
     if do_html:
       tests["HTML"] = datahandler.loadTest("HTMLTest", resume_run)
+  
   else:
     if do_ssl:
       tests["SSL"] = SSLTest(ssl_wordlist_file)
@@ -2497,6 +2522,7 @@ def main(argv):
       if test.finished():
         plog("NOTICE", test.proto+" test has finished all nodes.")
         datahandler.saveTest(test)
+        test.remove_false_positives()
         if not do_rescan and rescan_at_finish:
           test.toggle_rescan()
         test.rewind()
