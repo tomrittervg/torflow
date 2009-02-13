@@ -192,12 +192,15 @@ class Test:
   def get_targets(self): 
     raise NotImplemented()
 
-  def remove_target(self, target, reason="None"):
-    self.banned_targets.add(target)
-    if target in self.targets: self.targets.remove(target)
+  def refill_targets(self):
     if len(self.targets) < self.min_targets:
       plog("NOTICE", self.proto+" scanner short on targets. Adding more")
       self.targets.extend(self.get_targets())
+
+  def remove_target(self, target, reason="None"):
+    self.banned_targets.add(target)
+    self.refill_targets()
+    if target in self.targets: self.targets.remove(target)
     if target in self.dynamic_fails: del self.dynamic_fails[target]
     if target in self.successes: del self.successes[target]
     if target in self.exit_fails: del self.exit_fails[target]
@@ -310,11 +313,11 @@ class Test:
     err_cnt = len(self.exit_fails[address])
     if self.total_nodes and err_cnt > self.exit_limit_pct*self.total_nodes/100.0:
       if address not in self.successes: self.successes[address] = 0
-      plog("NOTICE", "Excessive "+self.proto+" 2-way failure ("+str(err_cnt)+" vs "+str(self.successes[address])+") for "+address+". Removing.")
+      plog("NOTICE", "Excessive "+self.proto+" exit-only failure ("+str(err_cnt)+" vs "+str(self.successes[address])+") for "+address+". Removing.")
   
       self.remove_target(address, FALSEPOSITIVE_DYNAMIC_TOR)
     else:
-      plog("ERROR", self.proto+" 2-way failure at "+exit_node+". This makes "+str(err_cnt)+" node failures for "+address)
+      plog("ERROR", self.proto+" exit-only failure at "+exit_node+". This makes "+str(err_cnt)+" node failures for "+address)
 
   def register_dynamic_failure(self, address, exit_node):
     if address in self.dynamic_fails:
@@ -328,11 +331,11 @@ class Test:
       # (Note, this also seems to imply we should report BadExit in bulk,
       # after we've had a chance for these false positives to be weeded out)
       if address not in self.successes: self.successes[address] = 0
-      plog("NOTICE", "Excessive "+self.proto+" 3-way failure ("+str(err_cnt)+" vs "+str(self.successes[address])+") for "+address+". Removing.")
+      plog("NOTICE", "Excessive "+self.proto+" dynamic failure ("+str(err_cnt)+" vs "+str(self.successes[address])+") for "+address+". Removing.")
 
       self.remove_target(address, FALSEPOSITIVE_DYNAMIC)
     else:
-      plog("ERROR", self.proto+" 3-way failure at "+exit_node+". This makes "+str(err_cnt)+" node failures for "+address)
+      plog("ERROR", self.proto+" dynamic failure at "+exit_node+". This makes "+str(err_cnt)+" node failures for "+address)
 
 
 class SearchBasedTest(Test):
@@ -462,6 +465,10 @@ class HTTPTest(SearchBasedTest):
     self.httpcode_limit_pct = max_exit_httpcode_pct
     self.scan_filetypes = filetypes
 
+  def _reset(self):
+    SearchBasedTest._reset(self)
+    self.targets = {}
+
   def rewind(self):
     SearchBasedTest.rewind(self)
     self.httpcode_fails = {}
@@ -469,7 +476,7 @@ class HTTPTest(SearchBasedTest):
   def check_cookies(self):
     # FIXME: This test is badly broken..
     # We probably only want to do this on a per-url basis.. Then
-    # we can do the 3-way compare..
+    # we can do the dynamic compare..
     return TEST_SUCCESS
     tor_cookies = "\n"
     plain_cookies = "\n"
@@ -524,10 +531,18 @@ class HTTPTest(SearchBasedTest):
     SearchBasedTest.remove_target(self, address, reason)
     if address in self.httpcode_fails: del self.httpcode_fails[address]
 
+  def refill_targets(self):
+    for ftype in self.targets:
+      if len(self.targets[ftype]) < self.fetch_targets:
+        plog("NOTICE", self.proto+" scanner short on "+ftype+" targets. Adding more")
+        raw_urls = self.get_search_urls('http', self.fetch_targets, 
+                                        filetypes=[ftype])
+        self.targets[ftype].extend(raw_urls)
+
+    
   def get_targets(self):
     raw_urls = self.get_search_urls('http', self.fetch_targets, 
                                      filetypes=self.scan_filetypes)
-
     urls = {} 
     # Slow, but meh..
     for ftype in self.scan_filetypes: urls[ftype] = []
@@ -978,7 +993,7 @@ class HTMLTest(HTTPTest):
       if self.rescan_nodes: result.from_rescan = True
       self.results.append(result)
       datahandler.saveResult(result)
-      plog("ERROR", "Javascript 3-way failure at "+exit_node+" for "+address)
+      plog("ERROR", "Javascript dynamic failure at "+exit_node+" for "+address)
 
       return TEST_FAILURE
 
