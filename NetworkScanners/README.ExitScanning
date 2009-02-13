@@ -15,7 +15,7 @@ document. This document concerns itself only with running the scanner.
 II. Prerequisites
 
 Python 2.4+
-Custom patched Tor 0.2.1
+Tor 0.2.1.13 (r18516 or later)
 Super Secret SoaT Sauce
 py-openssl/pyOpenSSL
 Bonus: 500M of disk space
@@ -50,8 +50,9 @@ III. Setup
 
 A. Compiling Tor
 
-To run SoaT you will need to compile a custom Tor binary due to bug XXX.
-The patch to fix this bug is present in ../tordiffs/XXX.
+To run SoaT you will need Tor 0.2.1.13. SVN r18516 contains a timeout
+fix that is essential to scanning the network in any reasonable amount
+of time.
 
 It is also strongly recommended that you have a custom Tor instance that
 is devoted only to exit scanning, and is not performing any other

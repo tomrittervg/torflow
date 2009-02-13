@@ -112,12 +112,12 @@ class TestResult(object):
     ret += " "+str(RESULT_STRINGS[self.status])
     if self.reason:
       ret += " Reason: "+self.reason
-    if self.false_positive:
-      ret += " (False positive: "+self.false_positive_reason+")"
     if self.extra_info:
       ret += "\n Extra info: "+self.extra_info 
+    if self.false_positive:
+      ret += "\n Removed as False Positive: "+self.false_positive_reason
     if self.from_rescan:
-      ret += "\nFrom rescan: "+str(self.from_rescan)
+      ret += "\n From rescan: "+str(self.from_rescan)
     ret += "\n"
     return ret
 
