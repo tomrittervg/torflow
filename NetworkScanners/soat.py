@@ -535,8 +535,8 @@ class HTTPTest(SearchBasedTest):
     ret_result = TEST_SUCCESS
     self.tests_run += 1
 
-    n_tests = random.choice(xrange(1,len(self.scan_filetypes)+1))
-    filetypes = random.sample(self.scan_filetypes, n_tests)
+    n_tests = random.choice(xrange(1,len(self.targets)+1))
+    filetypes = random.sample(self.targets.keys(), n_tests)
     
     plog("INFO", "HTTPTest decided to fetch "+str(n_tests)+" urls of types: "+str(filetypes))
 
