@@ -370,24 +370,11 @@ class HtmlTestResult(TestResult):
             ret+=line+"\n"
 
       if soup and tor_soup and old_soup:
-        old_vs_new = SoupDiffer(old_soup, soup)
-        new_vs_old = SoupDiffer(soup, old_soup)
-        new_vs_tor = SoupDiffer(soup, tor_soup)
+        soupdiff = SoupDiffer(old_soup, soup)
 
-        # I'm an evil man and I'm going to CPU hell..
-        changed_tags = SoupDiffer.merge_tag_maps(
-                            old_vs_new.changed_tags_with_attrs(),
-                            new_vs_old.changed_tags_with_attrs())
-
-        changed_attributes = SoupDiffer.merge_tag_maps(
-                                old_vs_new.changed_attributes_by_tag(),
-                                new_vs_old.changed_attributes_by_tag())
-
-        changed_content = bool(new_vs_old.changed_content() or old_vs_new.changed_content())
-
-        more_tags = new_vs_tor.more_changed_tags(changed_tags)     
-        more_attrs = new_vs_tor.more_changed_attrs(changed_attributes)
-        more_content = new_vs_tor.changed_content()
+        more_tags = soupdiff.show_changed_tags(tor_soup)     
+        more_attrs = soupdiff.show_changed_attrs(tor_soup)
+        more_content = soupdiff.show_changed_content(tor_soup)
 
         if more_tags:
           ret += "\nTor changed tags:\n"
@@ -395,10 +382,10 @@ class HtmlTestResult(TestResult):
         if more_attrs:
           ret += "\nTor changed attrs:\n"
           ret += more_attrs
-        if not changed_content and more_content:
+        if not soupdiff.content_changed and more_content:
           ret += "\nChanged Content:\n"
           ret += "\n".join(more_content)+"\n"
-        if (changed_content or not more_content) and not more_tags and not more_attrs:
+        if (soupdiff.content_changed or not more_content) and not more_tags and not more_attrs:
           ret += "\nSoupDiffer claims false positive.\n"
           jsdiff = JSSoupDiffer(old_soup)
           jsdiff.prune_differences(soup)
@@ -665,152 +652,118 @@ def FullyStrainedSoup(html):
 class SoupDiffer:
   """ Diff two soup tag sets, optionally writing diffs to outfile. """
   def __init__(self, soup_old, soup_new):
-    self.soup_old = soup_old
-    self.soup_new = soup_new
+    tags_old = self._get_tags(soup_old)
+    tags_new = self._get_tags(soup_new)
+    self.tag_pool = tags_new | tags_old
+    self.changed_tag_map = {}
+    self._update_changed_tag_map(tags_old, tags_new)
+    self._update_changed_tag_map(tags_new, tags_old)
 
-  def changed_tags(self):
-    """ Return a list of tags changed or added to soup_new as strings """
-    tags_old = sets.Set(map(str, 
-           [tag for tag in self.soup_old.findAll() if isinstance(tag, Tag)]))
-    tags_new = sets.Set(map(str, 
-           [tag for tag in self.soup_new.findAll() if isinstance(tag, Tag)]))
-    ret = list(tags_new - tags_old)
-    ret.sort()
-    return ret
+    attrs_new = self._get_attributes(soup_new)
+    attrs_old = self._get_attributes(soup_old)
+    self.attr_pool = attrs_new | attrs_old
+    self.changed_attr_map = {}
+    self._update_changed_attr_map(attrs_new, attrs_old)
+    self._update_changed_attr_map(attrs_old, attrs_new)
 
-  def changed_tags_with_attrs(self):
+    cntnt_new = self._get_content(soup_new)
+    cntnt_old = self._get_content(soup_old)
+    self.content_pool = cntnt_new | cntnt_old
+    self.content_changed = bool(cntnt_new ^ cntnt_old) 
+    
+  def rebase(self, new_dir):
+    pass
+    # XXX
+
+  def _get_tags(self, soup):
+    return sets.Set(map(str, 
+           [tag for tag in soup.findAll() if isinstance(tag, Tag)]))
+
+  def _get_attributes(self, soup):
+    attr_soup = [(tag.name, tag.attrs) for tag in soup.findAll()]
+    attrs = sets.Set([])
+    for (tag, attr_list) in attr_soup:
+      for at in attr_list:
+        attrs.add((tag, at)) 
+    return attrs
+
+  def _get_content(self, soup):
+    return sets.Set(map(str, 
+      [tag for tag in soup.findAll() if not isinstance(tag, Tag)]))
+  
+  def _update_changed_tag_map(self, tags_old, tags_new):
     """ Create a map of changed tags to ALL attributes that tag
         has ever had (changed or not) """
-    changed_tags = {}
-    for tags in map(TheChosenSoup, self.changed_tags()):
+    changed_tags = list(tags_new - tags_old)
+    for tags in map(TheChosenSoup, changed_tags):
       for t in tags.findAll():
         if t.name not in changed_tags:
-          changed_tags[t.name] = sets.Set([])
+          self.changed_tag_map[t.name] = sets.Set([])
         for attr in t.attrs:
-          changed_tags[t.name].add(attr[0])
-    return changed_tags
+          self.changed_tag_map[t.name].add(attr[0])
 
+  def _update_changed_attr_map(self, attrs_old, attrs_new):
+    """ Transform the list of (tag, attribute) pairings for new/changed
+        attributes into a map. This allows us to quickly see
+        if any attributes changed for a specific tag. """
+    changed_attributes = list(attrs_new - attrs_old)
+    for (tag, attr) in changed_attributes:
+      if tag not in self.changed_attr_map:
+        self.changed_attr_map[tag] = sets.Set([])
+      self.changed_attr_map[tag].add(attr[0])
 
-  def has_more_changed_tags(self, tag_attr_map):
-    """ Returns true if we have additional tags with additional
-        attributes that were not present in tag_attr_map 
-        (returned from changed_tags_with_attrs) """
-    for tags in map(TheChosenSoup, self.changed_tags()):
-      for t in tags.findAll():
-        if t.name not in tag_attr_map:
-          return True
-        else:
-          for attr in t.attrs:
-            if attr[0] not in tag_attr_map[t.name] \
-                and attr[0] in attrs_to_check_map:
-              return True
-    return False
+  def _update_changed_content(self, content_old, content_new):
+    # FIXME: This could be tracked by parent tag+attr
+    if not self.content_changed:
+      self.content_changed = bool(content_old ^ content_new)
 
-  def more_changed_tags(self, tag_attr_map):
+  def prune_differences(self, soup):
+    tags = self._get_tags(soup)
+    attrs = self._get_attributes(soup)
+    cntnt = self._get_content(soup)
+
+    self._update_changed_tag_map(self.tag_pool, tags)
+    self._update_changed_attr_map(self.attr_pool, attrs)
+    self._update_changed_content(self.content_pool, cntnt)
+    self.tag_pool.union_update(tags)
+    self.attr_pool.union_update(attrs)
+    self.content_pool.union_update(cntnt)
+
+  def show_changed_tags(self, soup):
+    soup_tags = self._get_tags(soup)
+    new_tags = soup_tags - self.tag_pool
     ret = ""
-    for tags in map(TheChosenSoup, self.changed_tags()):
+    for tags in map(TheChosenSoup, new_tags):
       for t in tags.findAll():
-        if t.name not in tag_attr_map:
+        if t.name not in self.changed_attr_map:
           ret += " New Tag: "+str(t)+"\n"
         else:
           for attr in t.attrs:
-            if attr[0] not in tag_attr_map[t.name] \
+            if attr[0] not in self.changed_attr_map[t.name] \
                  and attr[0] in attrs_to_check_map:
               ret += " New Attr "+attr[0]+": "+str(t)+"\n"
     return ret
 
-  def _get_attributes(self):
-    attrs_old = [(tag.name, tag.attrs) for tag in self.soup_old.findAll()]
-    attrs_new = [(tag.name, tag.attrs) for tag in self.soup_new.findAll()]
-    attr_old = []
-    for (tag, attr_list) in attrs_old:
-      for attr in attr_list:
-        attr_old.append((tag, attr)) 
-    attr_new = []
-    for (tag, attr_list) in attrs_new:
-      for attr in attr_list:
-        attr_old.append((tag, attr)) 
-    return (attr_old, attr_new)
-    
-  def changed_attributes(self):
-    """ Return a list of attributes added to soup_new """
-    (attr_old, attr_new) = self._get_attributes()
-    ret = list(sets.Set(attr_new) - sets.Set(attr_old))
-    ret.sort()
-    return ret
-
-  def changed_attributes_by_tag(self):
-    """ Transform the list of (tag, attribute) pairings for new/changed
-        attributes into a map. This allows us to quickly see
-        if any attributes changed for a specific tag. """
-    changed_attributes = {}
-    for (tag, attr) in self.changed_attributes():
-      if tag not in changed_attributes:
-        changed_attributes[tag] = sets.Set([])
-      changed_attributes[tag].add(attr[0])
-    return changed_attributes 
-
-  def merge_tag_maps(tag_map1, tag_map2):
-    " Merges either two tag_attr_maps or two attrs_by_tag maps "
-    ret = copy.deepcopy(tag_map1)
-    for tag in tag_map2:
-      if tag not in ret:
-        ret[tag] = copy.deepcopy(tag_map2[tag])
-      else:
-        ret[tag].union_update(tag_map2[tag])
-    return ret
-  merge_tag_maps = Callable(merge_tag_maps)
-
-  def has_more_changed_attrs(self, attrs_by_tag):
-    """ Returns true if we have any tags with additional
-        changed attributes that were not present in attrs_by_tag
-        (returned from changed_attributes_by_tag) """
-    for (tag, attr) in self.changed_attributes():
-      if tag in attrs_by_tag:
-        if attr[0] not in attrs_by_tag[tag] \
-            and attr[0] in attrs_to_check_map:
-          return True
-      else:
-        return True
-    return False
-
-  def more_changed_attrs(self, attrs_by_tag):
+  def show_changed_attrs(self, soup):
+    soup_attrs = self._get_attributes(soup)
+    new_attrs = soup_attrs - self.attr_pool
     ret = ""
-    for (tag, attr) in self.changed_attributes():
-      if tag in attrs_by_tag:
-        if attr[0] not in attrs_by_tag[tag] \
+    for (tag, attr) in new_attrs:
+      if tag in self.changed_attr_map:
+        if attr[0] not in self.changed_attr_map[tag] \
             and attr[0] in attrs_to_check_map:
           ret += " New Attr "+attr[0]+": "+tag+" "+attr[0]+'="'+attr[1]+'"\n'
       else:
         ret += " New Tag: "+tag+" "+attr[0]+'="'+attr[1]+'"\n'
     return ret
 
-
-  def changed_content(self):
+  def show_changed_content(self, soup):
     """ Return a list of tag contents changed in soup_new """
-    tags_old = sets.Set(map(str, 
-      [tag for tag in self.soup_old.findAll() if not isinstance(tag, Tag)]))
-    tags_new = sets.Set(map(str, 
-      [tag for tag in self.soup_new.findAll() if not isinstance(tag, Tag)]))
-    ret = list(tags_new - tags_old)
+    content = self._get_content(soup)
+    ret = list(content - self.content_pool)
     ret.sort()
     return ret
 
-  def __str__(self):
-    tags = self.changed_tags()
-    out = "Tags:\n"+"\n".join(tags)
-    attrs = self.changed_attributes()
-    out += "\n\nAttrs:\n"
-    for (tag, a) in attrs:
-      out += a[0]+"="+a[1]+"\n"
-    content = self.changed_content()
-    out += "\n\nContent:\n"+"\n".join(map(str, content))
-    return out
-
-  def write_diff(self, outfile):
-    f = open(outfile, "w")
-    f.write(str(self))
-    f.close()
 
 class JSDiffer:
   def __init__(self, js_string):

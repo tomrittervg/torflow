@@ -195,8 +195,11 @@ class Test:
       # Convert self.successes table from integers to sets.
       # Yes, this is a hack, and yes, it will bias results
       # away from the filter, but hey, at least it will still run.
+      self._pickle_revision = 1
+      
       for addr in self.successes.keys():
-        self.successes[addr] = sets.Set(xrange(0,self.successes[addr]))
+        if type(self.successes[addr]) == int:
+          self.successes[addr] = sets.Set(xrange(0,self.successes[addr]))
       plog("INFO", "Upgraded "+self.__class__.__name__+" to v1")
 
   def refill_targets(self):
@@ -1117,32 +1120,19 @@ class HTMLTest(HTTPTest):
     # 3. Compare list of changed tags for tor vs new and
     #    see if any extra tags changed or if new attributes
     #    were added to additional tags
-    old_vs_new = SoupDiffer(orig_soup, new_soup)
-    new_vs_old = SoupDiffer(new_soup, orig_soup)
-    new_vs_tor = SoupDiffer(new_soup, tor_soup)
+    soupdiff = SoupDiffer(orig_soup, new_soup)
+    
+    more_tags = soupdiff.show_changed_tags(tor_soup)     
+    more_attrs = soupdiff.show_changed_attrs(tor_soup)
+    more_content = soupdiff.show_changed_content(tor_soup)
 
-    # I'm an evil man and I'm going to CPU hell..
-    changed_tags = SoupDiffer.merge_tag_maps(
-                        old_vs_new.changed_tags_with_attrs(),
-                        new_vs_old.changed_tags_with_attrs())
-
-    changed_attributes = SoupDiffer.merge_tag_maps(
-                            old_vs_new.changed_attributes_by_tag(),
-                            new_vs_old.changed_attributes_by_tag())
-
-    changed_content = bool(new_vs_old.changed_content() or old_vs_new.changed_content())
-
-    more_tags = new_vs_tor.more_changed_tags(changed_tags)     
-    more_attrs = new_vs_tor.more_changed_attrs(changed_attributes)
-    more_content = new_vs_tor.changed_content()
- 
     # Verify all of our changed tags are present here 
-    if more_tags or more_attrs or (more_content and not changed_content):
+    if more_tags or more_attrs or (more_content and not soupdiff.content_changed):
       false_positive = False
       plog("NOTICE", "SoupDiffer finds differences for "+address)
       plog("NOTICE", "New Tags:\n"+more_tags)
       plog("NOTICE", "New Attrs:\n"+more_attrs)
-      if more_content and not changed_content:
+      if more_content and not soupdiff.content_changed:
         plog("NOTICE", "New Content:\n"+more_content)
     else:
       plog("INFO", "SoupDiffer predicts false_positive")
