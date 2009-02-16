@@ -78,6 +78,13 @@ class TestResult(object):
     self.verbose=0
     self.from_rescan = False
     self.filename=None
+    self._pickle_revision = 1    
+
+  def depickle_upgrade(self):
+    if not "_pickle_revision" in self.__dict__: # upgrade to v0
+      self._pickle_revision = 0
+    if self._pickle_revision < 1:
+      self._pickle_revision = 1
 
   def _rebase(self, filename, new_data_root):
     if not filename: return filename
@@ -150,6 +157,7 @@ class SSLTestResult(TestResult):
     ret = TestResult.__str__(self)
     ssl_file = open(self.ssl_file, 'r')
     ssl_domain = pickle.load(ssl_file)
+    ssl_domain.depickle_upgrade()
     ssl_file.close()
     ret += " Rotates: "+str(ssl_domain.cert_rotates)
     ret += " Changed: "+str(ssl_domain.cert_changed)+"\n" 
@@ -175,11 +183,14 @@ class SSLDomain:
     self.cert_rotates = False
     self.cert_changed = False
 
+  def depickle_upgrade(self):
+    pass
+
   def add_cert(self, ip, cert_string):
     if ip in self.ip_map and self.ip_map[ip] != cert_string:
       plog("NOTICE", self.domain+" has changed certs.")
       self.cert_changed = True
-    elif len(self.cert_map) and cert_string not in self.cert_map:
+    if len(self.cert_map) and cert_string not in self.cert_map:
       plog("NOTICE", self.domain+" is rotating certs.")
       self.cert_rotates = True
     self.cert_map[cert_string] = ip
@@ -255,23 +266,32 @@ class CookieTestResult(TestResult):
 class JsTestResult(TestResult):
   ''' Represents the result of a JS test '''
   def __init__(self, exit_node, website, status, reason=None, 
-               content=None, content_exit=None, content_old=None):
+               content=None, content_exit=None, content_old=None,
+               jsdiffer=None):
     super(JsTestResult, self).__init__(exit_node, website, status, reason)
     self.proto = "http"
     self.content = content
     self.content_exit = content_exit
     self.content_old = content_old
+    self.jsdiffer = jsdiffer
+
+  def depickle_upgrade(self):
+    if not "_pickle_revision" in self.__dict__ or self._pickle_revision < 1:
+      self.jsdiffer = None
+    TestResult.depickle_upgrade(self)
 
   def rebase(self, new_data_root):
     self.content = self._rebase(self.content, new_data_root)
     self.content_exit = self._rebase(self.content_exit, new_data_root)
     self.content_old = self._rebase(self.content_old, new_data_root)
+    self.jsdiffer = self._rebase(self.jsdiffer, new_data_root)
 
   def mark_false_positive(self, reason):
     TestResult.mark_false_positive(self, reason)
     self.content=self.move_file(self.content, http_falsepositive_dir)
     self.content_old=self.move_file(self.content_old, http_falsepositive_dir)
     self.content_exit=self.move_file(self.content_exit,http_falsepositive_dir)
+    self.jsdiffer=self.move_file(self.jsdiffer,http_falsepositive_dir)
 
   def remove_files(self):
     try: os.unlink(self.content)
@@ -310,23 +330,36 @@ class JsTestResult(TestResult):
 class HtmlTestResult(TestResult):
   ''' Represents the result of a http test '''
   def __init__(self, exit_node, website, status, reason=None, 
-               content=None, content_exit=None, content_old=None):
+               content=None, content_exit=None, content_old=None, 
+               soupdiffer=None, jsdiffer=None):
     super(HtmlTestResult, self).__init__(exit_node, website, status, reason)
     self.proto = "http"
     self.content = content
     self.content_exit = content_exit
     self.content_old = content_old
+    self.soupdiffer = soupdiffer
+    self.jsdiffer = jsdiffer
+
+  def depickle_upgrade(self):
+    if not "_pickle_revision" in self.__dict__ or self._pickle_revision < 1:
+      self.soupdiffer = None
+      self.jsdiffer = None
+    TestResult.depickle_upgrade(self)
 
   def rebase(self, new_data_root):
     self.content = self._rebase(self.content, new_data_root)
     self.content_exit = self._rebase(self.content_exit, new_data_root)
     self.content_old = self._rebase(self.content_old, new_data_root)
+    self.soupdiffer = self._rebase(self.soupdiffer, new_data_root)
+    self.jsdiffer = self._rebase(self.jsdiffer, new_data_root)
 
   def mark_false_positive(self, reason):
     TestResult.mark_false_positive(self, reason)
     self.content=self.move_file(self.content,http_falsepositive_dir)
     self.content_old=self.move_file(self.content_old, http_falsepositive_dir)
     self.content_exit=self.move_file(self.content_exit,http_falsepositive_dir)
+    self.soupdiffer=self.move_file(self.soupdiffer,http_falsepositive_dir)
+    self.jsdiffer=self.move_file(self.jsdiffer,http_falsepositive_dir)
 
   def remove_files(self):
     try: os.unlink(self.content)
@@ -370,7 +403,11 @@ class HtmlTestResult(TestResult):
             ret+=line+"\n"
 
       if soup and tor_soup and old_soup:
-        soupdiff = SoupDiffer(old_soup, soup)
+        if self.soupdiffer and os.path.exists(self.soupdiffer):
+          soupdiff = pickle.load(open(self.soupdiffer, 'r'))
+          soupdiff.depickle_upgrade()
+        else:
+          soupdiff = SoupDiffer(old_soup, soup)
 
         more_tags = soupdiff.show_changed_tags(tor_soup)     
         more_attrs = soupdiff.show_changed_attrs(tor_soup)
@@ -518,13 +555,16 @@ class DataHandler:
         if f.endswith('.result'):
           fh = open(os.path.join(root, f))
           result = pickle.load(fh)
+          result.depickle_upgrade()
           result.rebase(self.data_dir)
           results.append(result)
     return results
 
   def getResult(self, file):
     fh = open(file, 'r')
-    return pickle.load(fh)
+    res = pickle.load(fh)
+    res.depickle_upgrade()
+    return res
 
   def uniqueFilename(afile):
     (prefix,suffix)=os.path.splitext(afile)
@@ -592,8 +632,8 @@ class DataHandler:
 
     test_file = open(filename+"."+str(position)+".test", 'r')
     test = pickle.load(test_file)
-    test_file.close()
     test.depickle_upgrade()
+    test_file.close()
     return test
 
   def saveTest(self, test):
@@ -670,10 +710,10 @@ class SoupDiffer:
     cntnt_old = self._get_content(soup_old)
     self.content_pool = cntnt_new | cntnt_old
     self.content_changed = bool(cntnt_new ^ cntnt_old) 
-    
-  def rebase(self, new_dir):
+    self._pickle_revision = 0    
+
+  def depickle_upgrade(self):
     pass
-    # XXX
 
   def _get_tags(self, soup):
     return sets.Set(map(str, 
@@ -735,11 +775,11 @@ class SoupDiffer:
     ret = ""
     for tags in map(TheChosenSoup, new_tags):
       for t in tags.findAll():
-        if t.name not in self.changed_attr_map:
+        if t.name not in self.changed_tag_map:
           ret += " New Tag: "+str(t)+"\n"
         else:
           for attr in t.attrs:
-            if attr[0] not in self.changed_attr_map[t.name] \
+            if attr[0] not in self.changed_tag_map[t.name] \
                  and attr[0] in attrs_to_check_map:
               ret += " New Attr "+attr[0]+": "+str(t)+"\n"
     return ret
@@ -767,7 +807,11 @@ class SoupDiffer:
 
 class JSDiffer:
   def __init__(self, js_string):
+    self._pickle_revision = 0    
     if HAVE_PYPY: self.ast_cnts = self._count_ast_elements(js_string)
+
+  def depickle_upgrade(self):
+    pass
 
   def _ast_recursive_worker(ast, ast_cnts):
     if not ast.symbol in ast_cnts:

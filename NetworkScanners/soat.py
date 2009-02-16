@@ -174,7 +174,7 @@ class Test:
     self.min_targets = min_targets
     self.filename = None
     self.rescan_nodes = sets.Set([])
-    self.nodes = []
+    self.nodes = sets.Set([])
     self.node_map = {}
     self.banned_targets = sets.Set([])
     self.total_nodes = 0
@@ -182,7 +182,7 @@ class Test:
     self.nodes_to_mark = 0
     self.tests_per_node = num_tests_per_node
     self._reset()
-    self._pickle_revision = 1 # Will increment as fields are added
+    self._pickle_revision = 2 # Will increment as fields are added
 
   def run_test(self): 
     raise NotImplemented()
@@ -201,6 +201,8 @@ class Test:
         if type(self.successes[addr]) == int:
           self.successes[addr] = sets.Set(xrange(0,self.successes[addr]))
       plog("INFO", "Upgraded "+self.__class__.__name__+" to v1")
+    if self._pickle_revision < 2: 
+      self._pickle_revision = 2
 
   def refill_targets(self):
     if len(self.targets) < self.min_targets:
@@ -218,7 +220,7 @@ class Test:
     if target in self.successes: del self.successes[target]
     if target in self.exit_fails: del self.exit_fails[target]
     kill_results = []
-    for r in self.results:
+    for r in self.results: 
       if r.site == target:
         kill_results.append(r)
     for r in kill_results:
@@ -261,12 +263,18 @@ class Test:
     return random.choice(list(self.nodes))
 
   def update_nodes(self):
+    all_old_nodes = sets.Set(self.node_map.keys())
     nodes = metacon.node_manager.get_nodes_for_port(self.port)
     self.node_map = {}
     for n in nodes: 
       self.node_map[n.idhex] = n
     self.total_nodes = len(nodes)
-    self.nodes = sets.Set(map(lambda n: n.idhex, nodes))
+    all_new_nodes = sets.Set(map(lambda n: n.idhex, nodes))
+    marked_nodes = sets.Set(self.node_results.keys())
+    new_nodes = all_new_nodes - all_old_nodes
+    new_nodes -= marked_nodes
+    self.nodes &= all_new_nodes # Clear down nodes
+    self.nodes = self.nodes | new_nodes # add new ones
     # Only scan the stuff loaded from the rescan
     if self.rescan_nodes: self.nodes &= self.rescan_nodes
     if not self.nodes:
@@ -278,11 +286,16 @@ class Test:
     exit_node = metacon.get_exit_node()[1:]
     if exit_node != node:
       plog("ERROR", "Asked to mark a node that is not current: "+node+" vs "+exit_node)
+    plog("INFO", "Marking "+node+" with result "+str(result))
     self.nodes_marked += 1
     if not node in self.node_results: self.node_results[node] = []
     self.node_results[node].append(result)
     if len(self.node_results[node]) >= self.tests_per_node:
       self.nodes.remove(node)
+      plog("INFO", "Removed node "+node+". "+str(len(self.nodes))+" nodes remain")
+    else:
+      plog("DEBUG", "Keeping node "+node+". "+str(len(self.nodes))+" nodes remain. Tests: "+str(len(self.node_results[node]))+"/"+str(self.tests_per_node))
+
      
   def finished(self):
     return not self.nodes
@@ -531,8 +544,7 @@ class HTTPTest(SearchBasedTest):
     self.tor_cookie_jar = cookielib.MozillaCookieJar()
     self.cookie_jar = cookielib.MozillaCookieJar()
     self.headers = copy.copy(firefox_headers)
-    
-    ret_result = TEST_SUCCESS
+   
     self.tests_run += 1
 
     n_tests = random.choice(xrange(1,len(self.targets)+1))
@@ -540,20 +552,24 @@ class HTTPTest(SearchBasedTest):
     
     plog("INFO", "HTTPTest decided to fetch "+str(n_tests)+" urls of types: "+str(filetypes))
 
+    n_success = n_fail = n_inconclusive = 0 
     for ftype in filetypes:
       # FIXME: Set referrer to random or none for each of these
       address = random.choice(self.targets[ftype])
       result = self.check_http(address)
-      if result > ret_result:
-        ret_result = result
-    result = self.check_cookies()
-    if result > ret_result:
-      ret_result = result
+      if result == TEST_INCONCLUSIVE: n_inconclusive += 1
+      if result == TEST_FAILURE: n_fail += 1
+      if result == TEST_SUCCESS: n_success += 1
 
     # Cookie jars contain locks and can't be pickled. Clear them away.
     self.tor_cookie_jar = None
     self.cookie_jar = None
-    return ret_result
+  
+    if n_fail: return TEST_FAILURE
+    elif n_inconclusive > 2*n_success: # > 66% inconclusive -> redo
+      return TEST_INCONCLUSIVE
+    else:
+      return TEST_SUCCESS 
 
   def _remove_target_addr(self, target):
     for ftype in self.targets:
@@ -896,6 +912,18 @@ class HTMLTest(HTTPTest):
     self.proto = "HTML"
     self.recurse_filetypes = recurse_filetypes
     self.fetch_queue = []
+   
+  def _reset(self):
+    HTTPTest._reset(self)
+    self.targets = [] # FIXME: Lame..
+    self.soupdiffer_files = {}
+    self.jsdiffer_files = {}
+ 
+  def depickle_upgrade(self):
+    if self._pickle_revision < 2:
+      self.soupdiffer_files = {}
+      self.jsdiffer_files = {}
+    SearchBasedTest.depickle_upgrade(self)
 
   def run_test(self):
     # A single test should have a single cookie jar
@@ -903,22 +931,24 @@ class HTMLTest(HTTPTest):
     self.cookie_jar = cookielib.MozillaCookieJar()
     self.headers = copy.copy(firefox_headers)
 
+    use_referers = False
     first_referer = None    
     if random.randint(1,100) < referer_chance_pct:
+      use_referers = True
       # FIXME: Hrmm.. May want to do this a bit better..
       first_referer = random.choice(self.targets)
       plog("INFO", "Chose random referer "+first_referer)
     
-    ret_result = TEST_SUCCESS
     self.tests_run += 1
     # TODO: Watch for spider-traps! (ie mutually sourcing iframes)
     # Keep a trail log for this test and check for loops
     address = random.choice(self.targets)
 
     self.fetch_queue.append(("html", address, first_referer))
+    n_success = n_fail = n_inconclusive = 0 
     while self.fetch_queue:
       (test, url, referer) = self.fetch_queue.pop(0)
-      if referer: self.headers['Referer'] = referer
+      if use_referers and referer: self.headers['Referer'] = referer
       # Technically both html and js tests check and dispatch via mime types
       # but I want to know when link tags lie
       if test == "html" or test == "http": result = self.check_html(url)
@@ -926,21 +956,26 @@ class HTMLTest(HTTPTest):
       else: 
         plog("WARN", "Unknown test type: "+test+" for "+url)
         result = TEST_SUCCESS
-      if result > ret_result:
-        ret_result = result
-    result = self.check_cookies()
-    if result > ret_result:
-      ret_result = result
+      if result == TEST_INCONCLUSIVE: n_inconclusive += 1
+      if result == TEST_FAILURE: n_fail += 1
+      if result == TEST_SUCCESS: n_success += 1
 
     # Need to clear because the cookiejars use locks...
     self.tor_cookie_jar = None
     self.cookie_jar = None
-    return ret_result
+
+    if n_fail: return TEST_FAILURE
+    elif 2*n_inconclusive > n_success: # > 33% inconclusive -> redo
+      return TEST_INCONCLUSIVE
+    else:
+      return TEST_SUCCESS 
 
   # FIXME: This is pretty lame.. We should change how
   # the HTTPTest stores URLs so we don't have to do this.
   def _remove_target_addr(self, target):
     Test._remove_target_addr(self, target)
+    if target in self.soupdiffer_files: del self.soupdiffer_files[target]
+    if target in self.jsdiffer_files: del self.jsdiffer_files[target]
   def refill_targets(self):
     Test.refill_targets(self)
 
@@ -965,9 +1000,9 @@ class HTMLTest(HTTPTest):
             elif t.name in recurse_script:
               if t.name == "link":
                 for a in t.attrs:
-                  if a[0] == "type" and a[1] in script_mime_types:
-                    plog("INFO", "Adding link script for: "+str(t))
-                    targets.append(("js", urlparse.urljoin(orig_addr, attr_tgt)))
+                  #if a[0] == "type" and a[1] in script_mime_types:
+                  plog("INFO", "Adding link script for: "+str(t))
+                  targets.append(("js", urlparse.urljoin(orig_addr, attr_tgt)))
               else:
                 plog("INFO", "Adding script tag for: "+str(t))
                 targets.append(("js", urlparse.urljoin(orig_addr, attr_tgt)))
@@ -997,19 +1032,50 @@ class HTMLTest(HTTPTest):
     if type(ret) == int:
       return ret
     return self._check_js_worker(address, ret)
+ 
+  def is_html(self, mime_type, content):
+    is_html = False
+    for type_match in html_mime_types:
+      if re.match(type_match, mime_type): 
+        is_html = True
+        break
+    return is_html
+ 
+  def is_script(self, mime_type, content):
+    is_script = False
+    for type_match in script_mime_types:
+      if re.match(type_match, mime_type): 
+        is_script = True
+        break
+    return is_script
 
   def _check_js_worker(self, address, http_ret):
     (mime_type, tor_js, tsha, orig_js, osha, new_js, nsha, exit_node) = http_ret
 
-    if mime_type not in script_mime_types:
+    if not self.is_script(mime_type, orig_js):
       plog("WARN", "Non-script mime type "+mime_type+" fed to JS test for "+address)
-      if mime_type in html_mime_types:
+     
+      if self.is_html(mime_type, orig_js):
         return self._check_html_worker(address, http_ret)
       else:
         return self._check_http_worker(address, http_ret)
- 
-    jsdiff = JSDiffer(orig_js)
+
+    address_file = DataHandler.safeFilename(address[7:])
+    content_prefix = http_content_dir+address_file
+    failed_prefix = http_failed_dir+address_file
+
+    if address in self.jsdiffer_files:
+      plog("DEBUG", "Loading jsdiff for "+address)
+      jsdiff = pickle.load(open(self.jsdiffer_files[address], 'r'))
+      jsdiff.depickle_upgrade()
+    else:
+      plog("DEBUG", "No jsdiff for "+address+". Creating+dumping")
+      jsdiff = JSDiffer(orig_js)
+      self.jsdiffer_files[address] = content_prefix+".jsdiff"
+    
     jsdiff.prune_differences(new_js)
+    pickle.dump(jsdiff, open(self.jsdiffer_files[address], 'w'))
+
     has_js_changes = jsdiff.contains_differences(tor_js)
 
     if not has_js_changes:
@@ -1020,10 +1086,6 @@ class HTMLTest(HTTPTest):
       self.register_success(address, exit_node)
       return TEST_SUCCESS
     else:
-      address_file = DataHandler.safeFilename(address[7:])
-      content_prefix = http_content_dir+address_file
-      failed_prefix = http_failed_dir+address_file
-
       exit_content_file = open(DataHandler.uniqueFilename(failed_prefix+'.'+exit_node[1:]+'.dyn-content'), 'w')
       exit_content_file.write(tor_js)
       exit_content_file.close()
@@ -1031,7 +1093,8 @@ class HTMLTest(HTTPTest):
       result = JsTestResult(exit_node, address, TEST_FAILURE, 
                               FAILURE_DYNAMIC, content_prefix+".content",
                               exit_content_file.name, 
-                              content_prefix+'.content-old')
+                              content_prefix+'.content-old',
+                              self.jsdiffer_files[address])
       if self.rescan_nodes: result.from_rescan = True
       self.results.append(result)
       datahandler.saveResult(result)
@@ -1051,10 +1114,10 @@ class HTMLTest(HTTPTest):
   def _check_html_worker(self, address, http_ret):
     (mime_type,tor_html,tsha,orig_html,osha,new_html,nsha,exit_node)=http_ret
 
-    if mime_type not in html_mime_types:
+    if not self.is_html(mime_type, orig_html):
       # XXX: Keep an eye on this logline.
-      plog("INFO", "Non-html mime type "+mime_type+" fed to HTML test for "+address)
-      if mime_type in script_mime_types:
+      plog("WARN", "Non-html mime type "+mime_type+" fed to HTML test for "+address)
+      if self.is_script(mime_type, orig_html):
         return self._check_js_worker(address, http_ret)
       else:
         return self._check_http_worker(address, http_ret)
@@ -1120,7 +1183,17 @@ class HTMLTest(HTTPTest):
     # 3. Compare list of changed tags for tor vs new and
     #    see if any extra tags changed or if new attributes
     #    were added to additional tags
-    soupdiff = SoupDiffer(orig_soup, new_soup)
+    if address in self.soupdiffer_files:
+      plog("DEBUG", "Loading soupdiff for "+address)
+      soupdiff = pickle.load(open(self.soupdiffer_files[address], 'r'))
+      soupdiff.depickle_upgrade()
+      soupdiff.prune_differences(new_soup)
+    else:
+      plog("DEBUG", "No soupdiff for "+address+". Creating+dumping")
+      soupdiff = SoupDiffer(orig_soup, new_soup)
+      self.soupdiffer_files[address] = content_prefix+".soupdiff"
+
+    pickle.dump(soupdiff, open(self.soupdiffer_files[address], 'w'))
     
     more_tags = soupdiff.show_changed_tags(tor_soup)     
     more_attrs = soupdiff.show_changed_attrs(tor_soup)
@@ -1139,8 +1212,18 @@ class HTMLTest(HTTPTest):
       false_positive = True
 
     if false_positive:
-      jsdiff = JSSoupDiffer(orig_soup)
+      if address in self.jsdiffer_files:
+        plog("DEBUG", "Loading jsdiff for "+address)
+        jsdiff = pickle.load(open(self.jsdiffer_files[address], 'r'))
+        jsdiff.depickle_upgrade()
+      else:
+        plog("DEBUG", "No jsdiff for "+address+". Creating+dumping")
+        jsdiff = JSSoupDiffer(orig_soup)
+        self.jsdiffer_files[address] = content_prefix+".jsdiff"
+      
       jsdiff.prune_differences(new_soup)
+      pickle.dump(jsdiff, open(self.jsdiffer_files[address], 'w'))
+
       differences = jsdiff.show_differences(tor_soup)
       false_positive = not differences
       plog("INFO", "JSSoupDiffer predicts false_positive="+str(false_positive))
@@ -1159,11 +1242,19 @@ class HTMLTest(HTTPTest):
     exit_content_file = open(DataHandler.uniqueFilename(failed_prefix+'.'+exit_node[1:]+'.dyn-content'),'w')
     exit_content_file.write(tor_html)
     exit_content_file.close()
+ 
+    if address in self.jsdiffer_files: 
+      jsdiff_file = self.jsdiffer_files[address]
+    else: jsdiff_file = None
+    if address in self.soupdiffer_files: 
+      soupdiff_file = self.soupdiffer_files[address]
+    else: soupdiff_file = None
 
     result = HtmlTestResult(exit_node, address, TEST_FAILURE, 
                             FAILURE_DYNAMIC, content_prefix+".content",
                             exit_content_file.name, 
-                            content_prefix+'.content-old')
+                            content_prefix+'.content-old',
+                            soupdiff_file, jsdiff_file)
     if self.rescan_nodes: result.from_rescan = True
     self.results.append(result)
     datahandler.saveResult(result)
@@ -1242,15 +1333,16 @@ class SSLTest(SearchBasedTest):
   def _update_cert_list(self, ssl_domain, check_ips):
     changed = False
     for ip in check_ips:
-      if not ssl_domain.seen_ip(ip):
-        plog('INFO', 'Ssl connection to new ip '+ip+" for "+ssl_domain.domain)
-        raw_cert = self.ssl_request(ip)
-        if not raw_cert or isinstance(raw_cert, Exception):
-          plog('WARN', 'Error getting the correct cert for '+ssl_domain.domain+":"+ip)
-          continue
-        ssl_domain.add_cert(ip,
-               crypto.dump_certificate(crypto.FILETYPE_PEM, raw_cert))
-        changed = True
+      #let's always check.
+      #if not ssl_domain.seen_ip(ip):
+      plog('INFO', 'Ssl connection to new ip '+ip+" for "+ssl_domain.domain)
+      raw_cert = self.ssl_request(ip)
+      if not raw_cert or isinstance(raw_cert, Exception):
+        plog('WARN', 'Error getting the correct cert for '+ssl_domain.domain+":"+ip)
+        continue
+      ssl_domain.add_cert(ip,
+             crypto.dump_certificate(crypto.FILETYPE_PEM, raw_cert))
+      changed = True # Always save new copy.
     return changed
 
   def check_openssl(self, address):
@@ -1266,6 +1358,7 @@ class SSLTest(SearchBasedTest):
     try:
       ssl_file = open(ssl_file_name, 'r')
       ssl_domain = pickle.load(ssl_file)
+      ssl_domain.depickle_upgrade()
       ssl_file.close()
     except IOError:
       ssl_domain = SSLDomain(address)
