@@ -55,7 +55,7 @@ from TorCtl import TorUtil, TorCtl, PathSupport
 from TorCtl.TorUtil import meta_port, meta_host, control_port, control_host, tor_port, tor_host
 from TorCtl.TorUtil import *
 from TorCtl.PathSupport import *
-from TorCtl.TorCtl import Connection, EventHandler
+from TorCtl.TorCtl import Connection, EventHandler, ConsensusTracker
 
 import OpenSSL
 from OpenSSL import *
@@ -2051,24 +2051,19 @@ class Client:
       response = response[:-1]
     return response 
 
-class NodeManager(EventHandler):
-  # FIXME: Periodically check to see if we are accumulating stalte
-  # descriptors and prune them..
+class NodeManager(ConsensusTracker):
   ''' 
   A tor control event handler extending TorCtl.EventHandler.
   Monitors NS and NEWDESC events, and updates each test
   with new nodes
   '''
   def __init__(self, c):
-    EventHandler.__init__(self)
-    self.c = c
-    self.routers = {}
-    self.sorted_r = []
+    ConsensusTracker.__init__(self, c)
     self.rlock = threading.Lock()
-    self._read_routers(self.c.get_network_status())
     self.new_nodes=True
     c.set_event_handler(self)
-    c.set_events([TorCtl.EVENT_TYPE.NEWCONSENSUS], True)
+    c.set_events([TorCtl.EVENT_TYPE.NEWCONSENSUS,
+                  TorCtl.EVENT_TYPE.NEWDESC], True)
 
   def has_new_nodes(self):
     ret = False
@@ -2095,29 +2090,25 @@ class NodeManager(EventHandler):
     plog("DEBUG", "get_nodes_for_port end")
     return ret
  
-  def _read_routers(self, nslist):
-    routers = self.c.read_routers(nslist)
-    self.sorted_r = []
-    self.routers = {}
-    for r in routers:
-      self.routers[r.idhex] = r
-      self.sorted_r.append(r)
-
-    self.sorted_r.sort(lambda x, y: cmp(y.bw, x.bw))
-    # This is an OK update because of the GIL (also we don't touch it)
-    for i in xrange(len(self.sorted_r)): self.sorted_r[i].list_rank = i
-
-  def newconsensus_event(self, n):
+  def new_consensus_event(self, n):
     plog("DEBUG", "newconsensus_event begin")
     try:
       self.rlock.acquire()
-      self._read_routers(n.nslist)
+      ConsensusTracker.new_consensus_event(self, n)
       self.new_nodes = True
     finally:
       self.rlock.release()
-    plog("DEBUG", "Read " + str(len(n.nslist))+" NC => " 
-       + str(len(self.sorted_r)) + " routers")
- 
+    plog("DEBUG", "newconsensus_event end")
+
+  def new_desc_event(self, d):
+    plog("DEBUG", "newdesc_event begin")
+    try:
+      self.rlock.acquire()
+      if ConsensusTracker.new_desc_event(self, d):
+        self.new_nodes = True
+    finally:
+      self.rlock.release()
+    plog("DEBUG", "newdesc_event end")
 
 class DNSRebindScanner(EventHandler):
   ''' 

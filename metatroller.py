@@ -254,7 +254,7 @@ def startup():
   c.set_events([TorCtl.EVENT_TYPE.STREAM,
           TorCtl.EVENT_TYPE.BW,
           TorCtl.EVENT_TYPE.NEWCONSENSUS,
-          #TorCtl.EVENT_TYPE.NEWDESC,
+          TorCtl.EVENT_TYPE.NEWDESC,
           TorCtl.EVENT_TYPE.CIRC,
           TorCtl.EVENT_TYPE.STREAM_BW], True)
   c.set_option("__LeaveStreamsUnattached", "1") 
