@@ -15,7 +15,7 @@ document. This document concerns itself only with running the scanner.
 II. Prerequisites
 
 Python 2.4+
-Tor 0.2.1.13 (r18516 or later)
+Tor 0.2.1.13 (r18556 or later)
 Super Secret SoaT Sauce
 py-openssl/pyOpenSSL
 Bonus: 500M of disk space

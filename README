@@ -63,7 +63,7 @@ You can check if pyopenssl package is available for your distribution
 or get it from http://pyopenssl.sourceforge.net/ 
 
 
-3b. NetworkScanners/speedracer.pl
+3b. NetworkScanners/speedracer.py
 
 SpeedRacer fetches a file repeatedly through circuits built by
 metatroller. It divides the Tor network into tiers based on percentiles

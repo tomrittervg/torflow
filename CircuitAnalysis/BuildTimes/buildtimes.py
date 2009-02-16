@@ -114,17 +114,8 @@ class StatsGatherer(StatsHandler):
         self.failfile.flush()
     StatsHandler.circ_status_event(self,circ_event)
 
-  def new_desc_event(self, d):
-    for idhex in d.idlist: 
-      if not idhex in self.routers:
-        continue
-      r = self.routers[idhex]
-      r.bw_history.append(r.bw)
-    for r in self.sorted_r:
-      r.rank_history.append(r.list_rank)
-    StatsHandler.new_desc_event(self, d)
-
-  def ns_event(self, n):
+  def newconsensus_event(self, n):
+    # Record previous rank and history.
     for ns in n.nslist:
       if not ns.idhex in self.routers:
         continue
@@ -132,7 +123,7 @@ class StatsGatherer(StatsHandler):
       r.bw_history.append(r.bw)
     for r in self.sorted_r:
       r.rank_history.append(r.list_rank)
-    StatsHandler.ns_event(self, n)
+    StatsHandler.newconsensus_event(self, n)
 
 
 def cleanup():
@@ -162,10 +153,10 @@ def open_controller(filename,ncircuits):
 
   c.set_events([TorCtl.EVENT_TYPE.STREAM,
                 TorCtl.EVENT_TYPE.BW,
-                TorCtl.EVENT_TYPE.NS,
+                TorCtl.EVENT_TYPE.NEWCONSENSUS,
+                #TorCtl.EVENT_TYPE.NEWDESC,
                 TorCtl.EVENT_TYPE.CIRC,
-                TorCtl.EVENT_TYPE.STREAM_BW,
-                TorCtl.EVENT_TYPE.NEWDESC], True)
+                TorCtl.EVENT_TYPE.STREAM_BW], True)
   return c
 
 def getargs():

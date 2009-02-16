@@ -2,5 +2,9 @@
 SocksPort 9060 # what port to advertise for application connections
 ControlPort 9061
 SafeLogging 0
-Log info stderr
+Log debug stderr
 FetchUselessDescriptors 1
+
+# XXX: This should be for test scans only. Our timeout values must match the
+# normal Tor clients.
+SocksTimeout 45

@@ -263,18 +263,14 @@ class Test:
     return random.choice(list(self.nodes))
 
   def update_nodes(self):
-    all_old_nodes = sets.Set(self.node_map.keys())
     nodes = metacon.node_manager.get_nodes_for_port(self.port)
     self.node_map = {}
     for n in nodes: 
       self.node_map[n.idhex] = n
     self.total_nodes = len(nodes)
-    all_new_nodes = sets.Set(map(lambda n: n.idhex, nodes))
+    self.nodes = sets.Set(map(lambda n: n.idhex, nodes))
     marked_nodes = sets.Set(self.node_results.keys())
-    new_nodes = all_new_nodes - all_old_nodes
-    new_nodes -= marked_nodes
-    self.nodes &= all_new_nodes # Clear down nodes
-    self.nodes = self.nodes | new_nodes # add new ones
+    self.nodes -= marked_nodes # Remove marked nodes
     # Only scan the stuff loaded from the rescan
     if self.rescan_nodes: self.nodes &= self.rescan_nodes
     if not self.nodes:
@@ -2072,7 +2068,7 @@ class NodeManager(EventHandler):
     self._read_routers(self.c.get_network_status())
     self.new_nodes=True
     c.set_event_handler(self)
-    c.set_events([TorCtl.EVENT_TYPE.NEWDESC, TorCtl.EVENT_TYPE.NS], True)
+    c.set_events([TorCtl.EVENT_TYPE.NEWCONSENSUS], True)
 
   def has_new_nodes(self):
     ret = False
@@ -2101,44 +2097,27 @@ class NodeManager(EventHandler):
  
   def _read_routers(self, nslist):
     routers = self.c.read_routers(nslist)
-    new_routers = []
+    self.sorted_r = []
+    self.routers = {}
     for r in routers:
-      if r.idhex in self.routers:
-        if self.routers[r.idhex].nickname != r.nickname:
-          plog("NOTICE", "Router "+r.idhex+" changed names from "
-             +self.routers[r.idhex].nickname+" to "+r.nickname)
-        self.sorted_r.remove(self.routers[r.idhex])
       self.routers[r.idhex] = r
-      new_routers.append(r)
+      self.sorted_r.append(r)
 
-    self.sorted_r.extend(new_routers)
     self.sorted_r.sort(lambda x, y: cmp(y.bw, x.bw))
     # This is an OK update because of the GIL (also we don't touch it)
     for i in xrange(len(self.sorted_r)): self.sorted_r[i].list_rank = i
 
-  def ns_event(self, n):
-    plog("DEBUG", "ns_event begin")
+  def newconsensus_event(self, n):
+    plog("DEBUG", "newconsensus_event begin")
     try:
       self.rlock.acquire()
       self._read_routers(n.nslist)
       self.new_nodes = True
     finally:
       self.rlock.release()
-    plog("DEBUG", "Read " + str(len(n.nslist))+" NS => " 
+    plog("DEBUG", "Read " + str(len(n.nslist))+" NC => " 
        + str(len(self.sorted_r)) + " routers")
-  
-  def new_desc_event(self, d):
-    plog("DEBUG", "new_desc_event begin")
-    try:
-      self.rlock.acquire()
-      for i in d.idlist: # Is this too slow?
-        self._read_routers(self.c.get_network_status("id/"+i))
-      self.new_nodes = True
-    finally:
-      self.rlock.release()
-    plog("DEBUG", "Read " + str(len(d.idlist))+" Desc => " 
-         + str(len(self.sorted_r)) + " routers")
-  
+ 
 
 class DNSRebindScanner(EventHandler):
   ''' 
