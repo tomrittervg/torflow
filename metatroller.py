@@ -226,8 +226,11 @@ def commandloop(s, c, h):
 
 def cleanup(c, s, f):
   plog("INFO", "Resetting __LeaveStreamsUnattached=0 and FetchUselessDescriptors="+f)
-  c.set_option("__LeaveStreamsUnattached", "0")
-  c.set_option("FetchUselessDescriptors", f) 
+  try:
+    c.set_option("__LeaveStreamsUnattached", "0")
+    c.set_option("FetchUselessDescriptors", f)
+  except TorCtl.TorCtlClosed:
+    pass
   s.close()
 
 def listenloop(c, h, f):
