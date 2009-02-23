@@ -10,6 +10,12 @@ large amount of statistics on circuit failure rates, streams failure
 rates, stream bandwidths, probabilities of bandwidth ratios, and much
 much more.
 
+It is also a good place to start for hacking in your own custom
+path selection policy. You can remove the SelectionManager it uses
+and replace it with your own BaseSelectionManager implementation, 
+potentially removing the command loop/meta control port code as
+needed.
+
 """
 
 import atexit
@@ -37,6 +43,8 @@ max_detach = 3
 # Do NOT modify this object directly after it is handed to PathBuilder
 # Use PathBuilder.schedule_selmgr instead.
 # (Modifying the arguments here is OK)
+# NOTE: Custom implementations may wish to replace this with their
+# own PathSupport.BaseSelectionManager implementation
 __selmgr = PathSupport.SelectionManager(
       pathlen=3,
       order_exits=True,
@@ -190,7 +198,7 @@ def commandloop(s, c, h):
         plog("DEBUG", "Got Setexit: "+exit_name)
         def notlambda(sm): 
           plog("DEBUG", "Job for setexit: "+exit_name)
-          sm.exit_name=exit_name
+          sm.set_exit(exit_name)
         h.schedule_selmgr(notlambda)
         s.write("250 OK\r\n")
       else:
@@ -248,7 +256,7 @@ def startup():
   s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
   s.connect((control_host,control_port))
   c = PathSupport.Connection(s)
-  c.debug(file("control.log", "w"))
+  c.debug(file("control.log", "w", buffering=0))
   c.authenticate(control_pass)
   h = StatsHandler(c, __selmgr)
 

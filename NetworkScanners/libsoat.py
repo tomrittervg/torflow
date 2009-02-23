@@ -386,6 +386,10 @@ class HtmlTestResult(TestResult):
         tor_soup = FullyStrainedSoup(content_exit)
 
       if self.verbose > 1:
+        ret += " Content: "+str(self.content)+"\n"
+        ret += " Content old: "+str(self.content_old)+"\n"
+        ret += " Exit: "+str(self.content_exit)+"\n"
+
         if self.content and self.content_old:
           tags = map(str, soup.findAll())
           old_tags = map(str, old_soup.findAll())

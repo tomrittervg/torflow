@@ -149,27 +149,6 @@ __selmgr = PathSupport.SelectionManager(
       use_guards = config.getboolean(NODE_SELECTION, "use_guards"),
       geoip_config = get_geoip_config())
 
-## Connection #################################################################
-
-class Connection(PathSupport.Connection):
-  """ Connection-class that uses the RTTCircuit-class 
-      TODO: add the circuit class to be used """
-  def build_circuit(self, pathlen, path_sel):
-    circ = Circuit()
-    circ.path = path_sel.build_path(pathlen)
-    circ.exit = circ.path[pathlen-1]
-    circ.circ_id = self.extend_circuit(0, circ.id_path())
-    return circ
-
-  def build_circuit_from_path(self, path):
-    """ Build circuit using a given path (= router-objects), 
-        used to build circuits from a NetworkModel """
-    circ = Circuit()
-    circ.path = path
-    circ.exit = path[len(path)-1]
-    circ.circ_id = self.extend_circuit(0, circ.id_path())
-    return circ
-
 ## Stats ######################################################################
 
 class Stats:
@@ -1035,7 +1014,7 @@ class PingHandler(PathSupport.StreamHandler):
         if r_path and self.path_is_ok(r_path):
           plog("INFO", "Chosen proposal: " + choice.to_string())
           try:
-            circ = self.c.build_circuit_from_path(r_path)
+            circ = self.c.build_circuit(r_path)
             circ.rtt_created = True
             self.circuits[circ.circ_id] = circ
             plog("INFO", "Created circ from model: " + str(circ.circ_id))
@@ -1145,7 +1124,7 @@ def connect():
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     sock.connect((config.get(GENERAL, "control_host"), 
        config.getint(GENERAL, "control_port")))
-    conn = Connection(sock)
+    conn = PathSupport.Connection(sock)
     conn.authenticate()
     #conn.debug(file("control.log", "w"))  
   except socket.error, e:

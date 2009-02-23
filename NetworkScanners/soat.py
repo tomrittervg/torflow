@@ -276,6 +276,7 @@ class Test:
     if not self.nodes:
       plog("ERROR", "No nodes remain after rescan load!")
     self.scan_nodes = len(self.nodes)
+    # XXX: Wrong:
     self.nodes_to_mark = self.scan_nodes*self.tests_per_node
 
   def mark_chosen(self, node, result):

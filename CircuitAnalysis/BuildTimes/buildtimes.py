@@ -56,7 +56,7 @@ class BTRouter(StatsSupport.StatsRouter):
     self.uptime = 0
  
 # TODO: Make this passive, or make PathBuild have a passive option
-class StatsGatherer(StatsHandler):
+class CircStatsGatherer(StatsHandler):
   def __init__(self,c, selmgr,basefile_name,nstats):
     StatsHandler.__init__(self,c, selmgr, BTRouter)
     self.nodesfile = open(basefile_name + '.nodes','w')
@@ -81,6 +81,11 @@ class StatsGatherer(StatsHandler):
 
   def stream_status_event(self, strm_event):
     # Prevent PathBuilder code from attaching streams
+    # TODO: Passively gather stream stats without building
+    pass
+
+  def stream_bw_event(self, strm_bw_event):
+    # Prevent PathBuilder code from counting streams
     # TODO: Passively gather stream stats without building
     pass
     
@@ -143,7 +148,7 @@ def open_controller(filename,ncircuits):
   c = PathSupport.Connection(s)
   c.authenticate(control_pass)  # also launches thread...
   c.debug(file(filename+".log", "w"))
-  h = StatsGatherer(c,__selmgr,filename,ncircuits)
+  h = CircStatsGatherer(c,__selmgr,filename,ncircuits)
   c.set_event_handler(h)
   global FUDValue
   if not FUDValue:
@@ -256,7 +261,7 @@ def guardslice(guard_slices,p,s,end,ncircuits,max_circuits,dirname):
           plog("DEBUG", "Too many circuits: "+str(h.circ_count-h.circ_succeeded-h.circ_failed)+", delaying build")
           h.schedule_low_prio(circuit_builder)
           return
-        circ = h.c.build_circuit(h.selmgr.pathlen, h.selmgr.path_selector)   
+        circ = h.c.build_circuit(h.selmgr.select_path())   
         h.circuits[circ.circ_id] = circ
       c._handler.schedule_low_prio(circuit_builder)
     except TorCtl.ErrorReply,e:
