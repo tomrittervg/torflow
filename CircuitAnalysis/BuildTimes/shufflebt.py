@@ -249,8 +249,8 @@ def getargs():
 
 def shuffle(sort,truncate,filename,newfile):
   if not sort and truncate is None: return
-  sortlocation = '/usr/local/bin/sort'  #peculiarity of fallon's system
-  #sortlocation = 'sort'
+  #sortlocation = '/usr/local/bin/sort'  #peculiarity of fallon's system
+  sortlocation = 'sort'
   if sort and truncate:
     cmd =  sortlocation + ' -R ' + filename + ' | head -n ' + truncate  + ' > ' + newfile
   elif sort and not truncate:

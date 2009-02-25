@@ -205,7 +205,7 @@ def getargs():
   return guard_slices,ncircuits,max_circuits,begin,end,pslice,dirname
 
 def usage():
-    print 'usage: statscontroller.py [-b <#begin percentile>] [-e <end percentile] [-s <percentile slice size>] [-g] -n <# circuits> -d <output dir name>'
+    print 'usage: buildtimes.py [-b <#begin percentile>] [-e <end percentile] [-s <percentile slice size>] [-g] -n <# circuits> -d <output dir name> [-c <max concurrent circuits>]'
     sys.exit(1)
 
 def guardslice(guard_slices,p,s,end,ncircuits,max_circuits,dirname):

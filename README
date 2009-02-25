@@ -53,9 +53,10 @@ The metatroller is also pydoced. To view the documentation, you can do:
 
 SoaT provides tests for ensuring the honesty of exit nodes. It can check for
 invalid exit policies and perform tests to see whether nodes are changing
-the requested content for several protocols. See pydoc for details:
+the requested content for several protocols. See the soat README for
+details:
 
-# cd NetworkScanners ; pydoc soat
+# cd NetworkScanners ; cat README.ExitScanning
 
 Important note: soat requires the pyopenssl python module to run.
 You can check if pyopenssl package is available for your distribution
@@ -70,36 +71,41 @@ metatroller. It divides the Tor network into tiers based on percentiles
 of directory-reported node bandwidth and compiles statistics for each of
 these tiers itself and via metatroller.
 
+A README for gathering performance metrics with speedracer can be
+found in README.PerfMeasurements.
 
-4. Node Monitors
+4. Circuit Analysis
 
-4a. NodeMonitors/nodemon.py
-
-Nodemon uses TorCtl to monitor ORCONN events on a Tor node to measure
-how much bandwidth is going to each peer node. It also measures how many
-circuits are killed by OR connections being shut down prematurely.
-
-4b. NodeMonitors/moniTor.py
-
-This is a "top-like" interface for Tor information It's goal at the
-start is to just tell you basic information In the future, you may be
-able to control Tor with it.
-
-
-5. Circuit Analysis
-
-5a. Build Time Anlysis
+4a. Build Time Anlysis
 
 The set of scripts under CircuitAnalysis/BuildTimes gathers and plots
 circuit construction times and fits a pareto curve to the results.
 
+A README for gathering performance metrics with buildtimes can be
+found in README.PerfMeasurements.
 
-5b. OP Addon
+
+4b. OP Addon
 
 In CircuitAnalysis/OPAddon is a utility designed to run along side a Tor
 client to build a map of latencies between nodes on the network, and to
 then use this map for future routing decisions. See
 CircuitAnalysis/OPAddon/README for more info.
+
+
+5. Node Monitors
+
+6a. NodeMonitors/nodemon.py
+
+Nodemon uses TorCtl to monitor ORCONN events on a Tor node to measure
+how much bandwidth is going to each peer node. It also measures how many
+circuits are killed by OR connections being shut down prematurely.
+
+6b. NodeMonitors/moniTor.py
+
+This is a "top-like" interface for Tor information It's goal at the
+start is to just tell you basic information In the future, you may be
+able to control Tor with it.
 
 
 

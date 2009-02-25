@@ -1,0 +1,256 @@
+               How to Run the TorFlow Performance Tools
+
+
+
+I. Introduction
+
+There are two main client-side performance measurement tools in TorFlow:
+speedracer and buildtimes. Speedracer is meant for gathering average
+stream capacity of nodes and buildtimes is meant for gathering
+statistics on circuit construction speeds and success rates.
+
+
+
+II. SpeedRacer
+
+
+Speedracer functions by dividing the Tor network into groups of nodes of
+similar advertised capacity and then fetching the same URL over and over
+again via 2-hop circuits consisting of nodes in that group.
+
+A. Configuring SpeedRacer
+
+At the time of this writing, it has the following configuration
+parameters at the top of its sourcefile in NetworkScanners/speedracer.py:
+
+url = "http://svn.torproject.org/svn/tor/trunk/doc/design-paper/tor-design.pdf"
+start_pct = 0
+stop_pct = 78
+pct_step = 3
+count = 25
+save_every = 5
+ 
+The URL you specify should be big enough to amortize out TCP slow-start.
+Shoot for somewhere between 200k-1M. The tor-design.pdf may actually be
+a little on the small side to properly measure capacities of faster
+nodes.
+
+start_pct and stop_pct are the start and stop points for the run, in
+terms of the rankings of nodes by their bandwidth. Lower percentiles
+are faster.
+
+pct_step is the size of the slices in percentile units.
+
+count is the number of URL fetches to do for each slice.
+
+save_every is used for saving incremental results to check for
+convergence. Results will be saved after each multiple of 'save_every'
+fetches. The incremental results are cumulative.
+
+B. Running SpeedRacer 
+
+Like soat, speedracer should be given its own Tor that is not performing
+any other stream activity. It will also require Tor 0.2.1.13 (r18556) or
+later.
+
+First, start up tor:
+
+# ~/src/tor-trunk/src/or/tor -f ~/src/torflow-trunk/torrc >& tor.log &
+
+Then, start up the Metatroller:
+
+# ~/src/torflow-trunk/metatroller.py >& mt.log &
+
+Finally, start up speedracer:
+
+# cd ~/src/torflow-trunk/NetworkScanners
+# ./speedracer.py >& speed.log &
+
+
+C. Reading the Tea Leaves
+
+SpeedRacer outputs a lot of statistics in aggregate form in 
+./NetworkScanners/data/speedraces/stats-<pct_start>-<pct_end>-<n>-<time>
+
+pct_start and pct_end denote the range of the slice. N denotes the
+number of fetches so far, and time is the timestamp of that run. The
+results are cumulative, so the n=10 file will contain the results from
+n=5 in addition to 5 more fetches.
+
+The statistics stored with each node are indicated in the key at the top
+of each stat file.
+
+For the purposes of speedracer, the interesting statistics are the EB
+stat and the BR stat. The EB stat is the average stream capacity we
+observe for a node, and the BR stat is the ratio of a node's advertised
+bandwidth to its average stream capacity.
+
+For ease of review, the nodes are sorted and printed in lists according
+to a few different metrics. For speedracer, the most useful list is the
+first one, but the others are useful for buildtimes, where these same
+stat files are also available. The data being displayed is the same, it
+is just reordered in each list. These lists are:
+
+1. Bandwidth Ratios
+
+This list is sorted by the ratio of advertised bandwidth to average
+stream capacity (the BR stat). Nodes at the top of this list advertise a
+disproportionately large amount of bandwidth in comparison to what they
+actually were seen to carry over streams used to fetch the URL (the EB
+stat). 
+
+2. Failed Counts
+
+This list is less interesting for speedracer. In it, the nodes are
+sorted by the sum of stream and circuit failures (SF and CF,
+respectively). Stream failures are primarily attributed to exit nodes,
+where as circuit failures are attributed to the extender and the
+extendee at the time of failure.
+
+3. Suspected Counts
+
+This list is sorted by 'suspected' failure counts (SS and CS). Suspected
+failure counts are attributed to each node that was a member of the
+path at the time of failure. 
+
+Some failures (such as timeouts) are only attributed as 'suspected' to
+all nodes in the path, and as such do not show up in the 'failed'
+counts for nodes.
+
+4. Fail Rates
+
+This list is sorted by the rate of failures per hour of node uptime.
+
+5. Suspect Rates
+
+This list is sorted by the rate of suspected failures per hour of
+node uptime.
+
+6. Failed Reasons
+
+This list groups nodes by their failure reason, and sorts the reasons by
+most prevalent, and sorts the nodes within these lists. 
+
+7. Suspect Reasons
+
+This is the same as the failed reasons, except it is sorted by
+'suspected' counts.
+
+
+
+III. Buildtimes
+
+Buildtimes lives in
+torflow-trunk/CircuitAnalysis/BuildTimes/buildtimes.py. It functions by
+creating circuits over and over again through percentile slices of the
+network, similar to speedracer.
+
+A. Running Buildtimes
+
+Buildtimes can actually be run concurrently with one of either
+speedracer or soat using the same Tor process. It can also be run on a
+Tor process that is being used for normal client activity.
+
+Running it is a lot simpler too. It does not require the metatroller
+(but again, it is fine to run the metatroller concurrently). The
+full_run.sh script will run 3 different buildtimes invocations and
+output the results to the 'slices' subdirectory. 
+
+Currently, these runs are:
+
+./buildtimes.py -n 10000 -s 3 -e 93 -c 15 -d ./slices
+./buildtimes.py -n 10000 -s 3 -g -e 50 -c 30 -d ./slices 
+./buildtimes.py -n 100000 -s 93 -c 100 -d ./slices
+
+This will first run 10k circuits on each 3% slice from 0-93%, with at
+most 15 concurrent circuits at a time. The results from this run are
+split into their percentile ranges.
+
+The second run will only apply the percentile restrictions to the first
+hop, and ensure that this hop has the guard flag. The rest of the
+network will be selected for the 2nd and 3rd hop using Tor's
+bandwidth-weighted selection distribution. The results from this run
+will have a g appended to their percentile ranges.
+
+The final run will create 100k circuits over the entire Tor network,
+using Guard flagged nodes for the first hop, and a bandwidth-weighted
+selection mechanism for all three hops. The results from this run will
+be the only ones with 100000 in their filenames.
+
+In all three runs, the third node is chosen if it allows one of either
+80 or 443. This is done to approximate the effect of Tor's circuit 
+prediction mechanism on the typical Tor user. Since Web traffic makes
+up the bulk of Tor traffic by connection, it is likely that the typical
+user's Tor client will prefer to pre-build circuits serving 80 or 443.
+
+
+B. Reading the Tea Leaves
+
+Buildtimes outputs a lot of data. Each of the three runs output a debug
+log via the output redirection in full_run.sh. 
+
+Additionally, each percentile slice from each run has its own set of 9
+data files:
+
+1. .agg
+
+This is the aggregate stats file that has the same format as described
+above for speedracer. This time, circuit failure counts and reasons are
+the most interesting items here.
+
+2. .nodes
+
+This file provides a well-formed record of which nodes were used in which
+positions for each circuit ID.
+
+3. .buildtimes
+
+These are the total circuit creation times, indexed by circuit ID.
+
+4. .extendtimes
+
+These are the individual node extend times, indexed by circuit ID.
+
+5. .failed
+
+This file provides a list of failed circuit IDs and their nodes, but currently
+with no reason codes.
+
+6. .ranks
+
+This file records the history of advertised bandwidth and the ranks of
+nodes over the course of the run.
+
+7. .uptime
+
+This file outputs the uptime of each node over the course of the run.
+
+8. .check
+
+This file contains verification information for the selection mechanism. It
+provides min/avg/max percentile ranks, selection counts, uptime, and counts
+for flag presence to verify restrictions.
+
+9. .log
+
+This is the full control port log file.
+
+
+C. Graphing Results
+
+The shufflebt.py script provides histogram graphing for the results and
+doing basic checks on convergence of this histogram for limited sample
+sizes. It takes a .buildtimes file as input, and an optional number of
+circuits to truncate/shuffle at:
+
+usage: shufflebt.py [-n <number of circuits>] [-s] [-g] [-k <k value>] [-d
+outdirname] [-r <res in ms>] <list of filenames>
+
+So for example, to randomly select (shuffle) 1000 circuits and graph the
+result:
+
+# ./shufflebt.py -d ./slices -n 1000 -s -g ./slices/0-93.100000.buildtimes
+eog ./slices/0-93.100000.buildtimes.shuffled.res100.png
+
+
+

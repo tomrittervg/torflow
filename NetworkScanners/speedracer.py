@@ -24,14 +24,17 @@ from TorCtl.TorUtil import meta_port, meta_host, control_port, control_host, tor
 sys.path.append("./libs")
 from SocksiPy import socks
 
-# Some constants for measurements
 user_agent = "Mozilla/4.0 (compatible; MSIE 6.0; Windows NT 5.1; .NET CLR 1.0.3705; .NET CLR 1.1.4322)"
+
+# Some constants for measurements
 url = "http://svn.torproject.org/svn/tor/trunk/doc/design-paper/tor-design.pdf"
-count = 25
-save_every = 5
 start_pct = 0
 stop_pct = 78
+# Slice size:
 pct_step = 3
+# Number of fetches per slice:
+count = 25
+save_every = 5
 
 class MetatrollerException(Exception):
     "Metatroller does not accept this command."
