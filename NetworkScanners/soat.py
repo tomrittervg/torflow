@@ -278,6 +278,9 @@ class Test:
     self.scan_nodes = len(self.nodes)
     # XXX: Wrong:
     self.nodes_to_mark = self.scan_nodes*self.tests_per_node
+    metacon.node_manager._sanity_check(map(lambda id: self.node_map[id], 
+                     self.nodes))
+
 
   def mark_chosen(self, node, result):
     exit_node = metacon.get_exit_node()[1:]
@@ -2086,6 +2089,8 @@ class NodeManager(ConsensusTracker):
     try:
       self.rlock.acquire()
       ret = [x for x in self.sorted_r if restriction.r_is_ok(x)]
+      # XXX: Can remove.
+      self._sanity_check(ret)
     finally:
       self.rlock.release()
     plog("DEBUG", "get_nodes_for_port end")
@@ -2542,6 +2547,8 @@ def main(argv):
     for test in to_run:
       if not common_nodes: common_nodes = copy.copy(test.nodes)
       else: common_nodes &= test.nodes
+      metacon.node_manager._sanity_check(map(lambda id: test.node_map[id], 
+                                             test.nodes))
 
     if common_nodes:
       current_exit_idhex = random.choice(list(common_nodes))
