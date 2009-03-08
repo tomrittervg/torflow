@@ -1,7 +1,9 @@
 args = commandArgs()
+range=strsplit(basename(args[3]), ".", fixed=TRUE)[[1]][1]
+outpdf = paste("./plots/extendtimes", range, ".pdf", sep="") 
 
-e <- read.table(args[3]) 
-pdf("extensiontimes2.pdf", width=8, height=6)
+e <- read.table(args[3])
+pdf(outpdf, width=8, height=6)
 plot(density(e[,2] + e[,3] + e[,4]), ylim=c(0,0.8), xlim=c(0,10), frame=FALSE,
 axes=FALSE, main="Circuit extension time", xlab="Time [s]")
 axis(1, at=0:10)
