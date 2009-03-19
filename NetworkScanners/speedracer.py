@@ -128,6 +128,7 @@ def speedrace(meta, skip, pct):
         if (successful % save_every) == 0:
           meta.send_command_and_check('CLOSEALLCIRCS')
           meta.send_command_and_check('SAVESTATS '+os.getcwd()+'/data/speedraces/stats-'+str(skip)+':'+str(pct)+"-"+str(successful)+"-"+race_time)
+          meta.send_command_and_check('SAVERATIOS '+os.getcwd()+'/data/speedraces/ratios-'+str(skip)+':'+str(pct)+"-"+str(successful)+"-"+race_time)
           meta.send_command_and_check('COMMIT')
 
     plog('INFO', str(skip) + '-' + str(pct) + '% ' + str(count) + ' fetches took ' + str(attempt) + ' tries.')
@@ -173,6 +174,7 @@ def main(argv):
           plog('DEBUG', 'speedroced')
           meta.send_command_and_check('CLOSEALLCIRCS')
           meta.send_command_and_check('SAVESTATS '+os.getcwd()+'/data/speedraces/stats-'+str(pct) + ':' + str(pct + pct_step)+"-"+str(count)+"-"+strftime("20%y-%m-%d-%H:%M:%S"))
+          meta.send_command_and_check('SAVERATIOS '+os.getcwd()+'/data/speedraces/ratios-'+str(pct) + ':' + str(pct + pct_step)+"-"+str(count)+"-"+strftime("20%y-%m-%d-%H:%M:%S"))
           plog('DEBUG', 'Wrote stats')
           pct += pct_step
           meta.send_command_and_check('COMMIT')

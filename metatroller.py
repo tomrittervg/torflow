@@ -204,7 +204,17 @@ def commandloop(s, c, h):
       else:
         s.write("510 Argument expected\r\n")
     elif command == "GUARDNODES":
-      s.write("250 OK\r\n")
+      try:
+        if arg:
+          use_guards = bool(int(arg))
+          plog("DEBUG", "Got Setexit: "+str(use_guards))
+          def notlambda(sm): 
+            plog("DEBUG", "Job for setexit: "+str(use_guards))
+            sm.use_guards = use_guards
+          h.schedule_selmgr(notlambda)
+        s.write("250 OK\r\n")
+      except ValueError:
+        s.write("510 Integer expected\r\n")
     elif command == "CLOSEALLCIRCS":
       def notlambda(this): this.close_all_circuits()
       h.schedule_immediate(notlambda)
@@ -213,6 +223,12 @@ def commandloop(s, c, h):
       if arg: filename = arg
       else: filename="./data/stats/stats-"+time.strftime("20%y-%m-%d-%H:%M:%S")
       def notlambda(this): this.write_stats(filename)
+      h.schedule_low_prio(notlambda)
+      s.write("250 OK\r\n")
+    elif command == "SAVERATIOS":
+      if arg: rfilename = arg
+      else: rfilename="./data/stats/ratios-"+time.strftime("20%y-%m-%d-%H:%M:%S")
+      def notlambda(this): this.write_ratios(rfilename)
       h.schedule_low_prio(notlambda)
       s.write("250 OK\r\n")
     elif command == "RESETSTATS":
