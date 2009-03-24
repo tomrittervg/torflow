@@ -27,14 +27,14 @@ from SocksiPy import socks
 user_agent = "Mozilla/4.0 (compatible; MSIE 6.0; Windows NT 5.1; .NET CLR 1.0.3705; .NET CLR 1.1.4322)"
 
 # Some constants for measurements
-url = "http://svn.torproject.org/svn/tor/trunk/doc/design-paper/tor-design.pdf"
+url = "https://svn.torproject.org/svn/tor/trunk/doc/design-paper/tor-design.pdf"
 start_pct = 0
 stop_pct = 78
 # Slice size:
 pct_step = 3
 # Number of fetches per slice:
-count = 25
-save_every = 5
+count = 250
+save_every = 10
 
 class MetatrollerException(Exception):
     "Metatroller does not accept this command."
@@ -150,7 +150,8 @@ def main(argv):
     commands = [
         'PATHLEN 2',
         'UNIFORM 1',
-        'ORDEREXITS 1',
+        'ORDEREXITS 0',
+        'USEALLEXITS 0',
         'GUARDNODES 0']
     plog('INFO', 'Executing preliminary configuration commands')
     for c in commands:

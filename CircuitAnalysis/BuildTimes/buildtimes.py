@@ -50,15 +50,13 @@ class BTRouter(StatsSupport.StatsRouter):
  
   def reset(self):
     StatsSupport.StatsRouter.reset(self)
-    self.rank_history = []
-    self.bw_history = []
     self.chosen = [0,0,0]
-    self.uptime = 0
+    self.uptime = 0 # XXX: Redundant? current_uptime() is also a method..
  
 # TODO: Make this passive, or make PathBuild have a passive option
 class CircStatsGatherer(StatsHandler):
   def __init__(self,c, selmgr,basefile_name,nstats):
-    StatsHandler.__init__(self,c, selmgr, BTRouter)
+    StatsHandler.__init__(self,c, selmgr, BTRouter, track_ranks=True)
     self.nodesfile = open(basefile_name + '.nodes','w')
     self.failfile = open(basefile_name + '.failed','w')
     self.extendtimesfile = open(basefile_name + '.extendtimes','w')
@@ -118,17 +116,6 @@ class CircStatsGatherer(StatsHandler):
         self.failfile.write(str(circ.circ_id)+'\t'+'\t'.join(circ.id_path())+'\n')
         self.failfile.flush()
     StatsHandler.circ_status_event(self,circ_event)
-
-  def new_consensus_event(self, n):
-    # Record previous rank and history.
-    for ns in n.nslist:
-      if not ns.idhex in self.routers:
-        continue
-      r = self.routers[ns.idhex]
-      r.bw_history.append(r.bw)
-    for r in self.sorted_r:
-      r.rank_history.append(r.list_rank)
-    StatsHandler.new_consensus_event(self, n)
 
 def cleanup():
   s = socket.socket(socket.AF_INET,socket.SOCK_STREAM)

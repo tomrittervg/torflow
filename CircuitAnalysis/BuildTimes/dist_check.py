@@ -28,10 +28,8 @@ class BTRouter(StatsSupport.StatsRouter):
  
   def reset(self):
     StatsSupport.StatsRouter.reset(self)
-    self.rank_history = []
-    self.bw_history = []
     self.chosen = [0,0,0]
-    self.uptime = 0
+    self.uptime = 0 # XXX: Redundant? current_uptime() is also a method..
 
 def usage():
   print "Option fail."
