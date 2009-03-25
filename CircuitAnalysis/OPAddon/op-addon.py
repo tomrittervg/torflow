@@ -18,6 +18,7 @@ import Queue
 import ConfigParser
 
 sys.path.append("../../")
+sys.path.append("../../NetworkScanners/libs/")
 
 from TorCtl import *
 from TorCtl.TorUtil import plog, sort_list
@@ -33,22 +34,26 @@ IP = None
 # Simulation modus
 SIMULATE = False
 
+CONFIG_FILE = "pathrc.example"
+
+# XXX: this is pretty bad.. this should all be in a main() 
+# or something -MP
 # Try to get the config-file from the commandline first
-if len(sys.argv) == 1:
-  CONFIG_FILE = "pathrc.example"
-elif len(sys.argv) == 2:
-  CONFIG_FILE = sys.argv[1]
-# Check if '--simulate' is given
-elif len(sys.argv) == 3 or len(sys.argv) == 4:
-  if sys.argv[2] == "--simulate":
-    CONFIG_FILE = sys.argv[1]
-    SIMULATE = True
-  else: 
-    plog("ERROR", "Unknown argument: '" + sys.argv[2] + "' exiting.")
-    sys.exit(0)
-else:
-  plog("ERROR", "Too many arguments, exiting.")
-  sys.exit(0)
+#if len(sys.argv) == 1:
+#  CONFIG_FILE = "pathrc.example"
+#elif len(sys.argv) == 2:
+#  CONFIG_FILE = sys.argv[1]
+## Check if '--simulate' is given
+#elif len(sys.argv) == 3 or len(sys.argv) == 4:
+#  if sys.argv[2] == "--simulate":
+#    CONFIG_FILE = sys.argv[1]
+#    SIMULATE = True
+#  else: 
+#    plog("ERROR", "Unknown argument: '" + sys.argv[2] + "' exiting.")
+#    sys.exit(0)
+#else:
+#  plog("ERROR", "Too many arguments, exiting.")
+#  sys.exit(0)
 
 # Set some defaults for string-variables that can be None
 string_defaults = {"use_exit":None, "entry_country":None, 
@@ -74,7 +79,7 @@ EVALUATE = "EVALUATE"
 ping_circs = config.getboolean(RTT, "ping_circs")
 network_model = False
 if ping_circs:
-  import socks
+  from SocksiPy import socks
   # Hosts and ports to use for ping streams
   socks_host = config.get(RTT, "socks_host")
   socks_port = config.getint(RTT, "socks_port")
@@ -91,7 +96,7 @@ if ping_circs:
   # also enables circuit creation from the model
   network_model = config.getboolean(MODEL, "network_model")
   if network_model:
-    import networkx
+    import networkx # XXX: What is this?? -MP
     # RTT-threshold when creating circs from the model
     max_rtt = config.getfloat(MODEL, "max_rtt")    
     # Minimum number of proposals to choose from
@@ -296,6 +301,17 @@ class Stream(PathSupport.Stream):
     self.hop = None	# Save hop if this is a ping, hop=None is complete circ
     self.bw_timestamp = None # Timestamp of the last stream_bw event
 
+## Connection (needed to make use of Circuit above ####
+
+class Connection(PathSupport.Connection):
+  def build_circuit(self, path):
+    "Tell Tor to build a circuit chosen by the PathSelector 'path_sel'"
+    circ = Circuit()
+    circ.path = path
+    circ.exit = circ.path[len(path)-1]
+    circ.circ_id = self.extend_circuit(0, circ.id_path())
+    return circ
+
 ## NetworkModel ###############################################################
 
 class TorLink:
@@ -498,7 +514,7 @@ class NetworkModel:
       else: 
         plog("INFO", "We do not know about a router having ID " + id)
         try:
-          self.model.delete_node(id)
+          self.delete_node(id)
         except:
           plog("ERROR", "Could not delete router with ID " + id)
     if len(routers) == len(keys):
@@ -786,7 +802,7 @@ class PingHandler(PathSupport.StreamHandler):
             self.close_stream(s.strm_id, 5)
         else:
           # Go to next test if circuit is gone or we get an ErrorReply
-          plog("WARN", "Circuit " + str(circ_id) + 
+          plog("WARN", "Circuit " + str(circ.circ_id) + 
              " does not exist anymore --> closing stream")
           # Close stream, XXX: Reason?
           self.close_stream(s.strm_id, 5)
@@ -1029,7 +1045,7 @@ class PingHandler(PathSupport.StreamHandler):
     """ Count the circuits with rtt_created == False """
     trad_circs = 0
     for c in self.circuits.values():
-      if c.rtt_created == False:
+      if not c.rtt_created:
         trad_circs += 1
     return trad_circs
 
@@ -1124,7 +1140,7 @@ def connect():
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     sock.connect((config.get(GENERAL, "control_host"), 
        config.getint(GENERAL, "control_port")))
-    conn = PathSupport.Connection(sock)
+    conn = Connection(sock)
     conn.authenticate()
     #conn.debug(file("control.log", "w"))  
   except socket.error, e:
