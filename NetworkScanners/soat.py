@@ -146,14 +146,14 @@ def http_request(address, cookie_jar=None, headers=firefox_headers):
     plog('NOTICE', "HTTP Error during request of "+address+": "+str(e))
     traceback.print_exc()
     return (e.code, [], "", e.__class__.__name__+str(e)) 
-  except (ValueError, urllib2.URLError):
+  except (ValueError, urllib2.URLError), e:
     plog('WARN', 'The http-request address ' + address + ' is malformed')
     traceback.print_exc()
-    return (0, [], "", "")
+    return (666, [], "", e.__class__.__name__+str(e))
   except socks.Socks5Error, e:
     if e.value[0] == 6: #  or e.value[0] == 1: # Timeout or 'general'
       plog('NOTICE', 'An error occured while negotiating socks5 with Tor: '+str(e))
-      return (0, [], "", "")
+      return (888, [], "", e.__class__.__name__+str(e))
     else:
       plog('WARN', 'An unknown SOCKS5 error occured for '+address+": "+str(e))
       return (777, [], "", e.__class__.__name__+str(e))
