@@ -264,6 +264,7 @@ class Circuit(PathSupport.Circuit):
     # XXX: BW stuff
     self.bw = 0
     self.bw_tested = False
+    self.closed = False
       
   def add_rtt(self, rtt):
     """ Add a new value and refresh stats and current """
@@ -301,7 +302,7 @@ class Stream(PathSupport.Stream):
     self.hop = None	# Save hop if this is a ping, hop=None is complete circ
     self.bw_timestamp = None # Timestamp of the last stream_bw event
 
-## Connection (needed to make use of Circuit above ####
+## Connection (needed to make use of Circuit above) ####
 
 class Connection(PathSupport.Connection):
   def build_circuit(self, path):
