@@ -276,7 +276,6 @@ class Test:
     if not self.nodes:
       plog("ERROR", "No nodes remain after rescan load!")
     self.scan_nodes = len(self.nodes)
-    # XXX: Wrong:
     self.nodes_to_mark = self.scan_nodes*self.tests_per_node
     metacon.node_manager._sanity_check(map(lambda id: self.node_map[id], 
                      self.nodes))
@@ -301,11 +300,12 @@ class Test:
     return not self.nodes
    
   def percent_complete(self):
-    return round(100.0*self.nodes_marked/(self.nodes_to_mark), 1)
+    return round(100.0 - (100.0*self.scan_nodes)/self.total_nodes, 1)
 
   def _remove_false_positive_type(self, failset, failtype, max_rate):
     if self.rescan_nodes: return
-    for address in failset:
+    to_remove = copy.copy(failset)
+    for address in to_remove:
       if address not in self.successes: successes = 0
       else: successes = len(self.successes[address])
       fails = len(failset[address])
@@ -2563,7 +2563,7 @@ def main(argv):
           test.mark_chosen(current_exit_idhex, result)
         datahandler.saveTest(test)
         plog("INFO", test.proto+" test via "+current_exit_idhex+" has result "+str(result))
-        plog("INFO", test.proto+" attempts: "+str(test.tests_run)+".  Completed: "+str(test.nodes_marked)+"/"+str(test.nodes_to_mark)+" ("+str(test.percent_complete())+"%)")
+        plog("INFO", test.proto+" attempts: "+str(test.tests_run)+".  Completed: "+str(test.total_nodes - test.scan_nodes)+"/"+str(test.total_nodes)+" ("+str(test.percent_complete())+"%)")
     else:
       plog("NOTICE", "No nodes in common between "+", ".join(map(lambda t: t.proto, to_run)))
       for test in to_run:
@@ -2576,7 +2576,7 @@ def main(argv):
           test.mark_chosen(current_exit_idhex, result)
         datahandler.saveTest(test)
         plog("INFO", test.proto+" test via "+current_exit.idhex+" has result "+str(result))
-        plog("INFO", test.proto+" attempts: "+str(test.tests_run)+".  Completed: "+str(test.nodes_marked)+"/"+str(test.nodes_to_mark)+" ("+str(test.percent_complete())+"%)")
+        plog("INFO", test.proto+" attempts: "+str(test.tests_run)+".  Completed: "+str(test.total_nodes - test.scan_nodes)+"/"+str(test.total_nodes)+" ("+str(test.percent_complete())+"%)")
      
     # Check each test for rewind 
     for test in tests.itervalues():
