@@ -178,10 +178,10 @@ def run_check(routers, pathfile, log, disk_only=False):
     elif disk_only:
         continue  
 
-    if ranks and not router.rank_history:
+    if len(ranks) > 1 and not router.rank_history:
       print "WARN: Rank storage mismatch for "+router.idhex
       continue
-    if bws and not router.bw_history:
+    if len(bws) > 1 and not router.bw_history:
       print "WARN: Bw storage mismatch for "+router.idhex
       continue
 

@@ -134,7 +134,7 @@ def open_controller(filename,ncircuits):
   s.connect((control_host,control_port))
   c = PathSupport.Connection(s)
   c.authenticate(control_pass)  # also launches thread...
-  c.debug(file(filename+".log", "w"))
+  c.debug(file(filename+".log", "w", buffering=0))
   h = CircStatsGatherer(c,__selmgr,filename,ncircuits)
   c.set_event_handler(h)
   global FUDValue
