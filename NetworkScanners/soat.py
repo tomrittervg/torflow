@@ -338,6 +338,7 @@ class Test:
  
   def rewind(self):
     self._reset()
+    self.update_nodes()
     self.targets = self.get_targets()
     if not self.targets:
       raise NoURLsFound("No URLS found for protocol "+self.proto)
@@ -2545,6 +2546,7 @@ def main(argv):
     common_nodes = None
     # Do set intersection and reuse nodes for shared tests
     for test in to_run:
+      if test.finished(): continue
       if not common_nodes: common_nodes = copy.copy(test.nodes)
       else: common_nodes &= test.nodes
       metacon.node_manager._sanity_check(map(lambda id: test.node_map[id], 
@@ -2567,6 +2569,7 @@ def main(argv):
     else:
       plog("NOTICE", "No nodes in common between "+", ".join(map(lambda t: t.proto, to_run)))
       for test in to_run:
+        if test.finished(): continue
         current_exit = test.get_node()
         metacon.set_new_exit(current_exit.idhex)
         metacon.get_new_circuit()
