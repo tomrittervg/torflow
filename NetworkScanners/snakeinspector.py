@@ -107,6 +107,8 @@ def main(argv):
         print r
       except IOError, e:
         traceback.print_exc()
+      except:
+        traceback.print_exc()
       print "\n-----------------------------\n"
 
 if __name__ == "__main__":

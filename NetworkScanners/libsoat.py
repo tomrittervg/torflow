@@ -53,6 +53,7 @@ FAILURE_COOKIEMISMATCH = "FailureCookieMismatch"
 FAILURE_BADHTTPCODE = "FailureBadHTTPCode"
 FAILURE_MISCEXCEPTION = "FailureMiscException"
 FAILURE_NOEXITCONTENT = "FailureNoExitContent"
+FAILURE_EXITTRUNCATION = "FailureExitTruncation"
 FAILURE_SOCKSERROR = "FailureSocksError"
 FAILURE_TIMEOUT = "FailureTimeout"
 
