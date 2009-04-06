@@ -55,6 +55,11 @@ FAILURE_MISCEXCEPTION = "FailureMiscException"
 FAILURE_NOEXITCONTENT = "FailureNoExitContent"
 FAILURE_EXITTRUNCATION = "FailureExitTruncation"
 FAILURE_SOCKSERROR = "FailureSocksError"
+FAILURE_HOSTUNREACH = "FailureHostUnreach" # Can also mean DNS issues..
+FAILURE_NETUNREACH = "FailureNetUnreach"
+FAILURE_EXITPOLICY = "FailureExitPolicy"
+FAILURE_CONNREFUSED = "FailureConnRefused"
+FAILURE_URLERROR = "FailureURLError" # can also mean timeout...
 FAILURE_TIMEOUT = "FailureTimeout"
 
 # False positive reasons

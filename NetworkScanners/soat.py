@@ -141,7 +141,7 @@ def http_request(address, cookie_jar=None, headers=firefox_headers):
   except socket.timeout, e:
     plog("WARN", "Socket timeout for "+address+": "+str(e))
     traceback.print_exc()
-    return (888, [], "", e.__class__.__name__+str(e)) 
+    return (-6.0, [], "", e.__class__.__name__+str(e)) 
   except urllib2.HTTPError, e:
     plog('NOTICE', "HTTP Error during request of "+address+": "+str(e))
     traceback.print_exc()
@@ -149,20 +149,16 @@ def http_request(address, cookie_jar=None, headers=firefox_headers):
   except (ValueError, urllib2.URLError), e:
     plog('WARN', 'The http-request address ' + address + ' is malformed')
     traceback.print_exc()
-    return (666, [], "", e.__class__.__name__+str(e))
+    return (-23.0, [], "", e.__class__.__name__+str(e))
   except socks.Socks5Error, e:
-    if e.value[0] == 6: #  or e.value[0] == 1: # Timeout or 'general'
-      plog('NOTICE', 'An error occured while negotiating socks5 with Tor: '+str(e))
-      return (888, [], "", e.__class__.__name__+str(e))
-    else:
-      plog('WARN', 'An unknown SOCKS5 error occured for '+address+": "+str(e))
-      return (777, [], "", e.__class__.__name__+str(e))
+    plog('WARN', 'A SOCKS5 error '+str(e.value[0])+' occured for '+address+": "+str(e))
+    return (-float(e.value[0]), [], "", e.__class__.__name__+str(e))
   except KeyboardInterrupt:
     raise KeyboardInterrupt
   except Exception, e:
     plog('WARN', 'An unknown HTTP error occured for '+address+": "+str(e))
     traceback.print_exc()
-    return (666, [], "", e.__class__.__name__+str(e))
+    return (-666.0, [], "", e.__class__.__name__+str(e))
 
   return (reply.code, new_cookies, mime_type, content)
 
@@ -351,12 +347,26 @@ class Test:
       targets = "\n\t".join(self.targets)
       plog("INFO", "Using the following urls for "+self.proto+" scan:\n\t"+targets) 
 
+  def site_tests(self, site):
+    tot_cnt = 0
+    if site in self.successes:
+      tot_cnt += len(self.successes[site])
+    if site in self.exit_fails:
+      tot_cnt += len(self.exit_fails[site])
+    if site in self.dynamic_fails:
+      tot_cnt += len(self.dynamic_fails[site])
+    return tot_cnt
+
   def register_success(self, result):
     if self.rescan_nodes: result.from_rescan = True
     #datahandler.saveResult(result)
     if result.site in self.successes: 
       self.successes[result.site].add(result.exit_node)
     else: self.successes[result.site]=sets.Set([result.exit_node])
+
+    win_cnt = len(self.successes[result.site])
+    
+    plog("INFO", self.proto+" success at "+result.exit_node+". This makes "+str(win_cnt)+"/"+str(self.site_tests(result.site))+" node successes for "+result.site)
 
   def register_exit_failure(self, result):
     if self.rescan_nodes: result.from_rescan = True
@@ -368,11 +378,8 @@ class Test:
     else: self.exit_fails[result.site] = sets.Set([result.exit_node])
 
     err_cnt = len(self.exit_fails[result.site])
-    if result.site in self.successes:
-      tot_cnt = err_cnt+len(self.successes[result.site])
-    else: tot_cnt = err_cnt
 
-    plog("ERROR", self.proto+" exit-only failure at "+result.exit_node+". This makes "+str(err_cnt)+"/"+str(tot_cnt)+" node failures for "+result.site)
+    plog("ERROR", self.proto+" exit-only fail of "+result.reason+" at "+result.exit_node+". This makes "+str(err_cnt)+"/"+str(self.site_tests(result.site))+" node failures for "+result.site)
 
   def register_dynamic_failure(self, result):
     if self.rescan_nodes: result.from_rescan = True
@@ -384,11 +391,8 @@ class Test:
       self.dynamic_fails[result.site] = sets.Set([result.exit_node])
 
     err_cnt = len(self.dynamic_fails[result.site])
-    if result.site in self.successes:
-      tot_cnt = err_cnt+len(self.successes[result.site])
-    else: tot_cnt = err_cnt
 
-    plog("ERROR", self.proto+" dynamic failure at "+result.exit_node+". This makes "+str(err_cnt)+"/"+str(tot_cnt)+" node failures for "+result.site)
+    plog("ERROR", self.proto+" dynamic fail of "+result.reason+" at "+result.exit_node+". This makes "+str(err_cnt)+"/"+str(self.site_tests(result.site))+" node failures for "+result.site)
 
 
 class SearchBasedTest(Test):
@@ -515,7 +519,6 @@ class HTTPTest(SearchBasedTest):
     SearchBasedTest.__init__(self, "HTTP", 80, wordlist)
     self.fetch_targets = urls_per_filetype
     self.httpcode_fails = {}
-    self.httpcode_limit_pct = max_httpcode_fail_pct
     self.scan_filetypes = filetypes
 
   def _reset(self):
@@ -617,6 +620,11 @@ class HTTPTest(SearchBasedTest):
     self._remove_false_positive_type(self.httpcode_fails,
                                      FALSEPOSITIVE_HTTPERRORS,
                                      max_httpcode_fail_pct)
+  def site_tests(self, site):
+    tot_cnt = SearchBasedTest.site_tests(self, site) 
+    if site in self.httpcode_fails:
+      tot_cnt += len(self.httpcode_fails[site])
+    return tot_cnt
     
   def register_httpcode_failure(self, result):
     if self.rescan_nodes: result.from_rescan = True
@@ -628,11 +636,8 @@ class HTTPTest(SearchBasedTest):
       self.httpcode_fails[result.site] = sets.Set([result.exit_node])
     
     err_cnt = len(self.httpcode_fails[result.site])
-    if result.site in self.successes:
-      tot_cnt = err_cnt+len(self.successes[result.site])
-    else: tot_cnt = err_cnt
 
-    plog("ERROR", self.proto+" http error code failure at "+result.exit_node+" This makes "+str(err_cnt)+"/"+str(tot_cnt)+" node failures for "+result.site)
+    plog("ERROR", self.proto+" http error code fail of "+result.reason+" at "+result.exit_node+". This makes "+str(err_cnt)+"/"+str(self.site_tests(result.site))+" node failures for "+result.site)
     
 
   def check_http_nodynamic(self, address, nocontent=False):
@@ -760,13 +765,23 @@ class HTTPTest(SearchBasedTest):
           self.remove_target(address, FALSEPOSITIVE_HTTPERRORS)
           return TEST_INCONCLUSIVE 
 
-        if pcode == 666:
-          fail_reason = FAILURE_MISCEXCEPTION
-        elif pcode == 777:
-          fail_reason = FAILURE_SOCKSERROR
-        elif pcode == 888:
-          fail_reason = FAILURE_TIMEOUT
-        else: fail_reason = FAILURE_BADHTTPCODE+str(pcode)
+        if pcode < 0 and type(pcode) == float:
+          if pcode == -2: # "connection not allowed aka ExitPolicy
+            fail_reason = FAILURE_EXITPOLICY
+          elif pcode == -3: # "Net Unreach" ??
+            fail_reason = FAILURE_NETUNREACH
+          elif pcode == -4: # "Host Unreach" aka RESOLVEFAILED
+            fail_reason = FAILURE_HOSTUNREACH
+          elif pcode == -5: # Connection refused
+            fail_reason = FAILURE_CONNREFUSED
+          elif pcode == -6: # timeout
+            fail_reason = FAILURE_TIMEOUT
+          elif pcode == -23: 
+            fail_reason = FAILURE_URLERROR
+          else:
+            fail_reason = FAILURE_MISCEXCEPTION
+        else: 
+          fail_reason = FAILURE_BADHTTPCODE+str(pcode)
         result = HttpTestResult(exit_node, address, TEST_FAILURE,
                               fail_reason)
         result.extra_info = str(pcontent)
@@ -775,7 +790,6 @@ class HTTPTest(SearchBasedTest):
 
     # if we have no content, we had a connection error
     if pcontent == "":
-      plog("ERROR", exit_node+" failed to fetch content for "+address)
       result = HttpTestResult(exit_node, address, TEST_FAILURE,
                               FAILURE_NOEXITCONTENT)
       self.register_exit_failure(result)
@@ -802,7 +816,6 @@ class HTTPTest(SearchBasedTest):
     if content and len(pcontent) < len(content):
       if content[0:len(pcontent)] == pcontent[0:len(pcontent)]:
         failed_prefix = http_failed_dir+address_file
-        plog("ERROR", exit_node+" exit truncation for "+address)
         exit_content_file = open(DataHandler.uniqueFilename(failed_prefix+'.'+exit_node[1:]+'.content'), 'w')
         exit_content_file.write(pcontent)
         exit_content_file.close()
@@ -1473,7 +1486,6 @@ class SSLTest(SearchBasedTest):
 
     # if we got no cert, there was an ssl error
     if not cert:
-      plog('ERROR', 'SSL failure with empty cert for: '+address+' via '+exit_node)
       result = SSLTestResult(exit_node, address, ssl_file_name, 
                              TEST_FAILURE,
                              FAILURE_NOEXITCONTENT)
@@ -1481,7 +1493,6 @@ class SSLTest(SearchBasedTest):
       return TEST_FAILURE
 
     if isinstance(cert, Exception):
-      plog('ERROR', 'SSL failure with exception '+str(cert)+' for: '+address+' via '+exit_node)
       if isinstance(cert, socks.Socks5Error):
         fail_reason = FAILURE_SOCKSERROR
       elif isinstance(cert, socket.timeout):
@@ -1497,7 +1508,6 @@ class SSLTest(SearchBasedTest):
       # get an easily comparable representation of the certs
       cert_pem = crypto.dump_certificate(crypto.FILETYPE_PEM, cert)
     except OpenSSL.crypto.Error, e:
-      plog('ERROR', 'SSL failure with exception '+str(e)+' for: '+address+' via '+exit_node)
       result = SSLTestResult(exit_node, address, ssl_file_name, TEST_FAILURE, 
               FAILURE_MISCEXCEPTION)
       self.extra_info=e.__class__.__name__+str(e)
@@ -2058,6 +2068,16 @@ class NodeManager(ConsensusTracker):
     c.set_events([TorCtl.EVENT_TYPE.NEWCONSENSUS,
                   TorCtl.EVENT_TYPE.NEWDESC], True)
 
+  def name_to_idhex(self, nick):
+    self.rlock.acquire()
+    result = None
+    try:
+      if nick in self.name_to_key:
+        result = self.name_to_key[nick]
+    finally:
+      self.rlock.release()
+    return result
+
   def has_new_nodes(self):
     ret = False
     plog("DEBUG", "has_new_nodes begin")
@@ -2117,7 +2137,6 @@ class DNSRebindScanner(EventHandler):
     c.set_events([TorCtl.EVENT_TYPE.STREAM], True)
     self.c=c
 
-
   def stream_status_event(self, event):
     if event.status == 'REMAP':
       octets = map(lambda x: int2bin(x).zfill(8), event.target_host.split('.'))
@@ -2129,6 +2148,13 @@ class DNSRebindScanner(EventHandler):
           plog("ERROR", "DNS Rebeind failure via "+node)
           result = DNSRebindTestResult(node, '', TEST_FAILURE)
           handler.saveResult(result)
+    # TODO: This is currently handled via socks error codes,
+    # but stream events would give us more info...
+    #elif event.status == "FAILED" or event.status == "CLOSED":
+       # check remote_reason == "RESOLVEFAILED"
+       # getinfo.circuit_status()
+       # TODO: Check what we do in these detached cases..
+       #metacon.node_manager.name_to_idhex(exit)
 
 class Metaconnection:
   ''' Abstracts operations with the Metatroller '''
