@@ -28,6 +28,7 @@ def usage(argv):
   print "  --file <.result file>"
   print "  --exit <idhex>"
   print "  --reason <soat failure reason>"
+  print "  --noreason <soat failure reason>"
   print "  --proto <protocol>"
   print "  --resultfilter <TestResult class name>"
   print "  --statuscode <'Failure' or 'Inconclusive'>"
@@ -37,16 +38,17 @@ def usage(argv):
 
 def getargs(argv):
   try:
-    opts,args = getopt.getopt(argv[1:],"d:f:e:r:vt:p:s:o:", 
+    opts,args = getopt.getopt(argv[1:],"d:f:e:r:vt:p:s:o:n:", 
              ["dir=", "file=", "exit=", "reason=", "resultfilter=", "proto=", 
-              "verbose", "statuscode=", "sortby="])
+              "verbose", "statuscode=", "sortby=", "noreason="])
   except getopt.GetoptError,err:
     print str(err)
     usage(argv)
   use_dir="./data/"
   use_file=None
   node=None
-  reason=None
+  reasons=[]
+  noreasons=[]
   result=2
   verbose=1
   proto=None
@@ -60,7 +62,9 @@ def getargs(argv):
     elif o == '-e' or o == '--exit': 
       node = a
     elif o == '-r' or o == '--reason': 
-      reason = a
+      reasons.append(a)
+    elif o == '-r' or o == '--noreason': 
+      noreasons.append(a)
     elif o == '-v' or o == '--verbose': 
       verbose += 1
     elif o == '-t' or o == '--resultfilter':
@@ -76,10 +80,10 @@ def getargs(argv):
         result = int(a)
       except ValueError:
         result = RESULT_CODES[a]
-  return use_dir,use_file,node,reason,result,verbose,resultfilter,proto,sortby
+  return use_dir,use_file,node,reasons,noreasons,result,verbose,resultfilter,proto,sortby
  
 def main(argv):
-  use_dir,use_file,node,reason,result,verbose,resultfilter,proto,sortby=getargs(argv)
+  use_dir,use_file,node,reasons,noreasons,result,verbose,resultfilter,proto,sortby=getargs(argv)
   dh = DataHandler(use_dir)
   print dh.data_dir
 
@@ -99,8 +103,9 @@ def main(argv):
 
   for r in results:
     r.verbose = verbose
+    if r.reason in noreasons: continue
+    if reasons and r.reason not in reasons: continue
     if (not result or r.status == result) and \
-       (not reason or r.reason == reason) and \
        (not proto or r.proto == proto) and \
        (not resultfilter or r.__class__.__name__ == resultfilter):
       try:

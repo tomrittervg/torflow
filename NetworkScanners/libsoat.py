@@ -29,22 +29,20 @@ from JavaScriptParser import tokenNames as JSTokenNames
 from JavaScriptLexer import JavaScriptLexer
 from JavaScriptParser import JavaScriptParser
 
-class ParseError(Exception): 
-  def __init__(self, tokens, e):
-    Exception.__init__(self, str(e))
-    self.tokens = tokens
-    self.e = e
-
-class LexerError(Exception): 
-  def __init__(self, tokens, e):
-    Exception.__init__(self, str(e))
-    self.tokens = tokens
-    self.e = e
-
-class ExceptionalJSParser(JavaScriptParser):
-  def displayRecognitionError(self, tokens, e): raise ParseError(tokens, e) 
-class ExceptionalJSLexer(JavaScriptLexer):
-  def displayRecognitionError(self, tokens, e): raise LexerError(tokens, e) 
+class LoggingJSParser(JavaScriptParser):
+  def __init__(self, tokens):
+    JavaScriptParser.__init__(self, tokens)
+    self.parse_errors__ = []
+  def displayRecognitionError(self, tokens, e):
+    self.parse_errors__.append(e)
+    JavaScriptParser.displayRecognitionError(self, tokens, e)
+class LoggingJSLexer(JavaScriptLexer):
+  def __init__(self, tokens):
+    JavaScriptLexer.__init__(self, tokens)
+    self.lex_errors__ = []
+  def displayRecognitionError(self, tokens, e):
+    self.lex_errors__.append(e)
+    JavaScriptLexer.displayRecognitionError(self, tokens, e)
 
 # constants
 
@@ -851,35 +849,36 @@ class JSDiffer:
 
   def _antlr_parse(self, js_string):
     char_stream = antlr3.ANTLRStringStream(js_string)
-    lexer = ExceptionalJSLexer(char_stream)
+    lexer = LoggingJSLexer(char_stream)
     tokens = antlr3.CommonTokenStream(lexer)
-    parser = ExceptionalJSParser(tokens)
+    parser = LoggingJSParser(tokens)
     program = parser.program()
+    program.tree.parse_errors = parser.parse_errors__
+    program.tree.lex_errors = lexer.lex_errors__
     return program.tree
-                                              
+                            
   def _count_ast_elements(self, js_string, name="global"):
     ast_cnts = {}
     try:
-      js_string = js_string.replace("\n\r","\n").replace("\r\n","\n").replace("\r","\n")
+      js_string = js_string.replace("\n\r","\n").replace("\r\n","\n").replace("\r","\n")+";"
       
       ast = self._antlr_parse(js_string)
       JSDiffer._ast_recursive_worker(ast, ast_cnts)
+      for e in ast.lex_errors+ast.parse_errors:
+        name+=":"+e.__class__.__name__
+        if "line" in e.__dict__: 
+          name+=":"+str(e.line)
+        if "token" in e.__dict__ and e.token \
+            and "type" in e.token.__dict__: 
+          name+=":"+JSTokenNames[e.token.type]
+        # XXX: Any other things we want to add?
+        plog("INFO", "Parse error "+name+" on "+js_string)
+        if not "ParseError:"+name in ast_cnts:
+          ast_cnts["ParseError:"+name] = 1
+        else: ast_cnts["ParseError:"+name] += 1
     except UnicodeDecodeError, e:
       name+=":"+e.__class__.__name__
       plog("INFO", "Unicode error "+name+" on "+js_string)
-      if not "ParseError:"+name in ast_cnts:
-        ast_cnts["ParseError:"+name] = 1
-      else: ast_cnts["ParseError:"+name] +=1
-    except (LexerError, ParseError), e:
-      # Store info about the name and type of parse error
-      # so we can match that up too.
-      name+=":"+e.__class__.__name__
-      if "line" in e.e.__dict__: 
-        name+=":"+str(e.e.line)
-      if "token" in e.e.__dict__ and "type" in e.e.token.__dict__: 
-        name+=":"+JSTokenNames[e.e.token.type]
-      # XXX: Any other things we want to add?
-      plog("INFO", "Parse error "+name+" on "+js_string)
       if not "ParseError:"+name in ast_cnts:
         ast_cnts["ParseError:"+name] = 1
       else: ast_cnts["ParseError:"+name] +=1

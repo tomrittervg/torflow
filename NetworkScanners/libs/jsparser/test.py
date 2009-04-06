@@ -17,7 +17,7 @@ class ExceptionalJSParser(JavaScriptParser):
 class ExceptionalJSLexer(JavaScriptLexer):
   def displayRecognitionError(self, tokens, e): raise LexerError(tokens, e) 
 
-input = 'var foo = function() { var foo = "h\'i"; return foo+2; };'
+input = 'var foo = function() { var foo = document.cookie; return foo+2; };;;\n;'
 char_stream = antlr3.ANTLRStringStream(input)
 # or to parse a file:
 # char_stream = antlr3.ANTLRFileStream(path_to_input)

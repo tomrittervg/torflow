@@ -378,15 +378,14 @@ class Test:
     self.timeout_fails[result.exit_node] += 1
 
     t_cnt = self.timeout_fails[result.exit_node]
-    tot_cnt = self.site_tests(result.site)
    
     if t_cnt > num_timeouts_per_node:
-      result.extra_info = str(t_cnt)+"/"+str(tot_cnt)
+      result.extra_info = str(t_cnt)
       self.register_exit_failure(result)
       del self.timeout_fails[result.exit_node]
       return TEST_FAILURE
     else:
-      plog("NOTICE", self.proto+" timeout at "+result.exit_node+". This makes "+str(t_cnt)+"/"+str(tot_cnt)+" timeouts")
+      plog("NOTICE", self.proto+" timeout at "+result.exit_node+". This makes "+str(t_cnt)+" timeouts")
       return TEST_INCONCLUSIVE
 
   def register_exit_failure(self, result):
