@@ -178,7 +178,7 @@ class Test:
     self.nodes_to_mark = 0
     self.tests_per_node = num_tests_per_node
     self._reset()
-    self._pickle_revision = 2 # Will increment as fields are added
+    self._pickle_revision = 3 # Will increment as fields are added
 
   def run_test(self): 
     raise NotImplemented()
@@ -199,6 +199,9 @@ class Test:
       plog("INFO", "Upgraded "+self.__class__.__name__+" to v1")
     if self._pickle_revision < 2: 
       self._pickle_revision = 2
+    if self._pickle_revision < 3:
+      self.timeout_fails = {}
+      self._pickle_revision = 3
 
   def refill_targets(self):
     if len(self.targets) < self.min_targets:
@@ -276,7 +279,6 @@ class Test:
     metacon.node_manager._sanity_check(map(lambda id: self.node_map[id], 
                      self.nodes))
 
-
   def mark_chosen(self, node, result):
     exit_node = metacon.get_exit_node()[1:]
     if exit_node != node:
@@ -329,6 +331,7 @@ class Test:
     self.targets = []
     self.tests_run = 0
     self.nodes_marked = 0
+    self.timeout_fails = {}
     self.node_results = {}
     self.run_start = time.time()
  
@@ -367,6 +370,24 @@ class Test:
     win_cnt = len(self.successes[result.site])
     
     plog("INFO", self.proto+" success at "+result.exit_node+". This makes "+str(win_cnt)+"/"+str(self.site_tests(result.site))+" node successes for "+result.site)
+
+  def register_timeout_failure(self, result):
+    if self.rescan_nodes: result.from_rescan = True
+    if result.exit_node not in self.timeout_fails:
+      self.timeout_fails[result.exit_node] = 0
+    self.timeout_fails[result.exit_node] += 1
+
+    t_cnt = self.timeout_fails[result.exit_node]
+    tot_cnt = self.site_tests(result.site)
+   
+    if t_cnt > num_timeouts_per_node:
+      result.extra_info = str(t_cnt)+"/"+str(tot_cnt)
+      self.register_exit_failure(result)
+      del self.timeout_fails[result.exit_node]
+      return TEST_FAILURE
+    else:
+      plog("NOTICE", self.proto+" timeout at "+result.exit_node+". This makes "+str(t_cnt)+"/"+str(tot_cnt)+" timeouts")
+      return TEST_INCONCLUSIVE
 
   def register_exit_failure(self, result):
     if self.rescan_nodes: result.from_rescan = True
@@ -626,7 +647,7 @@ class HTTPTest(SearchBasedTest):
       tot_cnt += len(self.httpcode_fails[site])
     return tot_cnt
     
-  def register_httpcode_failure(self, result):
+  def register_http_failure(self, result):
     if self.rescan_nodes: result.from_rescan = True
     self.results.append(result)
     datahandler.saveResult(result)
@@ -743,50 +764,44 @@ class HTTPTest(SearchBasedTest):
     if pcode - (pcode % 100) != 200:
       plog("NOTICE", exit_node+" had error "+str(pcode)+" fetching content for "+address)
       # Restore cookie jars
-      # XXX: This is odd and possibly wrong for the refetch below
+      # XXX: This is odd and possibly wrong for the refetch
       self.cookie_jar = orig_cookie_jar
       self.tor_cookie_jar = orig_tor_cookie_jar
-      if pcode == 0:
-        result = HttpTestResult(exit_node, address, TEST_INCONCLUSIVE,
-                              INCONCLUSIVE_TORBREAKAGE)
-        result.extra_info = str(pcontent)
-        if self.rescan_nodes: result.from_rescan = True
-        self.results.append(result)
-        datahandler.saveResult(result)
-        return TEST_INCONCLUSIVE
-      else:
-        BindingSocket.bind_to = refetch_ip
-        (code_new, new_cookies_new, mime_type_new, content_new) = http_request(address, orig_tor_cookie_jar, self.headers)
-        BindingSocket.bind_to = None
-        
-        if code_new == pcode:
-          plog("NOTICE", "Non-tor HTTP error "+str(code_new)+" fetching content for "+address)
-          # Just remove it
-          self.remove_target(address, FALSEPOSITIVE_HTTPERRORS)
-          return TEST_INCONCLUSIVE 
+      BindingSocket.bind_to = refetch_ip
+      (code_new, new_cookies_new, mime_type_new, content_new) = http_request(address, orig_tor_cookie_jar, self.headers)
+      BindingSocket.bind_to = None
+      
+      if code_new == pcode:
+        plog("NOTICE", "Non-tor HTTP error "+str(code_new)+" fetching content for "+address)
+        # Just remove it
+        self.remove_target(address, FALSEPOSITIVE_HTTPERRORS)
+        return TEST_INCONCLUSIVE 
 
-        if pcode < 0 and type(pcode) == float:
-          if pcode == -2: # "connection not allowed aka ExitPolicy
-            fail_reason = FAILURE_EXITPOLICY
-          elif pcode == -3: # "Net Unreach" ??
-            fail_reason = FAILURE_NETUNREACH
-          elif pcode == -4: # "Host Unreach" aka RESOLVEFAILED
-            fail_reason = FAILURE_HOSTUNREACH
-          elif pcode == -5: # Connection refused
-            fail_reason = FAILURE_CONNREFUSED
-          elif pcode == -6: # timeout
-            fail_reason = FAILURE_TIMEOUT
-          elif pcode == -23: 
-            fail_reason = FAILURE_URLERROR
-          else:
-            fail_reason = FAILURE_MISCEXCEPTION
-        else: 
-          fail_reason = FAILURE_BADHTTPCODE+str(pcode)
-        result = HttpTestResult(exit_node, address, TEST_FAILURE,
-                              fail_reason)
-        result.extra_info = str(pcontent)
-        self.register_httpcode_failure(result)
-        return TEST_FAILURE
+      if pcode < 0 and type(pcode) == float:
+        if pcode == -2: # "connection not allowed aka ExitPolicy
+          fail_reason = FAILURE_EXITPOLICY
+        elif pcode == -3: # "Net Unreach" ??
+          fail_reason = FAILURE_NETUNREACH
+        elif pcode == -4: # "Host Unreach" aka RESOLVEFAILED
+          fail_reason = FAILURE_HOSTUNREACH
+        elif pcode == -5: # Connection refused
+          fail_reason = FAILURE_CONNREFUSED
+        elif pcode == -6: # timeout
+          fail_reason = FAILURE_TIMEOUT
+          result = HttpTestResult(exit_node, address, TEST_FAILURE,
+                                fail_reason)
+          return self.register_timeout_failure(result)
+        elif pcode == -23: 
+          fail_reason = FAILURE_URLERROR
+        else:
+          fail_reason = FAILURE_MISCEXCEPTION
+      else: 
+        fail_reason = FAILURE_BADHTTPCODE+str(pcode)
+      result = HttpTestResult(exit_node, address, TEST_FAILURE,
+                            fail_reason)
+      result.extra_info = str(pcontent)
+      self.register_http_failure(result)
+      return TEST_FAILURE
 
     # if we have no content, we had a connection error
     if pcontent == "":
@@ -1071,7 +1086,7 @@ class HTMLTest(HTTPTest):
     if type(ret) == int:
       return ret
     return self._check_js_worker(address, ret)
- 
+
   def is_html(self, mime_type, content):
     is_html = False
     for type_match in html_mime_types:
@@ -1323,6 +1338,7 @@ class SSLTest(SearchBasedTest):
       plog('WARN','An error occured while opening an ssl connection to '+address+": "+str(e))
       return e
     except socks.Socks5Error, e:
+      # XXX: Improve these
       if e.value[0] == 6: #  or e.value[0] == 1: # Timeout or 'general'
         plog('NOTICE', 'An error occured while negotiating socks5 for '+address+': '+str(e))
         return -1
@@ -1492,6 +1508,7 @@ class SSLTest(SearchBasedTest):
       self.register_exit_failure(result)
       return TEST_FAILURE
 
+    # XXX: Improve this
     if isinstance(cert, Exception):
       if isinstance(cert, socks.Socks5Error):
         fail_reason = FAILURE_SOCKSERROR
@@ -2573,7 +2590,6 @@ def main(argv):
       metacon.set_new_exit(current_exit_idhex)
       metacon.get_new_circuit()
       for test in to_run:
-        # Keep testing failures and inconclusives
         result = test.run_test()
         if result != TEST_INCONCLUSIVE:
           test.mark_chosen(current_exit_idhex, result)
@@ -2587,9 +2603,8 @@ def main(argv):
         current_exit = test.get_node()
         metacon.set_new_exit(current_exit.idhex)
         metacon.get_new_circuit()
-        # Keep testing failures and inconclusives
         result = test.run_test()
-        if result != TEST_INCONCLUSIVE:
+        if result != TEST_INCONCLUSIVE: 
           test.mark_chosen(current_exit_idhex, result)
         datahandler.saveTest(test)
         plog("INFO", test.proto+" test via "+current_exit.idhex+" has result "+str(result))
