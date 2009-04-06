@@ -22,13 +22,29 @@ from soat_config import *
 sys.path.append("../")
 from TorCtl.TorUtil import *
 
-try:
-  sys.path.append("./libs/pypy-svn/")
-  import pypy.rlib.parsing.parsing
-  import pypy.lang.js.jsparser
-  HAVE_PYPY = True
-except ImportError:
-  HAVE_PYPY = False
+# Antlr stuff
+sys.path.append("./libs/jsparser/")
+import antlr3
+from JavaScriptParser import tokenNames as JSTokenNames
+from JavaScriptLexer import JavaScriptLexer
+from JavaScriptParser import JavaScriptParser
+
+class ParseError(Exception): 
+  def __init__(self, tokens, e):
+    Exception.__init__(self, str(e))
+    self.tokens = tokens
+    self.e = e
+
+class LexerError(Exception): 
+  def __init__(self, tokens, e):
+    Exception.__init__(self, str(e))
+    self.tokens = tokens
+    self.e = e
+
+class ExceptionalJSParser(JavaScriptParser):
+  def displayRecognitionError(self, tokens, e): raise ParseError(tokens, e) 
+class ExceptionalJSLexer(JavaScriptLexer):
+  def displayRecognitionError(self, tokens, e): raise LexerError(tokens, e) 
 
 # constants
 
@@ -818,32 +834,51 @@ class SoupDiffer:
 class JSDiffer:
   def __init__(self, js_string):
     self._pickle_revision = 0    
-    if HAVE_PYPY: self.ast_cnts = self._count_ast_elements(js_string)
+    self.ast_cnts = self._count_ast_elements(js_string)
 
   def depickle_upgrade(self):
     pass
 
   def _ast_recursive_worker(ast, ast_cnts):
-    if not ast.symbol in ast_cnts:
-      ast_cnts[ast.symbol] = 1
-    else: ast_cnts[ast.symbol] += 1
-    if isinstance(ast, pypy.rlib.parsing.tree.Nonterminal):
-      for child in ast.children:
-        JSDiffer._ast_recursive_worker(child, ast_cnts)
+    node = JSTokenNames[ast.getType()]
+    if not node in ast_cnts:
+      ast_cnts[node] = 1
+    else: ast_cnts[node] += 1
+
+    for child in ast.getChildren():
+      JSDiffer._ast_recursive_worker(child, ast_cnts)
   _ast_recursive_worker = Callable(_ast_recursive_worker)
- 
+
+  def _antlr_parse(self, js_string):
+    char_stream = antlr3.ANTLRStringStream(js_string)
+    lexer = ExceptionalJSLexer(char_stream)
+    tokens = antlr3.CommonTokenStream(lexer)
+    parser = ExceptionalJSParser(tokens)
+    program = parser.program()
+    return program.tree
+                                              
   def _count_ast_elements(self, js_string, name="global"):
     ast_cnts = {}
     try:
       js_string = js_string.replace("\n\r","\n").replace("\r\n","\n").replace("\r","\n")
-      ast = pypy.lang.js.jsparser.parse(js_string)
+      
+      ast = self._antlr_parse(js_string)
       JSDiffer._ast_recursive_worker(ast, ast_cnts)
-    except (pypy.rlib.parsing.deterministic.LexerError, UnicodeDecodeError, pypy.rlib.parsing.parsing.ParseError), e:
+    except UnicodeDecodeError, e:
+      name+=":"+e.__class__.__name__
+      plog("INFO", "Unicode error "+name+" on "+js_string)
+      if not "ParseError:"+name in ast_cnts:
+        ast_cnts["ParseError:"+name] = 1
+      else: ast_cnts["ParseError:"+name] +=1
+    except (LexerError, ParseError), e:
       # Store info about the name and type of parse error
       # so we can match that up too.
       name+=":"+e.__class__.__name__
-      if "source_pos" in e.__dict__:
-        name+=":"+str(e.source_pos)
+      if "line" in e.e.__dict__: 
+        name+=":"+str(e.e.line)
+      if "token" in e.e.__dict__: 
+        name+=":"+JSTokenNames[e.e.token.type]
+      # XXX: Any other things we want to add?
       plog("INFO", "Parse error "+name+" on "+js_string)
       if not "ParseError:"+name in ast_cnts:
         ast_cnts["ParseError:"+name] = 1
@@ -898,20 +933,14 @@ class JSDiffer:
     return ret
 
   def prune_differences(self, other_string):
-    if not HAVE_PYPY: return
     other_cnts = self._count_ast_elements(other_string)
     self._difference_pruner(other_cnts)
 
   def contains_differences(self, other_string):
-    if not HAVE_PYPY:
-      plog("NOTICE", "PyPy import not present. Not diffing javascript")
-      return False
     other_cnts = self._count_ast_elements(other_string)
     return self._difference_checker(other_cnts) 
 
   def show_differences(self, other_string):
-    if not HAVE_PYPY:
-      return "PyPy import not present. Not diffing javascript"
     other_cnts = self._count_ast_elements(other_string)
     return self._difference_printer(other_cnts) 
 
