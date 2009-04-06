@@ -876,7 +876,7 @@ class JSDiffer:
       name+=":"+e.__class__.__name__
       if "line" in e.e.__dict__: 
         name+=":"+str(e.e.line)
-      if "token" in e.e.__dict__: 
+      if "token" in e.e.__dict__ and "type" in e.e.token.__dict__: 
         name+=":"+JSTokenNames[e.e.token.type]
       # XXX: Any other things we want to add?
       plog("INFO", "Parse error "+name+" on "+js_string)
