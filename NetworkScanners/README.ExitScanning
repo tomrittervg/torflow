@@ -18,27 +18,7 @@ Python 2.4+
 Tor 0.2.1.13 (r18556 or later)
 Super Secret SoaT Sauce
 py-openssl/pyOpenSSL
-Bonus: 500M of disk space
 Bonus: Secondary external IP address
-
-If you do not have 500M of disk space, you probably want to do:
-
-# rm -rf ./libs/pypy-svn 
-
-and make a special script to update TorFlow that runs:
-
-# svn --ignore-externals up .
-# svn up TorCtl
-
-Doing this will cause your scanner to not scan dynamic Javascript
-for modifications. It will still scan static javascript, but it will
-just ignore all modifications to dynamic javascript that changes between
-non-Tor fetches (which is surprisingly a lot).
-
-This also means that ultimately you will not be able to run a voting
-scanner once we get SoaT integrated into the directory authorities,
-because your scanner will vote certain classes of malicious exits as
-benign that the other scanners are trying to mark as BadExit. 
 
 Having a second external IP address will allow your scanner to filter
 out false positives for dynamic pages that arise due to pages encoding
