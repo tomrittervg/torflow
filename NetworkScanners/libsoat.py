@@ -74,6 +74,7 @@ FAILURE_NETUNREACH = "FailureNetUnreach"
 FAILURE_EXITPOLICY = "FailureExitPolicy"
 FAILURE_CONNREFUSED = "FailureConnRefused"
 FAILURE_URLERROR = "FailureURLError" # can also mean timeout...
+FAILURE_CRYPTOERROR = "FailureCryptoError"
 FAILURE_TIMEOUT = "FailureTimeout"
 
 # False positive reasons

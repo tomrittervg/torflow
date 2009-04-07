@@ -289,6 +289,8 @@ class Test:
     self.node_results[node].append(result)
     if len(self.node_results[node]) >= self.tests_per_node:
       self.nodes.remove(node)
+      self.scan_nodes = len(self.nodes)
+      self.nodes_to_mark = self.scan_nodes*self.tests_per_node
       plog("INFO", "Removed node "+node+". "+str(len(self.nodes))+" nodes remain")
     else:
       plog("DEBUG", "Keeping node "+node+". "+str(len(self.nodes))+" nodes remain. Tests: "+str(len(self.node_results[node]))+"/"+str(self.tests_per_node))
@@ -1330,29 +1332,26 @@ class SSLTest(SearchBasedTest):
       c.set_connect_state()
       c.connect((address, 443)) # DNS OK.
       c.send(crypto.dump_certificate_request(crypto.FILETYPE_PEM,request))
+      # return the cert
+      return (0, c.get_peer_certificate(), None)
     except socket.timeout, e:
       plog('WARN','Socket timeout for '+address+": "+str(e))
-      return e
+      return (-6.0, None,  e.__class__.__name__+str(e))
     except socket.error, e:
       plog('WARN','An error occured while opening an ssl connection to '+address+": "+str(e))
-      return e
+      return (-666.0, None,  e.__class__.__name__+str(e))
     except socks.Socks5Error, e:
-      # XXX: Improve these
-      if e.value[0] == 6: #  or e.value[0] == 1: # Timeout or 'general'
-        plog('NOTICE', 'An error occured while negotiating socks5 for '+address+': '+str(e))
-        return -1
-      else:
-        plog('WARN', 'An error occured while negotiating socks5 for '+address+': '+str(e))
-        return e
+      plog('WARN', 'A SOCKS5 error '+str(e.value[0])+' occured for '+address+": "+str(e))
+      return (-float(e.value[0]), None,  e.__class__.__name__+str(e))
     except KeyboardInterrupt:
       raise KeyboardInterrupt
+    except OpenSSL.crypto.Error, e:
+      traceback.print_exc()
+      return (-23.0, None, e.__class__.__name__+str(e)) 
     except Exception, e:
       plog('WARN', 'An unknown SSL error occured for '+address+': '+str(e))
       traceback.print_exc()
-      return e
-    
-    # return the cert
-    return c.get_peer_certificate()
+      return (-666.0, None,  e.__class__.__name__+str(e))
 
   def get_resolved_ip(self, hostname):
     mappings = metacon.control.get_address_mappings("cache")
@@ -1370,13 +1369,17 @@ class SSLTest(SearchBasedTest):
       #let's always check.
       #if not ssl_domain.seen_ip(ip):
       plog('INFO', 'Ssl connection to new ip '+ip+" for "+ssl_domain.domain)
-      raw_cert = self.ssl_request(ip)
-      if not raw_cert or isinstance(raw_cert, Exception):
-        plog('WARN', 'Error getting the correct cert for '+ssl_domain.domain+":"+ip)
+      (code, raw_cert, exc) = self.ssl_request(ip)
+      if not raw_cert:
+        plog('WARN', 'Error getting the correct cert for '+ssl_domain.domain+":"+ip+" "+str(code)+"("+str(exc)+")")
         continue
-      ssl_domain.add_cert(ip,
+      try:
+        ssl_domain.add_cert(ip,
              crypto.dump_certificate(crypto.FILETYPE_PEM, raw_cert))
-      changed = True # Always save new copy.
+        changed = True # Always save new copy.
+      except Exception, e:
+        traceback.print_exc()
+        plog('WARN', 'Error dumping cert for '+ssl_domain.domain+":"+ip+" E:"+str(e))
     return changed
 
   def check_openssl(self, address):
@@ -1416,16 +1419,10 @@ class SSLTest(SearchBasedTest):
       self.remove_target(address, INCONCLUSIVE_NOLOCALCONTENT)
       return TEST_INCONCLUSIVE
 
-    try:
-      if self._update_cert_list(ssl_domain, check_ips):
-        ssl_file = open(ssl_file_name, 'w')
-        pickle.dump(ssl_domain, ssl_file)
-        ssl_file.close()
-    except OpenSSL.crypto.Error:
-      plog('WARN', 'Local crypto error for '+address)
-      traceback.print_exc()
-      self.remove_target(address, INCONCLUSIVE_NOLOCALCONTENT)
-      return TEST_INCONCLUSIVE
+    if self._update_cert_list(ssl_domain, check_ips):
+      ssl_file = open(ssl_file_name, 'w')
+      pickle.dump(ssl_domain, ssl_file)
+      ssl_file.close()
 
     if not ssl_domain.cert_map:
       plog('WARN', 'Error getting the correct cert for ' + address)
@@ -1435,16 +1432,10 @@ class SSLTest(SearchBasedTest):
     if ssl_domain.cert_changed:
       ssl_domain = SSLDomain(address)
       plog('INFO', 'Fetching all new certs for '+address)
-      try:
-        if self._update_cert_list(ssl_domain, check_ips):
-          ssl_file = open(ssl_file_name, 'w')
-          pickle.dump(ssl_domain, ssl_file)
-          ssl_file.close()
-      except OpenSSL.crypto.Error:
-        plog('WARN', 'Local crypto error for '+address)
-        traceback.print_exc()
-        self.remove_target(address, INCONCLUSIVE_NOLOCALCONTENT)
-        return TEST_INCONCLUSIVE
+      if self._update_cert_list(ssl_domain, check_ips):
+        ssl_file = open(ssl_file_name, 'w')
+        pickle.dump(ssl_domain, ssl_file)
+        ssl_file.close()
       if ssl_domain.cert_changed:
         plog("NOTICE", "Fully dynamic certificate host "+address)
 
@@ -1473,7 +1464,7 @@ class SSLTest(SearchBasedTest):
     socks.setdefaultproxy(socks.PROXY_TYPE_SOCKS5, tor_host, tor_port)
     socket.socket = socks.socksocket
 
-    cert = self.ssl_request(address)
+    (code, cert, exc) = self.ssl_request(address)
 
     # reset the connection method back to direct
     socket.socket = defaultsocket
@@ -1489,43 +1480,41 @@ class SSLTest(SearchBasedTest):
       datahandler.saveResult(result)
       return TEST_INCONCLUSIVE
 
-    if cert == -1:
-      plog('NOTICE', 'SSL test inconclusive for: '+address)
-      result = SSLTestResult(exit_node, address, ssl_file_name, 
-                             TEST_INCONCLUSIVE,
-                             INCONCLUSIVE_TORBREAKAGE)
-      if self.rescan_nodes: result.from_rescan = True
-      datahandler.saveResult(result)
-      self.results.append(result)
-      return TEST_INCONCLUSIVE
-
-    # if we got no cert, there was an ssl error
     if not cert:
-      result = SSLTestResult(exit_node, address, ssl_file_name, 
-                             TEST_FAILURE,
-                             FAILURE_NOEXITCONTENT)
-      self.register_exit_failure(result)
-      return TEST_FAILURE
+      if code < 0 and type(code) == float:
+        if code == -2: # "connection not allowed aka ExitPolicy
+          fail_reason = FAILURE_EXITPOLICY
+        elif code == -3: # "Net Unreach" ??
+          fail_reason = FAILURE_NETUNREACH
+        elif code == -4: # "Host Unreach" aka RESOLVEFAILED
+          fail_reason = FAILURE_HOSTUNREACH
+        elif code == -5: # Connection refused
+          fail_reason = FAILURE_CONNREFUSED
+        elif code == -6: # timeout
+          fail_reason = FAILURE_TIMEOUT
+          result = SSLTestResult(exit_node, address, ssl_file_name, 
+                                TEST_FAILURE, fail_reason)
+          return self.register_timeout_failure(result)
+        elif code == -23: 
+          fail_reason = FAILURE_CRYPTOERROR
+        else:
+          fail_reason = FAILURE_MISCEXCEPTION
+      else:
+          fail_reason = FAILURE_MISCEXCEPTION
 
-    # XXX: Improve this
-    if isinstance(cert, Exception):
-      if isinstance(cert, socks.Socks5Error):
-        fail_reason = FAILURE_SOCKSERROR
-      elif isinstance(cert, socket.timeout):
-        fail_reason = FAILURE_TIMEOUT
-      else: fail_reason = FAILURE_MISCEXCEPTION
       result = SSLTestResult(exit_node, address, ssl_file_name, TEST_FAILURE, 
                              fail_reason) 
-      result.extra_info = cert.__class__.__name__+str(cert)
+      result.extra_info = exc
       self.register_exit_failure(result)
       return TEST_FAILURE
-   
+
     try:
       # get an easily comparable representation of the certs
       cert_pem = crypto.dump_certificate(crypto.FILETYPE_PEM, cert)
     except OpenSSL.crypto.Error, e:
+      # XXX
       result = SSLTestResult(exit_node, address, ssl_file_name, TEST_FAILURE, 
-              FAILURE_MISCEXCEPTION)
+              FAILURE_CRYPTOERROR)
       self.extra_info=e.__class__.__name__+str(e)
       self.register_exit_failure(result)
       return TEST_FAILURE
