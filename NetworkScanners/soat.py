@@ -566,9 +566,9 @@ class HTTPTest(SearchBasedTest):
     if tor_cookies != plain_cookies:
       exit_node = metacon.get_exit_node()
       plog("ERROR", "Cookie mismatch at "+exit_node+":\nTor Cookies:"+tor_cookies+"\nPlain Cookies:\n"+plain_cookies)
-      result = CookieTestResult(exit_node, TEST_FAILURE, 
-                            FAILURE_COOKIEMISMATCH, plain_cookies, 
-                            tor_cookies)
+      result = CookieTestResult(exit_node,self.node_map[exit_node[1:]].nickname,
+                          TEST_FAILURE, FAILURE_COOKIEMISMATCH, plain_cookies, 
+                          tor_cookies)
       if self.rescan_nodes: result.from_rescan = True
       self.results.append(result)
       datahandler.saveResult(result)
@@ -751,8 +751,8 @@ class HTTPTest(SearchBasedTest):
     exit_node = metacon.get_exit_node()
     if exit_node == 0 or exit_node == '0' or not exit_node:
       plog('NOTICE', 'We had no exit node to test, skipping to the next test.')
-      result = HttpTestResult(exit_node, address, TEST_INCONCLUSIVE,
-                              INCONCLUSIVE_NOEXIT)
+      result = HttpTestResult(exit_node, self.node_map[exit_node[1:]].nickname, 
+                              address, TEST_INCONCLUSIVE, INCONCLUSIVE_NOEXIT)
       if self.rescan_nodes: result.from_rescan = True
       self.results.append(result)
       datahandler.saveResult(result)
@@ -789,8 +789,9 @@ class HTTPTest(SearchBasedTest):
           fail_reason = FAILURE_CONNREFUSED
         elif pcode == -6: # timeout
           fail_reason = FAILURE_TIMEOUT
-          result = HttpTestResult(exit_node, address, TEST_FAILURE,
-                                fail_reason)
+          result = HttpTestResult(exit_node, 
+                                 self.node_map[exit_node[1:]].nickname,
+                                 address, TEST_FAILURE, fail_reason)
           return self.register_timeout_failure(result)
         elif pcode == -23: 
           fail_reason = FAILURE_URLERROR
@@ -798,16 +799,16 @@ class HTTPTest(SearchBasedTest):
           fail_reason = FAILURE_MISCEXCEPTION
       else: 
         fail_reason = FAILURE_BADHTTPCODE+str(pcode)
-      result = HttpTestResult(exit_node, address, TEST_FAILURE,
-                            fail_reason)
+      result = HttpTestResult(exit_node, self.node_map[exit_node[1:]].nickname, 
+                            address, TEST_FAILURE, fail_reason)
       result.extra_info = str(pcontent)
       self.register_http_failure(result)
       return TEST_FAILURE
 
     # if we have no content, we had a connection error
     if pcontent == "":
-      result = HttpTestResult(exit_node, address, TEST_FAILURE,
-                              FAILURE_NOEXITCONTENT)
+      result = HttpTestResult(exit_node, self.node_map[exit_node[1:]].nickname, 
+                              address, TEST_FAILURE, FAILURE_NOEXITCONTENT)
       self.register_exit_failure(result)
       # Restore cookie jars
       self.cookie_jar = orig_cookie_jar
@@ -817,7 +818,8 @@ class HTTPTest(SearchBasedTest):
     # compare the content
     # if content matches, everything is ok
     if psha1sum.hexdigest() == sha1sum.hexdigest():
-      result = HttpTestResult(exit_node, address, TEST_SUCCESS)
+      result = HttpTestResult(exit_node, self.node_map[exit_node[1:]].nickname, 
+                              address, TEST_SUCCESS)
       self.register_success(result)
       return TEST_SUCCESS
 
@@ -835,9 +837,11 @@ class HTTPTest(SearchBasedTest):
         exit_content_file = open(DataHandler.uniqueFilename(failed_prefix+'.'+exit_node[1:]+'.content'), 'w')
         exit_content_file.write(pcontent)
         exit_content_file.close()
-        result = HttpTestResult(exit_node, address, TEST_FAILURE, 
-                                FAILURE_EXITTRUNCATION, sha1sum.hexdigest(), 
-                                psha1sum.hexdigest(), content_prefix+".content",
+        result = HttpTestResult(exit_node,
+                                self.node_map[exit_node[1:]].nickname, 
+                                address, TEST_FAILURE, FAILURE_EXITTRUNCATION, 
+                                sha1sum.hexdigest(), psha1sum.hexdigest(), 
+                                content_prefix+".content",
                                 exit_content_file.name)
         self.register_exit_failure(result)
         # Restore cookie jars
@@ -856,7 +860,8 @@ class HTTPTest(SearchBasedTest):
     
     if not content_new:
       plog("WARN", "Failed to re-frech "+address+" outside of Tor. Did our network fail?")
-      result = HttpTestResult(exit_node, address, TEST_INCONCLUSIVE, 
+      result = HttpTestResult(exit_node, self.node_map[exit_node[1:]].nickname, 
+                              address, TEST_INCONCLUSIVE, 
                               INCONCLUSIVE_NOLOCALCONTENT)
       if self.rescan_nodes: result.from_rescan = True
       self.results.append(result)
@@ -890,7 +895,8 @@ class HTTPTest(SearchBasedTest):
     # compare the node content and the new content
     # if it matches, everything is ok
     if psha1sum.hexdigest() == sha1sum_new.hexdigest():
-      result = HttpTestResult(exit_node, address, TEST_SUCCESS)
+      result = HttpTestResult(exit_node, self.node_map[exit_node[1:]].nickname, 
+                              address, TEST_SUCCESS)
       self.register_success(result)
       return TEST_SUCCESS
  
@@ -934,10 +940,10 @@ class HTTPTest(SearchBasedTest):
       exit_content_file.write(pcontent)
       exit_content_file.close()
 
-      result = HttpTestResult(exit_node, address, TEST_FAILURE, 
-                              FAILURE_EXITONLY, sha1sum.hexdigest(), 
-                              psha1sum.hexdigest(), content_prefix+".content",
-                              exit_content_file.name)
+      result = HttpTestResult(exit_node, self.node_map[exit_node[1:]].nickname,
+                              address, TEST_FAILURE, FAILURE_EXITONLY, 
+                              sha1sum.hexdigest(), psha1sum.hexdigest(), 
+                              content_prefix+".content", exit_content_file.name)
       self.register_exit_failure(result)
       return TEST_FAILURE
 
@@ -945,10 +951,10 @@ class HTTPTest(SearchBasedTest):
     exit_content_file.write(pcontent)
     exit_content_file.close()
 
-    result = HttpTestResult(exit_node, address, TEST_FAILURE, 
-                            FAILURE_DYNAMIC, sha1sum_new.hexdigest(), 
-                            psha1sum.hexdigest(), content_prefix+".content",
-                            exit_content_file.name, 
+    result = HttpTestResult(exit_node, self.node_map[exit_node[1:]].nickname, 
+                            address, TEST_FAILURE, FAILURE_DYNAMIC, 
+                            sha1sum_new.hexdigest(), psha1sum.hexdigest(), 
+                            content_prefix+".content", exit_content_file.name, 
                             content_prefix+'.content-old',
                             sha1sum.hexdigest())
     if self.rescan_nodes: result.from_rescan = True
@@ -1134,7 +1140,8 @@ class HTMLTest(HTTPTest):
     has_js_changes = jsdiff.contains_differences(tor_js)
 
     if not has_js_changes:
-      result = JsTestResult(exit_node, address, TEST_SUCCESS)
+      result = JsTestResult(exit_node, self.node_map[exit_node[1:]].nickname, 
+                            address, TEST_SUCCESS)
       self.register_success(result)
       return TEST_SUCCESS
     else:
@@ -1142,11 +1149,11 @@ class HTMLTest(HTTPTest):
       exit_content_file.write(tor_js)
       exit_content_file.close()
 
-      result = JsTestResult(exit_node, address, TEST_FAILURE, 
-                              FAILURE_DYNAMIC, content_prefix+".content",
-                              exit_content_file.name, 
-                              content_prefix+'.content-old',
-                              self.jsdiffer_files[address])
+      result = JsTestResult(exit_node, self.node_map[exit_node[1:]].nickname, 
+                             address, TEST_FAILURE, FAILURE_DYNAMIC, 
+                             content_prefix+".content", exit_content_file.name, 
+                             content_prefix+'.content-old',
+                             self.jsdiffer_files[address])
       self.register_dynamic_failure(result)
       return TEST_FAILURE
 
@@ -1189,7 +1196,8 @@ class HTMLTest(HTTPTest):
     # if content matches, everything is ok
     if str(orig_soup) == str(tor_soup):
       plog("INFO", "Successful soup comparison after SHA1 fail for "+address+" via "+exit_node)
-      result = HtmlTestResult(exit_node, address, TEST_SUCCESS)
+      result = HtmlTestResult(exit_node, self.node_map[exit_node[1:]].nickname, 
+                              address, TEST_SUCCESS)
       self.register_success(result)
 
       return TEST_SUCCESS
@@ -1197,7 +1205,8 @@ class HTMLTest(HTTPTest):
     content_new = new_html.decode('ascii', 'ignore')
     if not content_new:
       plog("WARN", "Failed to re-frech "+address+" outside of Tor. Did our network fail?")
-      result = HtmlTestResult(exit_node, address, TEST_INCONCLUSIVE, 
+      result = HtmlTestResult(exit_node, self.node_map[exit_node[1:]].nickname, 
+                              address, TEST_INCONCLUSIVE, 
                               INCONCLUSIVE_NOLOCALCONTENT)
       if self.rescan_nodes: result.from_rescan = True
       self.results.append(result)
@@ -1213,9 +1222,9 @@ class HTMLTest(HTTPTest):
       exit_content_file.write(tor_html)
       exit_content_file.close()
 
-      result = HtmlTestResult(exit_node, address, TEST_FAILURE, 
-                              FAILURE_EXITONLY, content_prefix+".content",
-                              exit_content_file.name)
+      result = HtmlTestResult(exit_node, self.node_map[exit_node[1:]].nickname, 
+                              address, TEST_FAILURE, FAILURE_EXITONLY, 
+                              content_prefix+".content", exit_content_file.name)
       self.register_exit_failure(result)
       return TEST_FAILURE
 
@@ -1274,7 +1283,8 @@ class HTMLTest(HTTPTest):
 
     if false_positive:
       plog("NOTICE", "False positive detected for dynamic change at "+address+" via "+exit_node)
-      result = HtmlTestResult(exit_node, address, TEST_SUCCESS)
+      result = HtmlTestResult(exit_node, self.node_map[exit_node[1:]].nickname, 
+                              address, TEST_SUCCESS)
       self.register_success(result)
       return TEST_SUCCESS
 
@@ -1289,9 +1299,9 @@ class HTMLTest(HTTPTest):
       soupdiff_file = self.soupdiffer_files[address]
     else: soupdiff_file = None
 
-    result = HtmlTestResult(exit_node, address, TEST_FAILURE, 
-                            FAILURE_DYNAMIC, content_prefix+".content",
-                            exit_content_file.name, 
+    result = HtmlTestResult(exit_node, self.node_map[exit_node[1:]].nickname, 
+                            address, TEST_FAILURE, FAILURE_DYNAMIC, 
+                            content_prefix+".content", exit_content_file.name, 
                             content_prefix+'.content-old',
                             soupdiff_file, jsdiff_file)
     self.register_dynamic_failure(result)
@@ -1439,7 +1449,7 @@ class SSLTest(SearchBasedTest):
       if ssl_domain.cert_changed:
         plog("NOTICE", "Fully dynamic certificate host "+address)
 
-        result = SSLTestResult("NoExit", address, ssl_file_name, 
+        result = SSLTestResult("NoExit", "NotStored!", address, ssl_file_name, 
                                TEST_INCONCLUSIVE,
                                INCONCLUSIVE_DYNAMICSSL)
         if self.rescan_nodes: result.from_rescan = True
@@ -1450,7 +1460,7 @@ class SSLTest(SearchBasedTest):
 
     if not ssl_domain.num_certs():
         plog("NOTICE", "No non-tor certs available for "+address)
-        result = SSLTestResult("NoExit", address, ssl_file_name, 
+        result = SSLTestResult("NoExit", "NoStored!", address, ssl_file_name, 
                                TEST_INCONCLUSIVE,
                                INCONCLUSIVE_NOLOCALCONTENT)
         if self.rescan_nodes: result.from_rescan = True
@@ -1472,8 +1482,8 @@ class SSLTest(SearchBasedTest):
     exit_node = metacon.get_exit_node()
     if not exit_node or exit_node == '0':
       plog('NOTICE', 'We had no exit node to test, skipping to the next test.')
-      result = SSLTestResult(exit_node, address, ssl_file_name, 
-                              TEST_INCONCLUSIVE,
+      result = SSLTestResult(exit_node, self.node_map[exit_node[1:]].nickname, 
+                              address, ssl_file_name, TEST_INCONCLUSIVE,
                               INCONCLUSIVE_NOEXIT)
       if self.rescan_nodes: result.from_rescan = True
       self.results.append(result)
@@ -1492,8 +1502,9 @@ class SSLTest(SearchBasedTest):
           fail_reason = FAILURE_CONNREFUSED
         elif code == -6: # timeout
           fail_reason = FAILURE_TIMEOUT
-          result = SSLTestResult(exit_node, address, ssl_file_name, 
-                                TEST_FAILURE, fail_reason)
+          result = SSLTestResult(exit_node,
+                                self.node_map[exit_node[1:]].nickname, address,
+                                ssl_file_name, TEST_FAILURE, fail_reason)
           return self.register_timeout_failure(result)
         elif code == -23: 
           fail_reason = FAILURE_CRYPTOERROR
@@ -1502,8 +1513,8 @@ class SSLTest(SearchBasedTest):
       else:
           fail_reason = FAILURE_MISCEXCEPTION
 
-      result = SSLTestResult(exit_node, address, ssl_file_name, TEST_FAILURE, 
-                             fail_reason) 
+      result = SSLTestResult(exit_node, self.node_map[exit_node[1:]].nickname, 
+                             address, ssl_file_name, TEST_FAILURE, fail_reason) 
       result.extra_info = exc
       self.register_exit_failure(result)
       return TEST_FAILURE
@@ -1512,30 +1523,32 @@ class SSLTest(SearchBasedTest):
       # get an easily comparable representation of the certs
       cert_pem = crypto.dump_certificate(crypto.FILETYPE_PEM, cert)
     except OpenSSL.crypto.Error, e:
-      # XXX
-      result = SSLTestResult(exit_node, address, ssl_file_name, TEST_FAILURE, 
-              FAILURE_CRYPTOERROR)
+      result = SSLTestResult(exit_node, self.node_map[exit_node[1:]].nickname,
+                   address, ssl_file_name, TEST_FAILURE, FAILURE_CRYPTOERROR)
       self.extra_info=e.__class__.__name__+str(e)
       self.register_exit_failure(result)
       return TEST_FAILURE
 
     # if certs match, everything is ok
     if ssl_domain.seen_cert(cert_pem):
-      result = SSLTestResult(exit_node, address, ssl_file_name, TEST_SUCCESS)
+      result = SSLTestResult(exit_node, self.node_map[exit_node[1:]].nickname, 
+                             address, ssl_file_name, TEST_SUCCESS)
       self.register_success(result)
       return TEST_SUCCESS
 
     # False positive case.. Can't help it if the cert rotates AND we have a
     # failure... Need to prune all results for this cert and give up.
     if ssl_domain.cert_rotates:
-      result = SSLTestResult(exit_node, address, ssl_file_name, TEST_FAILURE, 
-                             FAILURE_DYNAMIC, 
-                             self.get_resolved_ip(address), cert_pem)
+      result = SSLTestResult(exit_node, self.node_map[exit_node[1:]].nickname, 
+                             address, ssl_file_name, TEST_FAILURE, 
+                             FAILURE_DYNAMIC, self.get_resolved_ip(address), 
+                             cert_pem)
       self.register_dynamic_failure(result)
       return TEST_FAILURE
 
     # if certs dont match, means the exit node has been messing with the cert
-    result = SSLTestResult(exit_node, address, ssl_file_name, TEST_FAILURE,
+    result = SSLTestResult(exit_node, self.node_map[exit_node[1:]].nickname, 
+                           address, ssl_file_name, TEST_FAILURE,
                            FAILURE_EXITONLY, self.get_resolved_ip(address), 
                            cert_pem)
     self.register_exit_failure(result)
@@ -1719,11 +1732,11 @@ class POP3STest(Test):
     # compare
     if (capabilities_ok != capabilities_ok_d or starttls_present != starttls_present_d or 
         tls_started != tls_started_d or tls_succeeded != tls_succeeded_d):
-      result = POPTestResult(exit_node, address, TEST_FAILURE)
+      result = POPTestResult(exit_node, self.node_map[exit_node[1:]].nickname, address, TEST_FAILURE)
       datahandler.saveResult(result)
       return TEST_FAILURE
     
-    result = POPTestResult(exit_node, address, TEST_SUCCESS)
+    result = POPTestResult(exit_node, self.node_map[exit_node[1:]].nickname, address, TEST_SUCCESS)
     datahandler.saveResult(result)
     return TEST_SUCCESS
 
@@ -1818,11 +1831,11 @@ class SMTPSTest(Test):
 
     # compare
     if ehlo1_reply != ehlo1_reply_d or has_starttls != has_starttls_d or ehlo2_reply != ehlo2_reply_d:
-      result = SMTPTestResult(exit_node, address, TEST_FAILURE)
+      result = SMTPTestResult(exit_node, self.node_map[exit_node[1:]].nickname, address, TEST_FAILURE)
       datahandler.saveResult(result)
       return TEST_FAILURE
 
-    result = SMTPTestResult(exit_node, address, TEST_SUCCESS)
+    result = SMTPTestResult(exit_node, self.node_map[exit_node[1:]].nickname, address, TEST_SUCCESS)
     datahandler.saveResult(result)
     return TEST_SUCCESS
 
@@ -1985,11 +1998,11 @@ class IMAPSTest(Test):
     # compare
     if (capabilities_ok != capabilities_ok_d or starttls_present != starttls_present_d or 
       tls_started != tls_started_d or tls_succeeded != tls_succeeded_d):
-      result = IMAPTestResult(exit_node, address, TEST_FAILURE)
+      result = IMAPTestResult(exit_node, self.node_map[exit_node[1:]].nickname, address, TEST_FAILURE)
       datahandler.saveResult(result)
       return TEST_FAILURE
 
-    result = IMAPTestResult(exit_node, address, TEST_SUCCESS)
+    result = IMAPTestResult(exit_node, self.node_map[exit_node[1:]].nickname, address, TEST_SUCCESS)
     datahandler.saveResult(result)
     return TEST_SUCCESS
 
@@ -2020,11 +2033,11 @@ class DNSTest(Test):
       return TEST_INCONCLUSIVE
 
     if ip in ips_d:
-      result = DNSTestResult(exit_node, address, TEST_SUCCESS)
+      result = DNSTestResult(exit_node, self.node_map[exit_node[1:]].nickname, address, TEST_SUCCESS)
       return TEST_SUCCESS
     else:
       plog('ERROR', 'The basic DNS test suspects ' + exit_node + ' to be malicious.')
-      result = DNSTestResult(exit_node, address, TEST_FAILURE)
+      result = DNSTestResult(exit_node, self.node_map[exit_node[1:]].nickname, address, TEST_FAILURE)
       return TEST_FAILURE
 
 class SSHTest(Test):
@@ -2151,7 +2164,7 @@ class DNSRebindScanner(EventHandler):
           handler = DataHandler()
           node = self.__mt.get_exit_node()
           plog("ERROR", "DNS Rebeind failure via "+node)
-          result = DNSRebindTestResult(node, '', TEST_FAILURE)
+          result = DNSRebindTestResult(node, "NotStored!", '', TEST_FAILURE)
           handler.saveResult(result)
     # TODO: This is currently handled via socks error codes,
     # but stream events would give us more info...

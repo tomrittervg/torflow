@@ -27,8 +27,8 @@ def usage(argv):
   print "  --dir <datadir>"
   print "  --file <.result file>"
   print "  --exit <idhex>"
-  print "  --reason <soat failure reason>"
-  print "  --noreason <soat failure reason>"
+  print "  --reason <soat failure reason>    # may be repeated"
+  print "  --noreason <soat failure reason>  # may be repeated"
   print "  --proto <protocol>"
   print "  --resultfilter <TestResult class name>"
   print "  --statuscode <'Failure' or 'Inconclusive'>"
@@ -44,6 +44,7 @@ def getargs(argv):
   except getopt.GetoptError,err:
     print str(err)
     usage(argv)
+  # FIXME: make all these repeatable
   use_dir="./data/"
   use_file=None
   node=None
@@ -90,7 +91,7 @@ def main(argv):
   if use_file:
     results = [dh.getResult(use_file)]
   elif node:
-    results = dh.filterByNode(dh.getAll(), node)
+    results = dh.filterByNode(dh.getAll(), "$"+node)
   else:
     results = dh.getAll()
 
