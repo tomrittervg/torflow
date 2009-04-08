@@ -1029,7 +1029,7 @@ class HTMLTest(HTTPTest):
       if test == "html" or test == "http": result = self.check_html(url)
       elif test == "js": result = self.check_js(url)
       elif test == "image":
-        accept_hdr = filter(lambda h: h[0] == "Accept", self.headers)
+        accept_hdr = filter(lambda h: h[0] == "Accept", self.headers)[0]
         orig_accept = accept_hdr[1]
         accept_hdr[1] = image_accept_hdr
         result = self.check_http(url)
@@ -1127,7 +1127,7 @@ class HTMLTest(HTTPTest):
   def check_js(self, address):
     plog('INFO', 'Conducting a js test with destination ' + address)
 
-    accept_hdr = filter(lambda h: h[0] == "Accept", self.headers)
+    accept_hdr = filter(lambda h: h[0] == "Accept", self.headers)[0]
     orig_accept = accept_hdr[1]
     accept_hdr[1] = script_accept_hdr
     ret = self.check_http_nodynamic(address)
