@@ -433,19 +433,23 @@ class SearchBasedTest(Test):
       port = netloc[netloc.rfind(":")+1:]
       try:
         if int(port) != self.port:
+          plog("DEBUG", "Unusable port "+port+" in "+url)
           return False
       except:
         traceback.print_exc()
         plog("WARN", "Unparseable port "+port+" in "+url)
         return False
     if valid_schemes and scheme not in valid_schemes:
+      plog("DEBUG", "Unusable scheme "+scheme+" in "+url)
       return False
     if url in self.banned_targets:
+      plog("DEBUG", "Banned url "+url)
       return False
     if filetypes: # Must be checked last
       for filetype in filetypes:
         if url[-len(filetype):] == filetype:
           return True
+      plog("DEBUG", "Bad filetype for "+url)
       return False
     return True
 
@@ -1001,14 +1005,19 @@ class HTMLTest(HTTPTest):
       plog("INFO", "Chose random referer "+first_referer)
     
     self.tests_run += 1
-    # TODO: Watch for spider-traps! (ie mutually sourcing iframes)
-    # Keep a trail log for this test and check for loops
     address = random.choice(self.targets)
+    
+    # Keep a trail log for this test and check for loops
+    fetched = sets.Set([])
 
     self.fetch_queue.append(("html", address, first_referer))
     n_success = n_fail = n_inconclusive = 0 
     while self.fetch_queue:
       (test, url, referer) = self.fetch_queue.pop(0)
+      if url in fetched:
+        plog("INFO", "Already fetched "+url+", skipping")
+        continue
+      fetched.add(url)
       if use_referers and referer: self.headers['Referer'] = referer
       # Technically both html and js tests check and dispatch via mime types
       # but I want to know when link tags lie
@@ -1047,6 +1056,7 @@ class HTMLTest(HTTPTest):
     # Only pull at most one filetype from the list of 'a' links
     targets = []
     got_type = {}
+    found_favicon = False
     # Hrmm, if we recursively strained only these tags, this might be faster
     for tag in tags_to_recurse:
       tags = soup.findAll(tag)
@@ -1061,11 +1071,21 @@ class HTMLTest(HTTPTest):
             elif t.name in recurse_script:
               if t.name == "link":
                 for a in t.attrs:
-                  #if a[0] == "type" and a[1] in script_mime_types:
-                  plog("INFO", "Adding link script for: "+str(t))
-                  targets.append(("js", urlparse.urljoin(orig_addr, attr_tgt)))
+                  # Special case CSS and favicons
+                  if (a[0] == "type" and a[1] == "text/css") or \
+                   ((a[0] == "rel" or a[0] == "rev") and a[1] == "stylesheet"):
+                    plog("INFO", "Adding CSS of: "+str(t))
+                    targets.append(("http", urlparse.urljoin(orig_addr, attr_tgt)))
+                  elif (a[0] == "rel" or a[0] == "rev") and \
+                       ("shortcut" in a[1] or "icon" in a[1]):
+                    plog("INFO", "Adding favicon of: "+str(t))
+                    found_favicon = True
+                    targets.append(("http", urlparse.urljoin(orig_addr, attr_tgt)))
+                  elif a[0] == "type" and a[1] in script_mime_types:
+                    plog("INFO", "Adding link script of: "+str(t))
+                    targets.append(("js", urlparse.urljoin(orig_addr, attr_tgt)))
               else:
-                plog("INFO", "Adding script tag for: "+str(t))
+                plog("INFO", "Adding script tag of: "+str(t))
                 targets.append(("js", urlparse.urljoin(orig_addr, attr_tgt)))
             elif t.name == 'a':
               if attr_name == "href":
@@ -1075,7 +1095,15 @@ class HTMLTest(HTTPTest):
                     targets.append(("http", urlparse.urljoin(orig_addr, attr_tgt)))
             else:
               targets.append(("http", urlparse.urljoin(orig_addr, attr_tgt)))
-    for i in sets.Set(targets):
+    
+    if not found_favicon:
+      targets.insert(0, ("http", urlparse.urljoin(orig_addr, "/favicon.ico")))
+
+    loaded = sets.Set([])
+
+    for i in targets:
+      if i[1] in loaded: continue
+      loaded.add(i[1])
       if self._is_useable_url(i[1], html_schemes):
         plog("NOTICE", "Adding "+i[0]+" target: "+i[1])
         self.fetch_queue.append((i[0], i[1], orig_addr))
