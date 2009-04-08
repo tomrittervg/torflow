@@ -751,7 +751,7 @@ class HTTPTest(SearchBasedTest):
     exit_node = metacon.get_exit_node()
     if exit_node == 0 or exit_node == '0' or not exit_node:
       plog('NOTICE', 'We had no exit node to test, skipping to the next test.')
-      result = HttpTestResult(exit_node, self.node_map[exit_node[1:]].nickname, 
+      result = HttpTestResult("NoExit", "NotSupplied!", 
                               address, TEST_INCONCLUSIVE, INCONCLUSIVE_NOEXIT)
       if self.rescan_nodes: result.from_rescan = True
       self.results.append(result)
@@ -1482,7 +1482,7 @@ class SSLTest(SearchBasedTest):
     exit_node = metacon.get_exit_node()
     if not exit_node or exit_node == '0':
       plog('NOTICE', 'We had no exit node to test, skipping to the next test.')
-      result = SSLTestResult(exit_node, self.node_map[exit_node[1:]].nickname, 
+      result = SSLTestResult("NoExit", "NotSupplied!", 
                               address, ssl_file_name, TEST_INCONCLUSIVE,
                               INCONCLUSIVE_NOEXIT)
       if self.rescan_nodes: result.from_rescan = True
