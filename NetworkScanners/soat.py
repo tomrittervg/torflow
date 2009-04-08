@@ -114,8 +114,8 @@ class NoDNSHTTPHandler(urllib2.HTTPHandler):
 def http_request(address, cookie_jar=None, headers=firefox_headers):
   ''' perform a http GET-request and return the content received '''
   request = urllib2.Request(address)
-  for h in headers.iterkeys():
-    request.add_header(h, headers[h])
+  for h in headers:
+    request.add_header(h[0], h[1])
 
   content = ""
   new_cookies = []
@@ -134,33 +134,36 @@ def http_request(address, cookie_jar=None, headers=firefox_headers):
     length = reply.info().get("Content-Length")
     if length and int(length) > max_content_size:
       plog("WARN", "Max content size exceeded for "+address+": "+length)
-      return (reply.code, [], "", "")
+      return (reply.code, None, [], "", "")
     mime_type = reply.info().type.lower()
+    reply_headers = sets.Set(filter(lambda h: h[0] not in ignore_http_headers, 
+                          reply.info().items()))
+    reply_headers.add(("mime-type", mime_type))
     plog("DEBUG", "Mime type is "+mime_type+", length "+str(length))
     content = decompress_response_data(reply)
   except socket.timeout, e:
     plog("WARN", "Socket timeout for "+address+": "+str(e))
     traceback.print_exc()
-    return (-6.0, [], "", e.__class__.__name__+str(e)) 
+    return (-6.0, None, [], "", e.__class__.__name__+str(e)) 
   except urllib2.HTTPError, e:
     plog('NOTICE', "HTTP Error during request of "+address+": "+str(e))
     traceback.print_exc()
-    return (e.code, [], "", e.__class__.__name__+str(e)) 
+    return (e.code, None, [], "", e.__class__.__name__+str(e)) 
   except (ValueError, urllib2.URLError), e:
     plog('WARN', 'The http-request address ' + address + ' is malformed')
     traceback.print_exc()
-    return (-23.0, [], "", e.__class__.__name__+str(e))
+    return (-23.0, None, [], "", e.__class__.__name__+str(e))
   except socks.Socks5Error, e:
     plog('WARN', 'A SOCKS5 error '+str(e.value[0])+' occured for '+address+": "+str(e))
-    return (-float(e.value[0]), [], "", e.__class__.__name__+str(e))
+    return (-float(e.value[0]), None, [], "", e.__class__.__name__+str(e))
   except KeyboardInterrupt:
     raise KeyboardInterrupt
   except Exception, e:
     plog('WARN', 'An unknown HTTP error occured for '+address+": "+str(e))
     traceback.print_exc()
-    return (-666.0, [], "", e.__class__.__name__+str(e))
+    return (-666.0, None, [], "", e.__class__.__name__+str(e))
 
-  return (reply.code, new_cookies, mime_type, content)
+  return (reply.code, reply_headers, new_cookies, mime_type, content)
 
 class Test:
   """ Base class for our tests """
@@ -481,11 +484,11 @@ class SearchBasedTest(Test):
         plog("INFO", "Search url: "+search_url)
         try:
           if search_mode["useragent"]:
-            (code, new_cookies, mime_type, content) = http_request(search_url, search_cookies)
+            (code, resp_headers, new_cookies, mime_type, content) = http_request(search_url, search_cookies)
           else:
-            headers = copy.copy(firefox_headers)
-            del headers["User-Agent"]
-            (code, new_cookies, mime_type, content) = http_request(search_url, search_cookies, headers)
+            headers = filter(lambda h: h[0] != "User-Agent", 
+                             copy.copy(firefox_headers))
+            (code, resp_headers, new_cookies, mime_type, content) = http_request(search_url, search_cookies, headers)
         except socket.gaierror:
           plog('ERROR', 'Scraping of http://'+host+search_path+" failed")
           traceback.print_exc()
@@ -695,11 +698,12 @@ class HTTPTest(SearchBasedTest):
       added_cookie_jar = cookielib.MozillaCookieJar()
       added_cookie_jar.load(content_prefix+'.cookies', ignore_discard=True)
       self.cookie_jar.load(content_prefix+'.cookies', ignore_discard=True)
+
       content = None 
       mime_type = None 
 
     except IOError:
-      (code, new_cookies, mime_type, content) = http_request(address, self.cookie_jar, self.headers)
+      (code, resp_headers, new_cookies, mime_type, content) = http_request(address, self.cookie_jar, self.headers)
 
       if code - (code % 100) != 200:
         plog("NOTICE", "Non-tor HTTP error "+str(code)+" fetching content for "+address)
@@ -746,7 +750,7 @@ class HTTPTest(SearchBasedTest):
     socks.setdefaultproxy(socks.PROXY_TYPE_SOCKS5, tor_host, tor_port)
     socket.socket = socks.socksocket
 
-    (pcode, pnew_cookies, pmime_type, pcontent) = http_request(address, self.tor_cookie_jar, self.headers)
+    (pcode, presp_headers, pnew_cookies, pmime_type, pcontent) = http_request(address, self.tor_cookie_jar, self.headers)
     psha1sum = sha.sha(pcontent)
 
     # reset the connection to direct
@@ -773,7 +777,7 @@ class HTTPTest(SearchBasedTest):
       self.cookie_jar = orig_cookie_jar
       self.tor_cookie_jar = orig_tor_cookie_jar
       BindingSocket.bind_to = refetch_ip
-      (code_new, new_cookies_new, mime_type_new, content_new) = http_request(address, orig_tor_cookie_jar, self.headers)
+      (code_new, resp_headers_new, new_cookies_new, mime_type_new, content_new) = http_request(address, orig_tor_cookie_jar, self.headers)
       BindingSocket.bind_to = None
       
       if code_new == pcode:
@@ -859,7 +863,7 @@ class HTTPTest(SearchBasedTest):
     # Also, use the Tor cookies, since those identifiers are
     # probably embeded in the Tor page as well.
     BindingSocket.bind_to = refetch_ip
-    (code_new, new_cookies_new, mime_type_new, content_new) = http_request(address, orig_tor_cookie_jar, self.headers)
+    (code_new, resp_headers_new, new_cookies_new, mime_type_new, content_new) = http_request(address, orig_tor_cookie_jar, self.headers)
     BindingSocket.bind_to = None
     
     if not content_new:
@@ -1018,11 +1022,18 @@ class HTMLTest(HTTPTest):
         plog("INFO", "Already fetched "+url+", skipping")
         continue
       fetched.add(url)
-      if use_referers and referer: self.headers['Referer'] = referer
+      if use_referers and referer: 
+        self.headers.append(('Referer', referer))
       # Technically both html and js tests check and dispatch via mime types
       # but I want to know when link tags lie
       if test == "html" or test == "http": result = self.check_html(url)
       elif test == "js": result = self.check_js(url)
+      elif test == "image":
+        accept_hdr = filter(lambda h: h[0] == "Accept", self.headers)
+        orig_accept = accept_hdr[1]
+        accept_hdr[1] = image_accept_hdr
+        result = self.check_http(url)
+        accept_hdr[1] = orig_accept
       else: 
         plog("WARN", "Unknown test type: "+test+" for "+url)
         result = TEST_SUCCESS
@@ -1080,13 +1091,16 @@ class HTMLTest(HTTPTest):
                        ("shortcut" in a[1] or "icon" in a[1]):
                     plog("INFO", "Adding favicon of: "+str(t))
                     found_favicon = True
-                    targets.append(("http", urlparse.urljoin(orig_addr, attr_tgt)))
+                    targets.append(("image", urlparse.urljoin(orig_addr, attr_tgt)))
                   elif a[0] == "type" and a[1] in script_mime_types:
                     plog("INFO", "Adding link script of: "+str(t))
                     targets.append(("js", urlparse.urljoin(orig_addr, attr_tgt)))
               else:
                 plog("INFO", "Adding script tag of: "+str(t))
                 targets.append(("js", urlparse.urljoin(orig_addr, attr_tgt)))
+            elif t.name in recurse_image:
+              plog("INFO", "Adding image tag of: "+str(t))
+              targets.append(("image", urlparse.urljoin(orig_addr, attr_tgt)))
             elif t.name == 'a':
               if attr_name == "href":
                 for f in self.recurse_filetypes:
@@ -1097,7 +1111,7 @@ class HTMLTest(HTTPTest):
               targets.append(("http", urlparse.urljoin(orig_addr, attr_tgt)))
     
     if not found_favicon:
-      targets.insert(0, ("http", urlparse.urljoin(orig_addr, "/favicon.ico")))
+      targets.insert(0, ("image", urlparse.urljoin(orig_addr, "/favicon.ico")))
 
     loaded = sets.Set([])
 
@@ -1113,10 +1127,11 @@ class HTMLTest(HTTPTest):
   def check_js(self, address):
     plog('INFO', 'Conducting a js test with destination ' + address)
 
-    orig_accept = self.headers['Accept']
-    self.headers['Accept'] = "*/*"
+    accept_hdr = filter(lambda h: h[0] == "Accept", self.headers)
+    orig_accept = accept_hdr[1]
+    accept_hdr[1] = script_accept_hdr
     ret = self.check_http_nodynamic(address)
-    self.headers['Accept'] = orig_accept
+    accept_hdr[1] = orig_accept
 
     if type(ret) == int:
       return ret
