@@ -2569,6 +2569,16 @@ def main(argv):
     plog('INFO', 'Done.')
     sys.exit(0)
 
+  # Make sure refetch_ip is valid rather than exploding mid-test
+  global refetch_ip
+  BindingSocket.bind_to = refetch_ip
+  try:
+    s = socket.socket()
+  except socket.error, e:
+    plog("WARN", "Cannot bind to "+refetch_ip+". Ignoring refetch_ip setting.")
+    refetch_ip = None
+  BindingSocket.bind_to = None
+ 
   if do_rescan:
     plog("NOTICE", "Loading rescan.")
     for test in tests.itervalues():
