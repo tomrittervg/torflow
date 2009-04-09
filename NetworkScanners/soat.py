@@ -183,7 +183,7 @@ class Test:
     self.nodes_to_mark = 0
     self.tests_per_node = num_tests_per_node
     self._reset()
-    self._pickle_revision = 3 # Will increment as fields are added
+    self._pickle_revision = 4 # Will increment as fields are added
 
   def run_test(self): 
     raise NotImplemented()
@@ -207,6 +207,9 @@ class Test:
     if self._pickle_revision < 3:
       self.timeout_fails = {}
       self._pickle_revision = 3
+    if self._pickle_revision < 4:
+      self.connect_fails = {}
+      self._pickle_revision = 4
 
   def refill_targets(self):
     if len(self.targets) < self.min_targets:
@@ -223,6 +226,7 @@ class Test:
     if target in self.dynamic_fails: del self.dynamic_fails[target]
     if target in self.successes: del self.successes[target]
     if target in self.exit_fails: del self.exit_fails[target]
+    if target in self.connect_fails: del self.connect_fails[target]
     kill_results = []
     for r in self.results: 
       if r.site == target:
@@ -311,12 +315,10 @@ class Test:
     if self.rescan_nodes: return
     to_remove = copy.copy(failset)
     for address in to_remove:
-      if address not in self.successes: successes = 0
-      else: successes = len(self.successes[address])
       fails = len(failset[address])
 
-      if (100.0*fails)/(fails+successes) > max_rate:
-        plog("NOTICE", "Excessive "+self.proto+" "+failtype+" ("+str(fails)+"/"+str(fails+successes)+") for "+address+". Removing.")
+      if (100.0*fails)/(self.site_tests(address)) > max_rate:
+        plog("NOTICE", "Excessive "+self.proto+" "+failtype+" ("+str(fails)+"/"+str(self.site_tests(address))+") for "+address+". Removing.")
         self.remove_target(address, failtype)
 
   def remove_false_positives(self):
@@ -330,7 +332,12 @@ class Test:
     self._remove_false_positive_type(self.dynamic_fails,
                                      FALSEPOSITIVE_DYNAMIC,
                                      max_dynamic_fail_pct)
+    self._remove_false_positive_type(self.connect_fails,
+                                     FALSEPOSITIVE_DEADSITE,
+                                     max_connect_fail_pct)
+
   def _reset(self):
+    self.connect_fails = {}
     self.exit_fails = {}
     self.successes = {}
     self.dynamic_fails = {}
@@ -365,6 +372,8 @@ class Test:
       tot_cnt += len(self.exit_fails[site])
     if site in self.dynamic_fails:
       tot_cnt += len(self.dynamic_fails[site])
+    if site in self.connect_fails:
+      tot_cnt += len(self.connect_fails[site])
     return tot_cnt
 
   def register_success(self, result):
@@ -378,6 +387,19 @@ class Test:
     
     plog("INFO", self.proto+" success at "+result.exit_node+". This makes "+str(win_cnt)+"/"+str(self.site_tests(result.site))+" node successes for "+result.site)
 
+  def register_connect_failure(self, result): 
+    if self.rescan_nodes: result.from_rescan = True
+    self.results.append(result)
+    datahandler.saveResult(result)
+    if result.site in self.connect_fails:
+      self.connect_fails[result.site].add(result.exit_node)
+    else:
+      self.connect_fails[result.site] = sets.Set([result.exit_node])
+    
+    err_cnt = len(self.connect_fails[result.site])
+
+    plog("ERROR", self.proto+" connection fail of "+result.reason+" at "+result.exit_node+". This makes "+str(err_cnt)+"/"+str(self.site_tests(result.site))+" node failures for "+result.site)
+    
   def register_timeout_failure(self, result):
     if self.rescan_nodes: result.from_rescan = True
     if result.exit_node not in self.timeout_fails:
@@ -388,7 +410,7 @@ class Test:
    
     if t_cnt > num_timeouts_per_node:
       result.extra_info = str(t_cnt)
-      self.register_exit_failure(result)
+      self.register_connect_failure(result)
       del self.timeout_fails[result.exit_node]
       return TEST_FAILURE
     else:
@@ -659,7 +681,7 @@ class HTTPTest(SearchBasedTest):
       tot_cnt += len(self.httpcode_fails[site])
     return tot_cnt
     
-  def register_http_failure(self, result):
+  def register_http_failure(self, result): # XXX: Currently deadcode
     if self.rescan_nodes: result.from_rescan = True
     self.results.append(result)
     datahandler.saveResult(result)
@@ -823,7 +845,7 @@ class HTTPTest(SearchBasedTest):
       result = HttpTestResult(exit_node, self.node_map[exit_node[1:]].nickname, 
                             address, TEST_FAILURE, fail_reason)
       result.extra_info = str(pcontent)
-      self.register_http_failure(result)
+      self.register_connect_failure(result)
       return TEST_FAILURE
 
     # if we have no content, we had a connection error
@@ -1594,7 +1616,7 @@ class SSLTest(SearchBasedTest):
       result = SSLTestResult(exit_node, self.node_map[exit_node[1:]].nickname, 
                              address, ssl_file_name, TEST_FAILURE, fail_reason) 
       result.extra_info = exc
-      self.register_exit_failure(result)
+      self.register_connect_failure(result)
       return TEST_FAILURE
 
     try:
@@ -1604,7 +1626,7 @@ class SSLTest(SearchBasedTest):
       result = SSLTestResult(exit_node, self.node_map[exit_node[1:]].nickname,
                    address, ssl_file_name, TEST_FAILURE, FAILURE_CRYPTOERROR)
       self.extra_info=e.__class__.__name__+str(e)
-      self.register_exit_failure(result)
+      self.register_connect_failure(result)
       return TEST_FAILURE
 
     # if certs match, everything is ok
