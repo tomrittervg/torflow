@@ -76,6 +76,7 @@ FAILURE_CONNREFUSED = "FailureConnRefused"
 FAILURE_URLERROR = "FailureURLError" # can also mean timeout...
 FAILURE_CRYPTOERROR = "FailureCryptoError"
 FAILURE_TIMEOUT = "FailureTimeout"
+FAILURE_HEADERCHANGE = "FailureHeaderChange"
 
 # False positive reasons
 FALSEPOSITIVE_HTTPERRORS = "FalsePositiveHTTPErrors"
@@ -833,6 +834,43 @@ class SoupDiffer:
     ret.sort()
     return ret
 
+class HeaderDiffer:
+  def __init__(self, orig_headers):
+    self.header_pool = sets.Set(orig_headers)
+    self.changed_headers = sets.Set([])
+    self._pickle_revision = 0
+ 
+  def filter_headers(headers):
+    ret = []
+    for h in headers:
+      matched = False
+      for i in ignore_http_headers:
+        if re.match(i, h[0]):
+          matched = True
+      if not matched: ret.append(h)
+    return sets.Set(ret)
+  filter_headers = Callable(filter_headers)
+ 
+  def depickle_upgrade(self):
+    pass
+
+  def prune_differences(self, new_headers):
+    new_headers = sets.Set(new_headers)
+    changed = new_headers - self.header_pool
+    for i in changed:
+      self.changed_headers.add(i[0])
+    self.header_pool.union_update(new_headers)
+
+  def show_differences(self, new_headers):
+    ret = ""
+    changed = sets.Set(new_headers) - self.header_pool
+    for i in changed:
+      if i[0] not in self.changed_headers:
+        ret += " "+i[0]+": "+i[1]+"\n"
+    if ret:
+      return "New HTTP Headers:\n"+ret
+    else: 
+      return ret
 
 class JSDiffer:
   def __init__(self, js_string):
@@ -986,5 +1024,4 @@ class JSSoupDiffer(JSDiffer):
         tag_cnts = JSDiffer._count_ast_elements(self,parse,tag.name+":"+attr[0])
         ast_cnts = JSSoupDiffer._add_cnts(tag_cnts, ast_cnts)
     return ast_cnts
-
 

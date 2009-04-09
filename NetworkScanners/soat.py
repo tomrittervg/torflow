@@ -136,8 +136,7 @@ def http_request(address, cookie_jar=None, headers=firefox_headers):
       plog("WARN", "Max content size exceeded for "+address+": "+length)
       return (reply.code, None, [], "", "")
     mime_type = reply.info().type.lower()
-    reply_headers = sets.Set(filter(lambda h: h[0] not in ignore_http_headers, 
-                          reply.info().items()))
+    reply_headers = HeaderDiffer.filter_headers(reply.info().items())
     reply_headers.add(("mime-type", mime_type))
     plog("DEBUG", "Mime type is "+mime_type+", length "+str(length))
     content = decompress_response_data(reply)
@@ -147,8 +146,11 @@ def http_request(address, cookie_jar=None, headers=firefox_headers):
     return (-6.0, None, [], "", e.__class__.__name__+str(e)) 
   except urllib2.HTTPError, e:
     plog('NOTICE', "HTTP Error during request of "+address+": "+str(e))
-    traceback.print_exc()
-    return (e.code, None, [], "", e.__class__.__name__+str(e)) 
+    if str(e) == "<urlopen error timed out>": # Yah, super ghetto...
+      return (-6.0, None, [], "", e.__class__.__name__+str(e)) 
+    else:
+      traceback.print_exc()
+      return (e.code, None, [], "", e.__class__.__name__+str(e)) 
   except (ValueError, urllib2.URLError), e:
     plog('WARN', 'The http-request address ' + address + ' is malformed')
     traceback.print_exc()
@@ -506,8 +508,7 @@ class SearchBasedTest(Test):
           plog('ERROR', 'Soup-scraping of http://'+host+search_path+" failed")
           traceback.print_exc()
           print "Content is: "+str(content)
-          return [protocol+"://www.eff.org", protocol+"://www.fastmail.fm", protocol+"://www.torproject.org", protocol+"://secure.wikileaks.org/"]
-        
+          return [protocol+"://www.eff.org", protocol+"://www.fastmail.fm", protocol+"://www.torproject.org", protocol+"://secure.wikileaks.org/"] 
         # get the links and do some additional filtering
         for link in soup.findAll('a'):
           skip = True
@@ -516,7 +517,10 @@ class SearchBasedTest(Test):
               skip = False
               break
           if skip: continue
-          url = link['href']
+          if link.has_key(search_mode['realtgt']):
+            url = link[search_mode['realtgt']]
+          else:
+            url = link['href']
           if protocol == 'any': prot_list = None
           else: prot_list = [protocol]
           if filetype == 'any': file_list = None
@@ -699,7 +703,11 @@ class HTTPTest(SearchBasedTest):
       added_cookie_jar.load(content_prefix+'.cookies', ignore_discard=True)
       self.cookie_jar.load(content_prefix+'.cookies', ignore_discard=True)
 
-      content = None 
+      header_file = open(content_prefix+'.headerdiff', 'r')
+      headerdiffer = pickle.load(header_file)
+      header_file.close()
+
+      content = None
       mime_type = None 
 
     except IOError:
@@ -727,6 +735,11 @@ class HTTPTest(SearchBasedTest):
       content_file = open(content_prefix+'.content', 'w')
       content_file.write(content)
       content_file.close()
+
+      header_file = open(content_prefix+'.headerdiff', 'w')
+      headerdiffer = HeaderDiffer(resp_headers)
+      pickle.dump(headerdiffer, header_file)
+      header_file.close()
       
       # Need to do set subtraction and only save new cookies.. 
       # or extract/make_cookies
@@ -823,9 +836,13 @@ class HTTPTest(SearchBasedTest):
       self.tor_cookie_jar = orig_tor_cookie_jar
       return TEST_FAILURE
 
+    hdiffs = headerdiffer.show_differences(presp_headers)
+    if hdiffs:
+      plog("NOTICE", "Header differences for "+address+": \n"+hdiffs)
+
     # compare the content
     # if content matches, everything is ok
-    if psha1sum.hexdigest() == sha1sum.hexdigest():
+    if not hdiffs and psha1sum.hexdigest() == sha1sum.hexdigest():
       result = HttpTestResult(exit_node, self.node_map[exit_node[1:]].nickname, 
                               address, TEST_SUCCESS)
       self.register_success(result)
@@ -876,6 +893,13 @@ class HTTPTest(SearchBasedTest):
       datahandler.saveResult(result)
       return TEST_INCONCLUSIVE
 
+    headerdiffer.prune_differences(resp_headers_new)
+    hdiffs = headerdiffer.show_differences(presp_headers)
+
+    header_file = open(content_prefix+'.headerdiff', 'w')
+    pickle.dump(headerdiffer, header_file)
+    header_file.close()
+
     sha1sum_new = sha.sha(content_new)
 
     if sha1sum.hexdigest() != sha1sum_new.hexdigest():
@@ -899,6 +923,18 @@ class HTTPTest(SearchBasedTest):
     except:
       traceback.print_exc()
       plog("WARN", "Error saving cookies in "+str(new_cookie_jar)+" to "+content_prefix+".cookies")
+
+    if hdiffs:
+      # XXX: We probably should store the header differ + exit headers 
+      # for later comparison (ie if the header differ picks up more diffs)
+      plog("NOTICE", "Post-refetch header changes for "+address+": \n"+hdiffs)
+      result = HttpTestResult(exit_node,
+                              self.node_map[exit_node[1:]].nickname, 
+                              address, TEST_FAILURE, FAILURE_HEADERCHANGE)
+      result.extra_info = hdiffs
+      self.register_dynamic_failure(result)
+      # Lets let the rest of the tests run too actually
+      #return TEST_FAILURE 
 
     # compare the node content and the new content
     # if it matches, everything is ok
@@ -985,7 +1021,7 @@ class HTMLTest(HTTPTest):
   def _reset(self):
     HTTPTest._reset(self)
     self.targets = [] # FIXME: Lame..
-    self.soupdiffer_files = {}
+    self.soupdiffer_files = {} # XXX: These two are now deprecated
     self.jsdiffer_files = {}
  
   def depickle_upgrade(self):
@@ -1057,6 +1093,7 @@ class HTMLTest(HTTPTest):
     Test._remove_target_addr(self, target)
     if target in self.soupdiffer_files: del self.soupdiffer_files[target]
     if target in self.jsdiffer_files: del self.jsdiffer_files[target]
+
   def refill_targets(self):
     Test.refill_targets(self)
 
@@ -1082,6 +1119,7 @@ class HTMLTest(HTTPTest):
             elif t.name in recurse_script:
               if t.name == "link":
                 for a in t.attrs:
+                  a = map(lambda x: x.lower(), a)
                   # Special case CSS and favicons
                   if (a[0] == "type" and a[1] == "text/css") or \
                    ((a[0] == "rel" or a[0] == "rev") and a[1] == "stylesheet"):
@@ -1092,7 +1130,7 @@ class HTMLTest(HTTPTest):
                     plog("INFO", "Adding favicon of: "+str(t))
                     found_favicon = True
                     targets.append(("image", urlparse.urljoin(orig_addr, attr_tgt)))
-                  elif a[0] == "type" and a[1] in script_mime_types:
+                  elif a[0] == "type" and self.is_script(a[1], ""):
                     plog("INFO", "Adding link script of: "+str(t))
                     targets.append(("js", urlparse.urljoin(orig_addr, attr_tgt)))
               else:
@@ -1140,7 +1178,7 @@ class HTMLTest(HTTPTest):
   def is_html(self, mime_type, content):
     is_html = False
     for type_match in html_mime_types:
-      if re.match(type_match, mime_type): 
+      if re.match(type_match, mime_type.lower()): 
         is_html = True
         break
     return is_html
@@ -1148,7 +1186,7 @@ class HTMLTest(HTTPTest):
   def is_script(self, mime_type, content):
     is_script = False
     for type_match in script_mime_types:
-      if re.match(type_match, mime_type): 
+      if re.match(type_match, mime_type.lower()): 
         is_script = True
         break
     return is_script
@@ -1168,17 +1206,16 @@ class HTMLTest(HTTPTest):
     content_prefix = http_content_dir+address_file
     failed_prefix = http_failed_dir+address_file
 
-    if address in self.jsdiffer_files:
+    if os.path.exists(content_prefix+".jsdiff"):
       plog("DEBUG", "Loading jsdiff for "+address)
-      jsdiff = pickle.load(open(self.jsdiffer_files[address], 'r'))
+      jsdiff = pickle.load(open(content_prefix+".jsdiff", 'r'))
       jsdiff.depickle_upgrade()
     else:
       plog("DEBUG", "No jsdiff for "+address+". Creating+dumping")
       jsdiff = JSDiffer(orig_js)
-      self.jsdiffer_files[address] = content_prefix+".jsdiff"
     
     jsdiff.prune_differences(new_js)
-    pickle.dump(jsdiff, open(self.jsdiffer_files[address], 'w'))
+    pickle.dump(jsdiff, open(content_prefix+".jsdiff", 'w'))
 
     has_js_changes = jsdiff.contains_differences(tor_js)
 
@@ -1196,7 +1233,7 @@ class HTMLTest(HTTPTest):
                              address, TEST_FAILURE, FAILURE_DYNAMIC, 
                              content_prefix+".content", exit_content_file.name, 
                              content_prefix+'.content-old',
-                             self.jsdiffer_files[address])
+                             content_prefix+".jsdiff")
       self.register_dynamic_failure(result)
       return TEST_FAILURE
 
@@ -1277,17 +1314,16 @@ class HTMLTest(HTTPTest):
     # 3. Compare list of changed tags for tor vs new and
     #    see if any extra tags changed or if new attributes
     #    were added to additional tags
-    if address in self.soupdiffer_files:
+    if os.path.exists(content_prefix+".soupdiff"):
       plog("DEBUG", "Loading soupdiff for "+address)
-      soupdiff = pickle.load(open(self.soupdiffer_files[address], 'r'))
+      soupdiff = pickle.load(open(content_prefix+".soupdiff", 'r'))
       soupdiff.depickle_upgrade()
       soupdiff.prune_differences(new_soup)
     else:
       plog("DEBUG", "No soupdiff for "+address+". Creating+dumping")
       soupdiff = SoupDiffer(orig_soup, new_soup)
-      self.soupdiffer_files[address] = content_prefix+".soupdiff"
 
-    pickle.dump(soupdiff, open(self.soupdiffer_files[address], 'w'))
+    pickle.dump(soupdiff, open(content_prefix+".soupdiff", 'w'))
     
     more_tags = soupdiff.show_changed_tags(tor_soup)     
     more_attrs = soupdiff.show_changed_attrs(tor_soup)
@@ -1306,17 +1342,16 @@ class HTMLTest(HTTPTest):
       false_positive = True
 
     if false_positive:
-      if address in self.jsdiffer_files:
+      if os.path.exists(content_prefix+".jsdiff"):
         plog("DEBUG", "Loading jsdiff for "+address)
-        jsdiff = pickle.load(open(self.jsdiffer_files[address], 'r'))
+        jsdiff = pickle.load(open(content_prefix+".jsdiff", 'r'))
         jsdiff.depickle_upgrade()
       else:
         plog("DEBUG", "No jsdiff for "+address+". Creating+dumping")
         jsdiff = JSSoupDiffer(orig_soup)
-        self.jsdiffer_files[address] = content_prefix+".jsdiff"
       
       jsdiff.prune_differences(new_soup)
-      pickle.dump(jsdiff, open(self.jsdiffer_files[address], 'w'))
+      pickle.dump(jsdiff, open(content_prefix+".jsdiff", 'w'))
 
       differences = jsdiff.show_differences(tor_soup)
       false_positive = not differences
@@ -1335,11 +1370,11 @@ class HTMLTest(HTTPTest):
     exit_content_file.write(tor_html)
     exit_content_file.close()
  
-    if address in self.jsdiffer_files: 
-      jsdiff_file = self.jsdiffer_files[address]
+    if os.path.exists(content_prefix+".jsdiff"):
+      jsdiff_file = content_prefix+".jsdiff"
     else: jsdiff_file = None
-    if address in self.soupdiffer_files: 
-      soupdiff_file = self.soupdiffer_files[address]
+    if os.path.exists(content_prefix+".soupdiff"):
+      soupdiff_file = content_prefix+".soupdiff"
     else: soupdiff_file = None
 
     result = HtmlTestResult(exit_node, self.node_map[exit_node[1:]].nickname, 
@@ -2588,8 +2623,8 @@ def main(argv):
   global refetch_ip
   BindingSocket.bind_to = refetch_ip
   try:
-    s = socket.socket()
-  except socket.error, e:
+    socket.socket()
+  except socket.error:
     plog("WARN", "Cannot bind to "+refetch_ip+". Ignoring refetch_ip setting.")
     refetch_ip = None
   BindingSocket.bind_to = None
