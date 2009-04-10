@@ -153,8 +153,11 @@ def http_request(address, cookie_jar=None, headers=firefox_headers):
       return (e.code, None, [], "", e.__class__.__name__+str(e)) 
   except (ValueError, urllib2.URLError), e:
     plog('WARN', 'The http-request address ' + address + ' is malformed')
-    traceback.print_exc()
-    return (-23.0, None, [], "", e.__class__.__name__+str(e))
+    if str(e) == "<urlopen error timed out>": # Yah, super ghetto...
+      return (-6.0, None, [], "", e.__class__.__name__+str(e)) 
+    else:
+      traceback.print_exc()
+      return (-23.0, None, [], "", e.__class__.__name__+str(e))
   except socks.Socks5Error, e:
     plog('WARN', 'A SOCKS5 error '+str(e.value[0])+' occured for '+address+": "+str(e))
     return (-float(e.value[0]), None, [], "", e.__class__.__name__+str(e))
