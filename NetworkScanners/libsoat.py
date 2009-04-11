@@ -11,6 +11,8 @@ import traceback
 import difflib
 import re
 import copy
+import socket
+import struct
 sys.path.append("./libs")
 from OpenSSL import crypto
 from BeautifulSoup.BeautifulSoup import Tag, SoupStrainer
@@ -65,18 +67,19 @@ FAILURE_EXITONLY = "FailureExitOnly"
 FAILURE_DYNAMIC = "FailureDynamic" 
 FAILURE_COOKIEMISMATCH = "FailureCookieMismatch"
 FAILURE_BADHTTPCODE = "FailureBadHTTPCode"
-FAILURE_MISCEXCEPTION = "FailureMiscException"
 FAILURE_NOEXITCONTENT = "FailureNoExitContent"
 FAILURE_EXITTRUNCATION = "FailureExitTruncation"
 FAILURE_SOCKSERROR = "FailureSocksError"
-FAILURE_HOSTUNREACH = "FailureHostUnreach" # Can also mean DNS issues..
+FAILURE_HOSTUNREACH = "FailureHostUnreach" # aka DNS issue
 FAILURE_NETUNREACH = "FailureNetUnreach"
 FAILURE_EXITPOLICY = "FailureExitPolicy"
 FAILURE_CONNREFUSED = "FailureConnRefused"
-FAILURE_URLERROR = "FailureURLError" # can also mean timeout...
+FAILURE_CONNERROR = "FailureConnError"
+FAILURE_URLERROR = "FailureURLError"
 FAILURE_CRYPTOERROR = "FailureCryptoError"
 FAILURE_TIMEOUT = "FailureTimeout"
 FAILURE_HEADERCHANGE = "FailureHeaderChange"
+FAILURE_MISCEXCEPTION = "FailureMiscException"
 
 # False positive reasons
 FALSEPOSITIVE_HTTPERRORS = "FalsePositiveHTTPErrors"
@@ -88,9 +91,12 @@ FALSEPOSITIVE_DEADSITE = "FalsePositiveDeadSite"
 
 class TestResult(object):
   ''' Parent class for all test result classes '''
-  def __init__(self, exit_node, exit_name, site, status, reason=None):
-    self.exit_node = exit_node
-    self.exit_name = exit_name
+  def __init__(self, exit_obj, site, status, reason=None):
+    self.exit_node = exit_obj.idhex
+    self.exit_name = exit_obj.nickname
+    self.exit_ip = exit_obj.ip
+    self.contact = exit_obj.contact
+    self.exit_obj = exit_obj
     self.site = site
     self.timestamp = time.time()
     self.status = status
@@ -101,7 +107,7 @@ class TestResult(object):
     self.verbose=0
     self.from_rescan = False
     self.filename=None
-    self._pickle_revision = 2
+    self._pickle_revision = 4
 
   def depickle_upgrade(self):
     if not "_pickle_revision" in self.__dict__: # upgrade to v0
@@ -111,6 +117,13 @@ class TestResult(object):
     if self._pickle_revision < 2:
       self._pickle_revision = 2
       self.exit_name = "NameNotStored!"
+    if self._pickle_revision < 3:
+      self._pickle_revision = 3
+      self.exit_ip = "\x00\x00\x00\x00"
+      self.exit_obj = None
+    if self._pickle_revision < 4:
+      self._pickle_revision = 4
+      self.contact = None
 
   def _rebase(self, filename, new_data_root):
     if not filename: return filename
@@ -142,7 +155,8 @@ class TestResult(object):
   def __str__(self):
     ret = self.__class__.__name__+" for "+self.site+"\n"
     ret += " Time: "+time.ctime(self.timestamp)+"\n"
-    ret += " Exit: "+self.exit_node+" ("+self.exit_name+")\n"
+    ret += " Exit: "+socket.inet_ntoa(struct.pack(">I",self.exit_ip))+" "+self.exit_node+" ("+self.exit_name+")\n"
+    ret += " Contact: "+str(self.contact)+"\n"  
     ret += " "+str(RESULT_STRINGS[self.status])
     if self.reason:
       ret += " Reason: "+self.reason
@@ -157,9 +171,9 @@ class TestResult(object):
 
 class SSLTestResult(TestResult):
   ''' Represents the result of an openssl test '''
-  def __init__(self, exit_node, exit_name, ssl_site, ssl_file, status, 
+  def __init__(self, exit_obj, ssl_site, ssl_file, status, 
                reason=None, exit_ip=None, exit_cert_pem=None):
-    super(SSLTestResult, self).__init__(exit_node, exit_name, ssl_site, status, reason)
+    super(SSLTestResult, self).__init__(exit_obj, ssl_site, status, reason)
     self.ssl_file = ssl_file
     self.exit_cert = exit_cert_pem # Meh, not that much space
     self.exit_ip = exit_ip
@@ -233,10 +247,10 @@ class SSLDomain:
 
 class HttpTestResult(TestResult):
   ''' Represents the result of a http test '''
-  def __init__(self, exit_node, exit_name, website, status, reason=None, 
+  def __init__(self, exit_obj, website, status, reason=None, 
                sha1sum=None, exit_sha1sum=None, content=None, 
                content_exit=None, content_old=None, sha1sum_old=None):
-    super(HttpTestResult, self).__init__(exit_node, exit_name, website, status, reason)
+    super(HttpTestResult, self).__init__(exit_obj, website, status, reason)
     self.proto = "http"
     self.sha1sum = sha1sum
     self.sha1sum_old = sha1sum_old
@@ -275,9 +289,9 @@ class HttpTestResult(TestResult):
     return ret
 
 class CookieTestResult(TestResult):
-  def __init__(self, exit_node, exit_name, status, reason, plain_cookies, 
+  def __init__(self, exit_obj, status, reason, plain_cookies, 
                tor_cookies):
-    super(CookieTestResult, self).__init__(exit_node, exit_name, "cookies", status)
+    super(CookieTestResult, self).__init__(exit_obj, "cookies", status)
     self.proto = "http"
     self.reason = reason
     self.tor_cookies = tor_cookies
@@ -291,10 +305,10 @@ class CookieTestResult(TestResult):
 
 class JsTestResult(TestResult):
   ''' Represents the result of a JS test '''
-  def __init__(self, exit_node, exit_name, website, status, reason=None, 
+  def __init__(self, exit_obj, website, status, reason=None, 
                content=None, content_exit=None, content_old=None,
                jsdiffer=None):
-    super(JsTestResult, self).__init__(exit_node, exit_name, website, status, reason)
+    super(JsTestResult, self).__init__(exit_obj, website, status, reason)
     self.proto = "http"
     self.content = content
     self.content_exit = content_exit
@@ -355,10 +369,10 @@ class JsTestResult(TestResult):
 
 class HtmlTestResult(TestResult):
   ''' Represents the result of a http test '''
-  def __init__(self, exit_node, exit_name, website, status, reason=None, 
+  def __init__(self, exit_obj, website, status, reason=None, 
                content=None, content_exit=None, content_old=None, 
                soupdiffer=None, jsdiffer=None):
-    super(HtmlTestResult, self).__init__(exit_node, exit_name, website, status, reason)
+    super(HtmlTestResult, self).__init__(exit_obj, website, status, reason)
     self.proto = "http"
     self.content = content
     self.content_exit = content_exit
@@ -470,38 +484,38 @@ class HtmlTestResult(TestResult):
 
 class SSHTestResult(TestResult):
   ''' Represents the result of an ssh test '''
-  def __init__(self, exit_node, exit_name, ssh_site, status):
-    super(SSHTestResult, self).__init__(exit_node, exit_name, ssh_site, status)
+  def __init__(self, exit_obj, ssh_site, status):
+    super(SSHTestResult, self).__init__(exit_obj, ssh_site, status)
     self.proto = "ssh"
 
 class DNSTestResult(TestResult):
   ''' Represents the result of a dns test '''
-  def __init__(self, exit_node, exit_name, dns_site, status):
-    super(DNSTestResult, self).__init__(exit_node, exit_name, dns_site, status)
+  def __init__(self, exit_obj, dns_site, status):
+    super(DNSTestResult, self).__init__(exit_obj, dns_site, status)
     self.proto = "dns"
 
 class DNSRebindTestResult(TestResult):
   ''' Represents the result of a dns rebind test '''
-  def __init__(self, exit_node, exit_name, dns_rebind_site, status):
-    super(DNSRebindTestResult, self).__init__(exit_node, exit_name, dns_rebind_site, status)
+  def __init__(self, exit_obj, dns_rebind_site, status):
+    super(DNSRebindTestResult, self).__init__(exit_obj, dns_rebind_site, status)
     self.proto = "dns"
 
 class SMTPTestResult(TestResult):
   ''' Represents the result of an smtp test '''
-  def __init__(self, exit_node, exit_name, smtp_site, status):
-    super(SMTPTestResult, self).__init__(exit_node, exit_name, smtp_site, status)
+  def __init__(self, exit_obj, smtp_site, status):
+    super(SMTPTestResult, self).__init__(exit_obj, smtp_site, status)
     self.proto = "smtp"
 
 class IMAPTestResult(TestResult):
   ''' Represents the result of an imap test '''
-  def __init__(self, exit_node, exit_name, imap_site, status):
-    super(IMAPTestResult, self).__init__(exit_node, exit_name, imap_site, status)
+  def __init__(self, exit_obj, imap_site, status):
+    super(IMAPTestResult, self).__init__(exit_obj, imap_site, status)
     self.proto = "imap"
 
 class POPTestResult(TestResult):
   ''' Represents the result of a pop test '''
-  def __init__(self, exit_node, exit_name, pop_site, status):
-    super(POPTestResult, self).__init__(exit_node, exit_name, pop_site, status)
+  def __init__(self, exit_obj, pop_site, status):
+    super(POPTestResult, self).__init__(exit_obj, pop_site, status)
     self.proto = "pop"
 
 class DataHandler:

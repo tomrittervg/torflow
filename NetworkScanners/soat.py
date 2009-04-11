@@ -143,7 +143,14 @@ def http_request(address, cookie_jar=None, headers=firefox_headers):
   except socket.timeout, e:
     plog("WARN", "Socket timeout for "+address+": "+str(e))
     traceback.print_exc()
-    return (-6.0, None, [], "", e.__class__.__name__+str(e)) 
+    return (-6.0, None, [], "", e.__class__.__name__+str(e))
+  except httplib.BadStatusLine, e:
+    plog('NOTICE', "HTTP Error during request of "+address+": "+str(e))
+    if not e.line: 
+      return (-13.0, None, [], "", e.__class__.__name__+"(None)") 
+    else:
+      traceback.print_exc()
+      return (-666.0, None, [], "", e.__class__.__name__+str(e)) 
   except urllib2.HTTPError, e:
     plog('NOTICE', "HTTP Error during request of "+address+": "+str(e))
     if str(e) == "<urlopen error timed out>": # Yah, super ghetto...
@@ -186,7 +193,7 @@ class Test:
     self.nodes_to_mark = 0
     self.tests_per_node = num_tests_per_node
     self._reset()
-    self._pickle_revision = 4 # Will increment as fields are added
+    self._pickle_revision = 6 # Will increment as fields are added
 
   def run_test(self): 
     raise NotImplemented()
@@ -213,6 +220,14 @@ class Test:
     if self._pickle_revision < 4:
       self.connect_fails = {}
       self._pickle_revision = 4
+    if self._pickle_revision < 5:
+      self.dns_fails = {}
+      self._pickle_revision = 5
+    if self._pickle_revision < 6:
+      self.dns_fails_per_exit = self.dns_fails
+      self.timeout_fails_per_exit = self.timeout_fails
+      self.connect_fails_per_exit = {}
+      self._pickle_revision = 6
 
   def refill_targets(self):
     if len(self.targets) < self.min_targets:
@@ -340,17 +355,21 @@ class Test:
                                      max_connect_fail_pct)
 
   def _reset(self):
-    self.connect_fails = {}
-    self.exit_fails = {}
-    self.successes = {}
-    self.dynamic_fails = {}
     self.results = []
     self.targets = []
     self.tests_run = 0
     self.nodes_marked = 0
-    self.timeout_fails = {}
-    self.node_results = {}
     self.run_start = time.time()
+    # These are indexed by idhex
+    self.connect_fails_per_exit = {}
+    self.timeout_fails_per_exit = {}
+    self.dns_fails_per_exit = {}
+    self.node_results = {}
+    # These are indexed by site url:
+    self.connect_fails = {}
+    self.exit_fails = {}
+    self.successes = {}
+    self.dynamic_fails = {}
  
   def rewind(self):
     self._reset()
@@ -390,7 +409,7 @@ class Test:
     
     plog("INFO", self.proto+" success at "+result.exit_node+". This makes "+str(win_cnt)+"/"+str(self.site_tests(result.site))+" node successes for "+result.site)
 
-  def register_connect_failure(self, result): 
+  def _register_site_connect_failure(self, result): 
     if self.rescan_nodes: result.from_rescan = True
     self.results.append(result)
     datahandler.saveResult(result)
@@ -402,19 +421,62 @@ class Test:
     err_cnt = len(self.connect_fails[result.site])
 
     plog("ERROR", self.proto+" connection fail of "+result.reason+" at "+result.exit_node+". This makes "+str(err_cnt)+"/"+str(self.site_tests(result.site))+" node failures for "+result.site)
-    
+
+  def register_connect_failure(self, result):
+    if self.rescan_nodes: result.from_rescan = True
+    if result.exit_node not in self.connect_fails_per_exit:
+      self.connect_fails_per_exit[result.exit_node] = 0
+    self.connect_fails_per_exit[result.exit_node] += 1
+
+    c_cnt = self.connect_fails_per_exit[result.exit_node]
+   
+    if c_cnt > num_connfails_per_node:
+      if result.extra_info:
+        result.extra_info = str(result.extra_info) + " count: "+str(c_cnt)
+      else: 
+        result.extra_info = str(c_cnt)
+      self._register_site_connect_failure(result)
+      del self.connect_fails_per_exit[result.exit_node]
+      return TEST_FAILURE
+    else:
+      plog("NOTICE", self.proto+" connect fail at "+result.exit_node+". This makes "+str(c_cnt)+" fails")
+      return TEST_INCONCLUSIVE
+
+  def register_dns_failure(self, result):
+    if self.rescan_nodes: result.from_rescan = True
+    if result.exit_node not in self.dns_fails_per_exit:
+      self.dns_fails_per_exit[result.exit_node] = 0
+    self.dns_fails_per_exit[result.exit_node] += 1
+
+    d_cnt = self.dns_fails_per_exit[result.exit_node]
+   
+    if d_cnt > num_dnsfails_per_node:
+      if result.extra_info:
+        result.extra_info = str(result.extra_info) + " count: "+str(d_cnt)
+      else: 
+        result.extra_info = str(d_cnt)
+      self._register_site_connect_failure(result)
+      del self.dns_fails_per_exit[result.exit_node]
+      return TEST_FAILURE
+    else:
+      plog("NOTICE", self.proto+" dns fail at "+result.exit_node+". This makes "+str(d_cnt)+" fails")
+      return TEST_INCONCLUSIVE
+
   def register_timeout_failure(self, result):
     if self.rescan_nodes: result.from_rescan = True
-    if result.exit_node not in self.timeout_fails:
-      self.timeout_fails[result.exit_node] = 0
-    self.timeout_fails[result.exit_node] += 1
+    if result.exit_node not in self.timeout_fails_per_exit:
+      self.timeout_fails_per_exit[result.exit_node] = 0
+    self.timeout_fails_per_exit[result.exit_node] += 1
 
-    t_cnt = self.timeout_fails[result.exit_node]
+    t_cnt = self.timeout_fails_per_exit[result.exit_node]
    
     if t_cnt > num_timeouts_per_node:
-      result.extra_info = str(t_cnt)
-      self.register_connect_failure(result)
-      del self.timeout_fails[result.exit_node]
+      if result.extra_info:
+        result.extra_info = str(result.extra_info) + " count: "+str(t_cnt)
+      else: 
+        result.extra_info = str(t_cnt)
+      self._register_site_connect_failure(result)
+      del self.timeout_fails_per_exit[result.exit_node]
       return TEST_FAILURE
     else:
       plog("NOTICE", self.proto+" timeout at "+result.exit_node+". This makes "+str(t_cnt)+" timeouts")
@@ -602,7 +664,7 @@ class HTTPTest(SearchBasedTest):
     if tor_cookies != plain_cookies:
       exit_node = metacon.get_exit_node()
       plog("ERROR", "Cookie mismatch at "+exit_node+":\nTor Cookies:"+tor_cookies+"\nPlain Cookies:\n"+plain_cookies)
-      result = CookieTestResult(exit_node,self.node_map[exit_node[1:]].nickname,
+      result = CookieTestResult(self.node_map[exit_node[1:]],
                           TEST_FAILURE, FAILURE_COOKIEMISMATCH, plain_cookies, 
                           tor_cookies)
       if self.rescan_nodes: result.from_rescan = True
@@ -797,7 +859,7 @@ class HTTPTest(SearchBasedTest):
     exit_node = metacon.get_exit_node()
     if exit_node == 0 or exit_node == '0' or not exit_node:
       plog('NOTICE', 'We had no exit node to test, skipping to the next test.')
-      result = HttpTestResult("NoExit", "NotSupplied!", 
+      result = HttpTestResult(None, 
                               address, TEST_INCONCLUSIVE, INCONCLUSIVE_NOEXIT)
       if self.rescan_nodes: result.from_rescan = True
       self.results.append(result)
@@ -825,27 +887,41 @@ class HTTPTest(SearchBasedTest):
         return TEST_INCONCLUSIVE 
 
       if pcode < 0 and type(pcode) == float:
-        if pcode == -2: # "connection not allowed aka ExitPolicy
+        if pcode == -1: # "General socks error"
+          fail_reason = FAILURE_CONNERROR
+        elif pcode == -2: # "connection not allowed aka ExitPolicy
           fail_reason = FAILURE_EXITPOLICY
         elif pcode == -3: # "Net Unreach" ??
           fail_reason = FAILURE_NETUNREACH
         elif pcode == -4: # "Host Unreach" aka RESOLVEFAILED
           fail_reason = FAILURE_HOSTUNREACH
+          result = HttpTestResult(self.node_map[exit_node[1:]],
+                                 address, TEST_FAILURE, fail_reason)
+          return self.register_dns_failure(result)
         elif pcode == -5: # Connection refused
           fail_reason = FAILURE_CONNREFUSED
+          result = HttpTestResult(self.node_map[exit_node[1:]], 
+                              address, TEST_FAILURE, fail_reason)
+          self.register_exit_failure(result)
+          return TEST_FAILURE
         elif pcode == -6: # timeout
           fail_reason = FAILURE_TIMEOUT
-          result = HttpTestResult(exit_node, 
-                                 self.node_map[exit_node[1:]].nickname,
+          result = HttpTestResult(self.node_map[exit_node[1:]],
                                  address, TEST_FAILURE, fail_reason)
           return self.register_timeout_failure(result)
+        elif pcode == -13:
+          fail_reason = FAILURE_NOEXITCONTENT
+          result = HttpTestResult(self.node_map[exit_node[1:]], 
+                              address, TEST_FAILURE, fail_reason)
+          self.register_exit_failure(result)
+          return TEST_FAILURE
         elif pcode == -23: 
           fail_reason = FAILURE_URLERROR
         else:
           fail_reason = FAILURE_MISCEXCEPTION
       else: 
         fail_reason = FAILURE_BADHTTPCODE+str(pcode)
-      result = HttpTestResult(exit_node, self.node_map[exit_node[1:]].nickname, 
+      result = HttpTestResult(self.node_map[exit_node[1:]], 
                             address, TEST_FAILURE, fail_reason)
       result.extra_info = str(pcontent)
       self.register_connect_failure(result)
@@ -853,7 +929,7 @@ class HTTPTest(SearchBasedTest):
 
     # if we have no content, we had a connection error
     if pcontent == "":
-      result = HttpTestResult(exit_node, self.node_map[exit_node[1:]].nickname, 
+      result = HttpTestResult(self.node_map[exit_node[1:]], 
                               address, TEST_FAILURE, FAILURE_NOEXITCONTENT)
       self.register_exit_failure(result)
       # Restore cookie jars
@@ -868,7 +944,7 @@ class HTTPTest(SearchBasedTest):
     # compare the content
     # if content matches, everything is ok
     if not hdiffs and psha1sum.hexdigest() == sha1sum.hexdigest():
-      result = HttpTestResult(exit_node, self.node_map[exit_node[1:]].nickname, 
+      result = HttpTestResult(self.node_map[exit_node[1:]], 
                               address, TEST_SUCCESS)
       self.register_success(result)
       return TEST_SUCCESS
@@ -887,8 +963,7 @@ class HTTPTest(SearchBasedTest):
         exit_content_file = open(DataHandler.uniqueFilename(failed_prefix+'.'+exit_node[1:]+'.content'), 'w')
         exit_content_file.write(pcontent)
         exit_content_file.close()
-        result = HttpTestResult(exit_node,
-                                self.node_map[exit_node[1:]].nickname, 
+        result = HttpTestResult(self.node_map[exit_node[1:]], 
                                 address, TEST_FAILURE, FAILURE_EXITTRUNCATION, 
                                 sha1sum.hexdigest(), psha1sum.hexdigest(), 
                                 content_prefix+".content",
@@ -910,7 +985,7 @@ class HTTPTest(SearchBasedTest):
     
     if not content_new:
       plog("WARN", "Failed to re-frech "+address+" outside of Tor. Did our network fail?")
-      result = HttpTestResult(exit_node, self.node_map[exit_node[1:]].nickname, 
+      result = HttpTestResult(self.node_map[exit_node[1:]], 
                               address, TEST_INCONCLUSIVE, 
                               INCONCLUSIVE_NOLOCALCONTENT)
       if self.rescan_nodes: result.from_rescan = True
@@ -953,8 +1028,7 @@ class HTTPTest(SearchBasedTest):
       # XXX: We probably should store the header differ + exit headers 
       # for later comparison (ie if the header differ picks up more diffs)
       plog("NOTICE", "Post-refetch header changes for "+address+": \n"+hdiffs)
-      result = HttpTestResult(exit_node,
-                              self.node_map[exit_node[1:]].nickname, 
+      result = HttpTestResult(self.node_map[exit_node[1:]], 
                               address, TEST_FAILURE, FAILURE_HEADERCHANGE)
       result.extra_info = hdiffs
       self.register_dynamic_failure(result)
@@ -964,7 +1038,7 @@ class HTTPTest(SearchBasedTest):
     # compare the node content and the new content
     # if it matches, everything is ok
     if psha1sum.hexdigest() == sha1sum_new.hexdigest():
-      result = HttpTestResult(exit_node, self.node_map[exit_node[1:]].nickname, 
+      result = HttpTestResult(self.node_map[exit_node[1:]], 
                               address, TEST_SUCCESS)
       self.register_success(result)
       return TEST_SUCCESS
@@ -1009,7 +1083,7 @@ class HTTPTest(SearchBasedTest):
       exit_content_file.write(pcontent)
       exit_content_file.close()
 
-      result = HttpTestResult(exit_node, self.node_map[exit_node[1:]].nickname,
+      result = HttpTestResult(self.node_map[exit_node[1:]],
                               address, TEST_FAILURE, FAILURE_EXITONLY, 
                               sha1sum.hexdigest(), psha1sum.hexdigest(), 
                               content_prefix+".content", exit_content_file.name)
@@ -1020,7 +1094,7 @@ class HTTPTest(SearchBasedTest):
     exit_content_file.write(pcontent)
     exit_content_file.close()
 
-    result = HttpTestResult(exit_node, self.node_map[exit_node[1:]].nickname, 
+    result = HttpTestResult(self.node_map[exit_node[1:]], 
                             address, TEST_FAILURE, FAILURE_DYNAMIC, 
                             sha1sum_new.hexdigest(), psha1sum.hexdigest(), 
                             content_prefix+".content", exit_content_file.name, 
@@ -1245,7 +1319,7 @@ class HTMLTest(HTTPTest):
     has_js_changes = jsdiff.contains_differences(tor_js)
 
     if not has_js_changes:
-      result = JsTestResult(exit_node, self.node_map[exit_node[1:]].nickname, 
+      result = JsTestResult(self.node_map[exit_node[1:]], 
                             address, TEST_SUCCESS)
       self.register_success(result)
       return TEST_SUCCESS
@@ -1254,7 +1328,7 @@ class HTMLTest(HTTPTest):
       exit_content_file.write(tor_js)
       exit_content_file.close()
 
-      result = JsTestResult(exit_node, self.node_map[exit_node[1:]].nickname, 
+      result = JsTestResult(self.node_map[exit_node[1:]], 
                              address, TEST_FAILURE, FAILURE_DYNAMIC, 
                              content_prefix+".content", exit_content_file.name, 
                              content_prefix+'.content-old',
@@ -1301,7 +1375,7 @@ class HTMLTest(HTTPTest):
     # if content matches, everything is ok
     if str(orig_soup) == str(tor_soup):
       plog("INFO", "Successful soup comparison after SHA1 fail for "+address+" via "+exit_node)
-      result = HtmlTestResult(exit_node, self.node_map[exit_node[1:]].nickname, 
+      result = HtmlTestResult(self.node_map[exit_node[1:]], 
                               address, TEST_SUCCESS)
       self.register_success(result)
 
@@ -1310,7 +1384,7 @@ class HTMLTest(HTTPTest):
     content_new = new_html.decode('ascii', 'ignore')
     if not content_new:
       plog("WARN", "Failed to re-frech "+address+" outside of Tor. Did our network fail?")
-      result = HtmlTestResult(exit_node, self.node_map[exit_node[1:]].nickname, 
+      result = HtmlTestResult(self.node_map[exit_node[1:]], 
                               address, TEST_INCONCLUSIVE, 
                               INCONCLUSIVE_NOLOCALCONTENT)
       if self.rescan_nodes: result.from_rescan = True
@@ -1327,7 +1401,7 @@ class HTMLTest(HTTPTest):
       exit_content_file.write(tor_html)
       exit_content_file.close()
 
-      result = HtmlTestResult(exit_node, self.node_map[exit_node[1:]].nickname, 
+      result = HtmlTestResult(self.node_map[exit_node[1:]], 
                               address, TEST_FAILURE, FAILURE_EXITONLY, 
                               content_prefix+".content", exit_content_file.name)
       self.register_exit_failure(result)
@@ -1386,7 +1460,7 @@ class HTMLTest(HTTPTest):
 
     if false_positive:
       plog("NOTICE", "False positive detected for dynamic change at "+address+" via "+exit_node)
-      result = HtmlTestResult(exit_node, self.node_map[exit_node[1:]].nickname, 
+      result = HtmlTestResult(self.node_map[exit_node[1:]], 
                               address, TEST_SUCCESS)
       self.register_success(result)
       return TEST_SUCCESS
@@ -1402,7 +1476,7 @@ class HTMLTest(HTTPTest):
       soupdiff_file = content_prefix+".soupdiff"
     else: soupdiff_file = None
 
-    result = HtmlTestResult(exit_node, self.node_map[exit_node[1:]].nickname, 
+    result = HtmlTestResult(self.node_map[exit_node[1:]], 
                             address, TEST_FAILURE, FAILURE_DYNAMIC, 
                             content_prefix+".content", exit_content_file.name, 
                             content_prefix+'.content-old',
@@ -1595,28 +1669,49 @@ class SSLTest(SearchBasedTest):
 
     if not cert:
       if code < 0 and type(code) == float:
-        if code == -2: # "connection not allowed aka ExitPolicy
+        if code == -1: # "General socks error"
+          fail_reason = FAILURE_CONNERROR
+        elif code == -2: # "connection not allowed" aka ExitPolicy
           fail_reason = FAILURE_EXITPOLICY
         elif code == -3: # "Net Unreach" ??
           fail_reason = FAILURE_NETUNREACH
         elif code == -4: # "Host Unreach" aka RESOLVEFAILED
           fail_reason = FAILURE_HOSTUNREACH
+          result = SSLTestResult(self.node_map[exit_node[1:]], address,
+                                ssl_file_name, TEST_FAILURE, fail_reason)
+          return self.register_dns_failure(result)
         elif code == -5: # Connection refused
           fail_reason = FAILURE_CONNREFUSED
+          result = SSLTestResult(self.node_map[exit_node[1:]],
+                       address, ssl_file_name, TEST_FAILURE, fail_reason)
+          self.extra_info=exc
+          self.register_exit_failure(result)
+          return TEST_FAILURE
         elif code == -6: # timeout
           fail_reason = FAILURE_TIMEOUT
-          result = SSLTestResult(exit_node,
-                                self.node_map[exit_node[1:]].nickname, address,
+          result = SSLTestResult(self.node_map[exit_node[1:]], address,
                                 ssl_file_name, TEST_FAILURE, fail_reason)
           return self.register_timeout_failure(result)
+        elif code == -13:
+          fail_reason = FAILURE_NOEXITCONTENT # shouldn't happen here
+          result = SSLTestResult(self.node_map[exit_node[1:]],
+                       address, ssl_file_name, TEST_FAILURE, fail_reason)
+          self.extra_info=exc
+          self.register_exit_failure(result)
+          return TEST_FAILURE
         elif code == -23: 
           fail_reason = FAILURE_CRYPTOERROR
+          result = SSLTestResult(self.node_map[exit_node[1:]],
+                       address, ssl_file_name, TEST_FAILURE, fail_reason)
+          self.extra_info=exc
+          self.register_exit_failure(result)
+          return TEST_FAILURE
         else:
           fail_reason = FAILURE_MISCEXCEPTION
       else:
           fail_reason = FAILURE_MISCEXCEPTION
 
-      result = SSLTestResult(exit_node, self.node_map[exit_node[1:]].nickname, 
+      result = SSLTestResult(self.node_map[exit_node[1:]], 
                              address, ssl_file_name, TEST_FAILURE, fail_reason) 
       result.extra_info = exc
       self.register_connect_failure(result)
@@ -1626,15 +1721,15 @@ class SSLTest(SearchBasedTest):
       # get an easily comparable representation of the certs
       cert_pem = crypto.dump_certificate(crypto.FILETYPE_PEM, cert)
     except OpenSSL.crypto.Error, e:
-      result = SSLTestResult(exit_node, self.node_map[exit_node[1:]].nickname,
+      result = SSLTestResult(self.node_map[exit_node[1:]],
                    address, ssl_file_name, TEST_FAILURE, FAILURE_CRYPTOERROR)
       self.extra_info=e.__class__.__name__+str(e)
-      self.register_connect_failure(result)
+      self.register_exit_failure(result)
       return TEST_FAILURE
 
     # if certs match, everything is ok
     if ssl_domain.seen_cert(cert_pem):
-      result = SSLTestResult(exit_node, self.node_map[exit_node[1:]].nickname, 
+      result = SSLTestResult(self.node_map[exit_node[1:]], 
                              address, ssl_file_name, TEST_SUCCESS)
       self.register_success(result)
       return TEST_SUCCESS
@@ -1642,7 +1737,7 @@ class SSLTest(SearchBasedTest):
     # False positive case.. Can't help it if the cert rotates AND we have a
     # failure... Need to prune all results for this cert and give up.
     if ssl_domain.cert_rotates:
-      result = SSLTestResult(exit_node, self.node_map[exit_node[1:]].nickname, 
+      result = SSLTestResult(self.node_map[exit_node[1:]], 
                              address, ssl_file_name, TEST_FAILURE, 
                              FAILURE_DYNAMIC, self.get_resolved_ip(address), 
                              cert_pem)
@@ -1650,7 +1745,7 @@ class SSLTest(SearchBasedTest):
       return TEST_FAILURE
 
     # if certs dont match, means the exit node has been messing with the cert
-    result = SSLTestResult(exit_node, self.node_map[exit_node[1:]].nickname, 
+    result = SSLTestResult(self.node_map[exit_node[1:]], 
                            address, ssl_file_name, TEST_FAILURE,
                            FAILURE_EXITONLY, self.get_resolved_ip(address), 
                            cert_pem)
@@ -1835,11 +1930,11 @@ class POP3STest(Test):
     # compare
     if (capabilities_ok != capabilities_ok_d or starttls_present != starttls_present_d or 
         tls_started != tls_started_d or tls_succeeded != tls_succeeded_d):
-      result = POPTestResult(exit_node, self.node_map[exit_node[1:]].nickname, address, TEST_FAILURE)
+      result = POPTestResult(self.node_map[exit_node[1:]], address, TEST_FAILURE)
       datahandler.saveResult(result)
       return TEST_FAILURE
     
-    result = POPTestResult(exit_node, self.node_map[exit_node[1:]].nickname, address, TEST_SUCCESS)
+    result = POPTestResult(self.node_map[exit_node[1:]], address, TEST_SUCCESS)
     datahandler.saveResult(result)
     return TEST_SUCCESS
 
@@ -1934,11 +2029,11 @@ class SMTPSTest(Test):
 
     # compare
     if ehlo1_reply != ehlo1_reply_d or has_starttls != has_starttls_d or ehlo2_reply != ehlo2_reply_d:
-      result = SMTPTestResult(exit_node, self.node_map[exit_node[1:]].nickname, address, TEST_FAILURE)
+      result = SMTPTestResult(self.node_map[exit_node[1:]], address, TEST_FAILURE)
       datahandler.saveResult(result)
       return TEST_FAILURE
 
-    result = SMTPTestResult(exit_node, self.node_map[exit_node[1:]].nickname, address, TEST_SUCCESS)
+    result = SMTPTestResult(self.node_map[exit_node[1:]], address, TEST_SUCCESS)
     datahandler.saveResult(result)
     return TEST_SUCCESS
 
@@ -2101,11 +2196,11 @@ class IMAPSTest(Test):
     # compare
     if (capabilities_ok != capabilities_ok_d or starttls_present != starttls_present_d or 
       tls_started != tls_started_d or tls_succeeded != tls_succeeded_d):
-      result = IMAPTestResult(exit_node, self.node_map[exit_node[1:]].nickname, address, TEST_FAILURE)
+      result = IMAPTestResult(self.node_map[exit_node[1:]], address, TEST_FAILURE)
       datahandler.saveResult(result)
       return TEST_FAILURE
 
-    result = IMAPTestResult(exit_node, self.node_map[exit_node[1:]].nickname, address, TEST_SUCCESS)
+    result = IMAPTestResult(self.node_map[exit_node[1:]], address, TEST_SUCCESS)
     datahandler.saveResult(result)
     return TEST_SUCCESS
 
@@ -2136,11 +2231,11 @@ class DNSTest(Test):
       return TEST_INCONCLUSIVE
 
     if ip in ips_d:
-      result = DNSTestResult(exit_node, self.node_map[exit_node[1:]].nickname, address, TEST_SUCCESS)
+      result = DNSTestResult(self.node_map[exit_node[1:]], address, TEST_SUCCESS)
       return TEST_SUCCESS
     else:
       plog('ERROR', 'The basic DNS test suspects ' + exit_node + ' to be malicious.')
-      result = DNSTestResult(exit_node, self.node_map[exit_node[1:]].nickname, address, TEST_FAILURE)
+      result = DNSTestResult(self.node_map[exit_node[1:]], address, TEST_FAILURE)
       return TEST_FAILURE
 
 class SSHTest(Test):
@@ -2188,6 +2283,16 @@ class NodeManager(ConsensusTracker):
     c.set_event_handler(self)
     c.set_events([TorCtl.EVENT_TYPE.NEWCONSENSUS,
                   TorCtl.EVENT_TYPE.NEWDESC], True)
+
+  def idhex_to_r(self, idhex):
+    self.rlock.acquire()
+    result = None
+    try:
+      if idhex in self.routers:
+        result = self.routers[idhex]
+    finally:
+      self.rlock.release()
+    return result
 
   def name_to_idhex(self, nick):
     self.rlock.acquire()
@@ -2267,7 +2372,9 @@ class DNSRebindScanner(EventHandler):
           handler = DataHandler()
           node = self.__mt.get_exit_node()
           plog("ERROR", "DNS Rebeind failure via "+node)
-          result = DNSRebindTestResult(node, "NotStored!", '', TEST_FAILURE)
+
+          result = DNSRebindTestResult(self.__mt.node_manager.idhex_to_r(node), 
+                                       '', TEST_FAILURE)
           handler.saveResult(result)
     # TODO: This is currently handled via socks error codes,
     # but stream events would give us more info...
@@ -2732,8 +2839,16 @@ def main(argv):
         test.remove_false_positives()
         if not do_rescan and rescan_at_finish:
           test.toggle_rescan()
-        test.rewind()
-    
+          test.rewind()
+        elif restart_at_finish:
+          test.rewind()
+    all_finished = True
+    for test in tests.itervalues():
+      if not test.finished():
+        all_finished = False
+    if all_finished:
+      plog("NOTICE", "All tests have finished. Exiting\n")
+      sys.exit(0)
 
 # initiate the program
 #
