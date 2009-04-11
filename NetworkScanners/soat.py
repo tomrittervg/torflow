@@ -1642,7 +1642,7 @@ class SSLTest(SearchBasedTest):
     exit_node = metacon.get_exit_node()
     if not exit_node or exit_node == '0':
       plog('NOTICE', 'We had no exit node to test, skipping to the next test.')
-      result = SSLTestResult("NoExit", "NotSupplied!", 
+      result = SSLTestResult(None, 
                               address, ssl_file_name, TEST_INCONCLUSIVE,
                               INCONCLUSIVE_NOEXIT)
       if self.rescan_nodes: result.from_rescan = True

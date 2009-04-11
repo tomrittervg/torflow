@@ -92,10 +92,16 @@ FALSEPOSITIVE_DEADSITE = "FalsePositiveDeadSite"
 class TestResult(object):
   ''' Parent class for all test result classes '''
   def __init__(self, exit_obj, site, status, reason=None):
-    self.exit_node = exit_obj.idhex
-    self.exit_name = exit_obj.nickname
-    self.exit_ip = exit_obj.ip
-    self.contact = exit_obj.contact
+    if exit_obj:
+      self.exit_node = exit_obj.idhex
+      self.exit_name = exit_obj.nickname
+      self.exit_ip = exit_obj.ip
+      self.contact = exit_obj.contact
+    else:
+      self.exit_node = "[No Exit Used]"
+      self.exit_name = ""
+      self.exit_ip = ""
+      self.contact = "[No Exit Used]"
     self.exit_obj = exit_obj
     self.site = site
     self.timestamp = time.time()
