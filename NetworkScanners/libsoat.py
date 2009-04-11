@@ -195,10 +195,7 @@ class SSLTestResult(TestResult):
 
   def __str__(self):
     ret = TestResult.__str__(self)
-    ssl_file = open(self.ssl_file, 'r')
-    ssl_domain = pickle.load(ssl_file)
-    ssl_domain.depickle_upgrade()
-    ssl_file.close()
+    ssl_domain = SnakePickler.load(self.ssl_file)
     ret += " Rotates: "+str(ssl_domain.cert_rotates)
     ret += " Changed: "+str(ssl_domain.cert_changed)+"\n" 
     if self.verbose:
@@ -448,8 +445,7 @@ class HtmlTestResult(TestResult):
 
       if soup and tor_soup and old_soup:
         if self.soupdiffer and os.path.exists(self.soupdiffer):
-          soupdiff = pickle.load(open(self.soupdiffer, 'r'))
-          soupdiff.depickle_upgrade()
+          soupdiff = SnakePickler.load(self.soupdiffer)
         else:
           soupdiff = SoupDiffer(old_soup, soup)
 
@@ -597,18 +593,13 @@ class DataHandler:
     for root, dirs, files in os.walk(rdir):
       for f in files:
         if f.endswith('.result'):
-          fh = open(os.path.join(root, f))
-          result = pickle.load(fh)
-          result.depickle_upgrade()
+          result = SnakePickler.load(os.path.join(root, f))
           result.rebase(self.data_dir)
           results.append(result)
     return results
 
   def getResult(self, file):
-    fh = open(file, 'r')
-    res = pickle.load(fh)
-    res.depickle_upgrade()
-    return res
+    return SnakePickler.load(file)
 
   def uniqueFilename(afile):
     (prefix,suffix)=os.path.splitext(afile)
@@ -656,9 +647,7 @@ class DataHandler:
   def saveResult(self, result):
     ''' generic method for saving test results '''
     result.filename = self.__resultFilename(result)
-    result_file = open(result.filename, 'w')
-    pickle.dump(result, result_file)
-    result_file.close()
+    SnakePickler.dump(result, result.filename)
 
   def __testFilename(self, test, position=-1):
     if position == -1:
@@ -673,19 +662,14 @@ class DataHandler:
       while os.path.exists(filename+"."+str(i)+".test"):
         i+=1
       position = i-1
-
-    test_file = open(filename+"."+str(position)+".test", 'r')
-    test = pickle.load(test_file)
-    test.depickle_upgrade()
-    test_file.close()
+    
+    test = SnakePickler.load(filename+"."+str(position)+".test")
     return test
 
   def saveTest(self, test):
     if not test.filename:
       test.filename = self.__testFilename(test)
-    test_file = open(test.filename, 'w')
-    pickle.dump(test, test_file)
-    test_file.close()
+    SnakePickler.dump(test, test.filename)
 
 # These three bits are needed to fully recursively strain the parsed soup.
 # For some reason, the SoupStrainer does not get applied recursively..
@@ -733,6 +717,48 @@ def FullyStrainedSoup(html):
     soup.append(tag)
   return soup      
 
+class SnakePickler:
+  def dump(obj, filename):
+    if not "depickle_upgrade" in dir(obj.__class__):
+      plog("WARN", "Pickling instance of "+obj.__class__.__name__+" without upgrade method")
+    f = file(filename, "w")
+    try:
+      pickle.dump(obj, f)
+    except KeyboardInterrupt:
+      finished = False
+      while not finished:
+        try:
+          f.close()
+          f = file(filename, "w")
+          pickle.dump(obj, f)
+          f.close()
+          finished = True
+        except KeyboardIterrupt:
+          pass
+      raise KeyboardInterrupt
+    except Exception, e:
+      plog("WARN", "Exception during pickle dump: "+e)
+      try:
+        os.unlink(filename)
+      except: pass
+    f.close()
+  dump = Callable(dump)
+
+  def load(filename):
+    f = file(filename, "r")
+    try:
+      obj = pickle.load(f)
+    except Exception, e:
+      plog("WARN", "Error loading object from "+filename+": "+str(e))
+      return None
+    if not "depickle_upgrade" in dir(obj.__class__):
+      plog("WARN", "De-pickling instance of "+obj.__class__.__name__+" without upgrade method")
+    else:
+      obj.depickle_upgrade()
+    f.close()
+    return obj
+  load = Callable(load)
+     
 class SoupDiffer:
   """ Diff two soup tag sets, optionally writing diffs to outfile. """
   def __init__(self, soup_old, soup_new):

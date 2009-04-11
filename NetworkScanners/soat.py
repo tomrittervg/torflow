@@ -45,7 +45,6 @@ import cookielib
 import sha
 import Queue
 import threading
-import pickle
 
 from libsoat import *
 
@@ -790,9 +789,7 @@ class HTTPTest(SearchBasedTest):
       added_cookie_jar.load(content_prefix+'.cookies', ignore_discard=True)
       self.cookie_jar.load(content_prefix+'.cookies', ignore_discard=True)
 
-      header_file = open(content_prefix+'.headerdiff', 'r')
-      headerdiffer = pickle.load(header_file)
-      header_file.close()
+      headerdiffer = SnakePickler.load(content_prefix+'.headerdiff')
 
       content = None
       mime_type = None 
@@ -822,11 +819,9 @@ class HTTPTest(SearchBasedTest):
       content_file = open(content_prefix+'.content', 'w')
       content_file.write(content)
       content_file.close()
-
-      header_file = open(content_prefix+'.headerdiff', 'w')
+      
       headerdiffer = HeaderDiffer(resp_headers)
-      pickle.dump(headerdiffer, header_file)
-      header_file.close()
+      SnakePickler.dump(headerdiffer, content_prefix+'.headerdiff')
       
       # Need to do set subtraction and only save new cookies.. 
       # or extract/make_cookies
@@ -996,9 +991,7 @@ class HTTPTest(SearchBasedTest):
     headerdiffer.prune_differences(resp_headers_new)
     hdiffs = headerdiffer.show_differences(presp_headers)
 
-    header_file = open(content_prefix+'.headerdiff', 'w')
-    pickle.dump(headerdiffer, header_file)
-    header_file.close()
+    SnakePickler.dump(headerdiffer, content_prefix+'.headerdiff')
 
     sha1sum_new = sha.sha(content_new)
 
@@ -1307,14 +1300,13 @@ class HTMLTest(HTTPTest):
 
     if os.path.exists(content_prefix+".jsdiff"):
       plog("DEBUG", "Loading jsdiff for "+address)
-      jsdiff = pickle.load(open(content_prefix+".jsdiff", 'r'))
-      jsdiff.depickle_upgrade()
+      jsdiff = SnakePickler.load(content_prefix+".jsdiff")
     else:
       plog("DEBUG", "No jsdiff for "+address+". Creating+dumping")
       jsdiff = JSDiffer(orig_js)
     
     jsdiff.prune_differences(new_js)
-    pickle.dump(jsdiff, open(content_prefix+".jsdiff", 'w'))
+    SnakePickler.dump(jsdiff, content_prefix+".jsdiff")
 
     has_js_changes = jsdiff.contains_differences(tor_js)
 
@@ -1415,14 +1407,13 @@ class HTMLTest(HTTPTest):
     #    were added to additional tags
     if os.path.exists(content_prefix+".soupdiff"):
       plog("DEBUG", "Loading soupdiff for "+address)
-      soupdiff = pickle.load(open(content_prefix+".soupdiff", 'r'))
-      soupdiff.depickle_upgrade()
+      soupdiff = SnakePickler.load(content_prefix+".soupdiff")
       soupdiff.prune_differences(new_soup)
     else:
       plog("DEBUG", "No soupdiff for "+address+". Creating+dumping")
       soupdiff = SoupDiffer(orig_soup, new_soup)
 
-    pickle.dump(soupdiff, open(content_prefix+".soupdiff", 'w'))
+    SnakePickler.dump(soupdiff, content_prefix+".soupdiff")
     
     more_tags = soupdiff.show_changed_tags(tor_soup)     
     more_attrs = soupdiff.show_changed_attrs(tor_soup)
@@ -1443,14 +1434,13 @@ class HTMLTest(HTTPTest):
     if false_positive:
       if os.path.exists(content_prefix+".jsdiff"):
         plog("DEBUG", "Loading jsdiff for "+address)
-        jsdiff = pickle.load(open(content_prefix+".jsdiff", 'r'))
-        jsdiff.depickle_upgrade()
+        jsdiff = SnakePickler.load(content_prefix+".jsdiff")
       else:
         plog("DEBUG", "No jsdiff for "+address+". Creating+dumping")
         jsdiff = JSSoupDiffer(orig_soup)
       
       jsdiff.prune_differences(new_soup)
-      pickle.dump(jsdiff, open(content_prefix+".jsdiff", 'w'))
+      SnakePickler.dump(jsdiff, content_prefix+".jsdiff")
 
       differences = jsdiff.show_differences(tor_soup)
       false_positive = not differences
@@ -1580,10 +1570,7 @@ class SSLTest(SearchBasedTest):
     # load the original cert and compare
     # if we don't have the original cert yet, get it
     try:
-      ssl_file = open(ssl_file_name, 'r')
-      ssl_domain = pickle.load(ssl_file)
-      ssl_domain.depickle_upgrade()
-      ssl_file.close()
+      ssl_domain = SnakePickler.load(ssl_file_name)
     except IOError:
       ssl_domain = SSLDomain(address)
 
@@ -1607,9 +1594,7 @@ class SSLTest(SearchBasedTest):
       return TEST_INCONCLUSIVE
 
     if self._update_cert_list(ssl_domain, check_ips):
-      ssl_file = open(ssl_file_name, 'w')
-      pickle.dump(ssl_domain, ssl_file)
-      ssl_file.close()
+      SnakePickler.dump(ssl_domain, ssl_file_name)
 
     if not ssl_domain.cert_map:
       plog('WARN', 'Error getting the correct cert for ' + address)
@@ -1620,9 +1605,7 @@ class SSLTest(SearchBasedTest):
       ssl_domain = SSLDomain(address)
       plog('INFO', 'Fetching all new certs for '+address)
       if self._update_cert_list(ssl_domain, check_ips):
-        ssl_file = open(ssl_file_name, 'w')
-        pickle.dump(ssl_domain, ssl_file)
-        ssl_file.close()
+        SnakePickler.dump(ssl_domain, ssl_file_name)
       if ssl_domain.cert_changed:
         plog("NOTICE", "Fully dynamic certificate host "+address)
 

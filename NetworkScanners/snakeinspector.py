@@ -22,6 +22,11 @@ from TorCtl.TorUtil import *
 
 TorCtl.TorUtil.loglevel="NOTICE"
 
+if TorCtl.TorUtil.loglevels[TorCtl.TorUtil.loglevel] > TorCtl.TorUtil.loglevels["INFO"]:
+  # Kill stderr (jsdiffer and exception noise) if our loglevel is above INFO
+  sys.stderr = file("/dev/null", "w")
+
+
 def usage(argv):
   print "Usage: "+argv[0]+" with 0 or more of the following filters: "
   print "  --dir <datadir>"
@@ -124,6 +129,8 @@ def main(argv):
        (not resultfilter or r.__class__.__name__ == resultfilter):
       try:
         print r
+      except KeyboardInterrupt:
+        raise KeyboardInterrupt
       except IOError, e:
         traceback.print_exc()
       except Exception, e:
