@@ -18,6 +18,7 @@ Speedracer functions by dividing the Tor network into groups of nodes of
 similar advertised capacity and then fetching the same URL over and over
 again via 2-hop circuits consisting of nodes in that group.
 
+
 A. Configuring SpeedRacer
 
 At the time of this writing, it has the following configuration
@@ -47,6 +48,7 @@ save_every is used for saving incremental results to check for
 convergence. Results will be saved after each multiple of 'save_every'
 fetches. The incremental results are cumulative.
 
+
 B. Running SpeedRacer 
 
 Like soat, speedracer should be given its own Tor that is not performing
@@ -71,6 +73,8 @@ C. Reading the Tea Leaves
 
 SpeedRacer outputs a lot of statistics in aggregate form in 
 ./NetworkScanners/data/speedraces/stats-<pct_start>-<pct_end>-<n>-<time>
+and
+./NetworkScanners/data/speedraces/ratios-<pct_start>-<pct_end>-<n>-<time>
 
 pct_start and pct_end denote the range of the slice. N denotes the
 number of fetches so far, and time is the timestamp of that run. The
@@ -80,10 +84,127 @@ n=5 in addition to 5 more fetches.
 The statistics stored with each node are indicated in the key at the top
 of each stat file.
 
-For the purposes of speedracer, the interesting statistics are the EB
-stat and the BR stat. The EB stat is the average stream capacity we
-observe for a node, and the BR stat is the ratio of a node's advertised
-bandwidth to its average stream capacity.
+For the purposes of speedracer, the interesting statistics are actually 
+in the ratio files. The stats files are more auxiliary in nature, describing
+failure and attempt counts.
+
+
+1. Ratio files
+
+The ratio files are the initial set of options created for consideration 
+for reweighting nodes' advertised bandwidths. They contain a set of ratios
+that can be multiplied by an advertised bandwidth to produce a new value
+to be voted on by participating authorities for use in NS documents and
+client node selection. This means that faster and more reliable nodes have 
+higher ratio values.
+
+They are described succinctly in the key for the file:
+
+Metatroller Ratio Statistics:
+  SR=Stream avg ratio     AR=Advertised bw ratio    BRR=Adv. bw avg ratio
+  CSR=Circ suspect ratio  CFR=Circ Fail Ratio       SSR=Stream suspect ratio  
+  SFR=Stream fail ratio   CC=Circuit Count          SC=Stream Count
+  P=Percentile Rank       U=Uptime (h)
+
+In detail:
+
+a. SR=Stream avg ratio
+
+This is the ratio of the node's observed average stream capacity to the
+average observed stream capacity for the entire slice. It is candidate
+#1 for reweighting, and may be the only one we eventually use. The ratio
+file itself is sorted by this number. 
+
+b. AR=Advertised bw ratio
+
+This value is provided only for reference. It is the ratio of the
+advertised bandwidth of the router to the average advertised bandwidth
+of the slice.
+
+c. BRR=Adv. bw avg ratio
+
+This ratio is actually a ratio of ratios. First, the ratio of the node's
+observed stream capacity to its advertised bandwidth is taken. Then this
+function is averaged across all nodes, and each node is given a value
+that is the ratio of its observed bandwidth to stream capacity to the
+average for the slice.
+
+This was originally my first choice for ratio usage. I initially thought
+it would be ideal to use for penalizing nodes lying about their
+bandwidth. But upon reflection it seems to double-penalize these nodes:
+Nodes that lie will naturally attract more traffic than they can handle,
+which decreases their observed stream capacity proportionally. Taking
+the ratio of of this to their already inflated advertised bandwidth
+amount would double-count the discrepancy.
+
+d. CSR=Circ suspect ratio
+
+This value is the ratio of the node's circuit suspected failure rate 
+to the average circuit success rate for the slice. A "suspected failure"
+is attributed to every member node currently present in a circuit at the
+time of failure, plus the next hop if an extend was in progress. Nodes
+beyond this position in the path are not blamed for the failure.
+
+This is my second choice for a reweighting ratio. However, we currently
+don't (and probably can't) differentiate between failures because of 
+hibernation or shutdown versus actual connectivity issues. 
+
+e. CFR=Circ Fail Ratio
+
+This value is similar to the Circ suspect ratio except that in TorFlow
+parlance, a "failure" is only counted against the extender and extendee
+nodes. Earlier nodes are not counted. 
+
+This would be a nice ratio to use, except for the fact that it is
+probably more useful if we could get separate stats on extender vs
+extendee, but that is currently not supported. Also, given the relative
+frequency of timeout failures, and the fact that timeout failures can be
+caused by or contributed to by earlier hops in the circuit, we would
+probably want to treat those specially for this stat as well.
+
+f. SSR=Stream Suspect Ratio
+
+The stream suspect ratio is counted similarly to the circuit suspect
+ratio, except that stream suspects are only attributed to pre-exit nodes
+if the failure reason is one of "TIMEOUT", "INTERNAL", "TORPROTOCOL",
+or "DESTROY". 
+
+g. SFR=Stream Fail ratio
+
+The stream fail ratio records only the success vs failure of exit nodes,
+as such non-exit nodes will never have a value for this stat.
+
+Both the stream stats are better dealt with by the SoaT exit scanner, as
+the values for these tend to be pretty binary: either the exit is able
+to make external connections or it isn't. In the few cases where they are 
+not binary, usually the same reliability information is represented in the
+Circuit Suspect Ratio, and more accurately at that.
+
+
+Rationale and suggestions for usage:
+
+The ratios are computed relative to the average values of that stat for
+the slice as opposed to the network as a whole primarily because this
+will enable us to concurrently use Steven Murdoch's queuing theory
+load-optimum selection weighting in tandem with these reweighting
+ratios. His ratios are based on queuing theory effects of node
+selection on faster vs slower nodes for various network loads.  If we
+both are correcting the load of individual nodes with respect to the
+network as a whole, we will end up over-compensating.
+
+My current thinking is that we should combine the circuit fail ratio
+and the stream weighting ratio linearly, with 50% of the ratio changes
+coming from each. There's no formal justification for this of course.
+Typically the circuit failure ratios are usually pretty close to 1 for 
+most nodes except those with serious issues, so this primarily has the 
+effect of dampening the change by the observed stream ratios, except
+in cases of really unreliable nodes.
+
+So the formula would be something like:
+ NewBandwidth = Advertised*(0.5*SR+0.5*CSR)
+
+
+2. Stats files
 
 For ease of review, the nodes are sorted and printed in lists according
 to a few different metrics. For speedracer, the most useful list is the
@@ -91,7 +212,7 @@ first one, but the others are useful for buildtimes, where these same
 stat files are also available. The data being displayed is the same, it
 is just reordered in each list. These lists are:
 
-1. Bandwidth Ratios
+a. Bandwidth Ratios
 
 This list is sorted by the ratio of advertised bandwidth to average
 stream capacity (the BR stat). Nodes at the top of this list advertise a
@@ -99,7 +220,7 @@ disproportionately large amount of bandwidth in comparison to what they
 actually were seen to carry over streams used to fetch the URL (the EB
 stat). 
 
-2. Failed Counts
+b. Failed Counts
 
 This list is less interesting for speedracer. In it, the nodes are
 sorted by the sum of stream and circuit failures (SF and CF,
@@ -107,7 +228,7 @@ respectively). Stream failures are primarily attributed to exit nodes,
 where as circuit failures are attributed to the extender and the
 extendee at the time of failure.
 
-3. Suspected Counts
+c. Suspected Counts
 
 This list is sorted by 'suspected' failure counts (SS and CS). Suspected
 failure counts are attributed to each node that was a member of the
@@ -117,21 +238,21 @@ Some failures (such as timeouts) are only attributed as 'suspected' to
 all nodes in the path, and as such do not show up in the 'failed'
 counts for nodes.
 
-4. Fail Rates
+d. Fail Rates
 
 This list is sorted by the rate of failures per hour of node uptime.
 
-5. Suspect Rates
+e. Suspect Rates
 
 This list is sorted by the rate of suspected failures per hour of
 node uptime.
 
-6. Failed Reasons
+f. Failed Reasons
 
 This list groups nodes by their failure reason, and sorts the reasons by
 most prevalent, and sorts the nodes within these lists. 
 
-7. Suspect Reasons
+g. Suspect Reasons
 
 This is the same as the failed reasons, except it is sorted by
 'suspected' counts.
@@ -144,6 +265,7 @@ Buildtimes lives in
 torflow-trunk/CircuitAnalysis/BuildTimes/buildtimes.py. It functions by
 creating circuits over and over again through percentile slices of the
 network, similar to speedracer.
+
 
 A. Running Buildtimes
 
