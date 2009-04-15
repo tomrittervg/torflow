@@ -106,7 +106,6 @@ def speedrace(meta, skip, pct):
 
     attempt = 0
     successful = 0
-    race_time = strftime("20%y-%m-%d-%H:%M:%S")
     while successful < count:
         meta.send_command_and_check('NEWNYM')
         
@@ -126,6 +125,7 @@ def speedrace(meta, skip, pct):
             plog('DEBUG', str(skip) + '-' + str(pct) + '% circuit build+fetch failed for ' + str(build_exit))
 
         if (successful % save_every) == 0:
+          race_time = strftime("20%y-%m-%d-%H:%M:%S")
           meta.send_command_and_check('CLOSEALLCIRCS')
           meta.send_command_and_check('SAVESTATS '+os.getcwd()+'/data/speedraces/stats-'+str(skip)+':'+str(pct)+"-"+str(successful)+"-"+race_time)
           meta.send_command_and_check('SAVERATIOS '+os.getcwd()+'/data/speedraces/ratios-'+str(skip)+':'+str(pct)+"-"+str(successful)+"-"+race_time)
