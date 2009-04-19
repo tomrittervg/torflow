@@ -84,6 +84,15 @@ def check_entropy(rlist, clipping_point):
   pure_entropy = 0.0
   clipped_entropy = 0.0
   uniform_entropy = 0.0
+
+  guard_entropy = 0.0
+  mid_entropy = 0.0
+  exit_entropy = 0.0
+
+  ggen = BwWeightedGenerator(rlist, FlagsRestriction(["Guard", "Fast", "Valid", "Running"]), 3, guard=True)
+  mgen = BwWeightedGenerator(rlist, FlagsRestriction(["Valid", "Fast", "Running"]), 3)
+  egen = BwWeightedGenerator(rlist, FlagsRestriction(["Exit", "Fast", "Valid", "Running"]), 3, exit=True)
+
   for r in rlist:
     if not fast_rst.r_is_ok(r):
       continue
@@ -105,6 +114,21 @@ def check_entropy(rlist, clipping_point):
       continue
     pure_entropy += (r.bw/bw)*math.log(r.bw/bw, 2)
     uniform_entropy += (1.0/nodes)*math.log(1.0/nodes, 2)
+    gbw = r.bw
+    mbw = r.bw
+    ebw = r.bw
+    if "Exit" in r.flags:
+      gbw *= ggen.exit_weight
+      mbw *= mgen.exit_weight
+      ebw *= egen.exit_weight
+    if "Guard" in r.flags:
+      gbw *= ggen.guard_weight
+      mbw *= mgen.guard_weight
+      ebw *= egen.guard_weight
+
+    if gbw > 2: guard_entropy += (gbw/bw)*math.log(gbw/bw, 2)
+    if mbw > 2: mid_entropy += (mbw/bw)*math.log(mbw/bw, 2)
+    if ebw > 2: exit_entropy += (ebw/bw)*math.log(ebw/bw, 2)
   
     rbw = 0
     if r.bw > clipping_point:
@@ -116,6 +140,11 @@ def check_entropy(rlist, clipping_point):
   print "Uniform entropy: " + str(-uniform_entropy)
   print "Raw entropy: " + str(-pure_entropy)
   print "Clipped entropy: " + str(-clipped_entropy)
+
+  print "Guard entropy: " + str(-guard_entropy)
+  print "Middle entropy: " + str(-mid_entropy)
+  print "Exit entropy: " + str(-exit_entropy)
+
   print "Nodes: "+str(nodes)+", Exits: "+str(exits)+" Total bw: "+str(round(bw/(1024.0*1024),2))+", Exit Bw: "+str(round(exit_bw/(1024.0*1024),2))
   print "Clipped: "+str(clipped)+", bw: "+str(round(clipped_bw/(1024.0*1024),2))
 
