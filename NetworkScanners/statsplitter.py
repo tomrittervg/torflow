@@ -106,6 +106,10 @@ def check_entropy(rlist, clipping_point):
     if exit_rst.r_is_ok(r):
       exits += 1
       exit_bw += r.bw
+
+  tgbw = ggen.total_weighted_bw
+  tmbw = mgen.total_weighted_bw
+  tebw = egen.total_weighted_bw
   
   for r in rlist:
     if not fast_rst.r_is_ok(r):
@@ -126,9 +130,9 @@ def check_entropy(rlist, clipping_point):
       mbw *= mgen.guard_weight
       ebw *= egen.guard_weight
 
-    if gbw > 2: guard_entropy += (gbw/bw)*math.log(gbw/bw, 2)
-    if mbw > 2: mid_entropy += (mbw/bw)*math.log(mbw/bw, 2)
-    if ebw > 2: exit_entropy += (ebw/bw)*math.log(ebw/bw, 2)
+    if gbw/tgbw > 0: guard_entropy += (gbw/tgbw)*math.log(gbw/tgbw, 2)
+    if mbw/tmbw > 0: mid_entropy += (mbw/tmbw)*math.log(mbw/tmbw, 2)
+    if ebw/tebw > 0: exit_entropy += (ebw/tebw)*math.log(ebw/tebw, 2)
   
     rbw = 0
     if r.bw > clipping_point:
