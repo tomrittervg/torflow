@@ -18,8 +18,10 @@ from TorCtl.TorUtil import meta_port,meta_host,control_port,control_host,control
 from TorCtl import StatsSupport
 from TorCtl.StatsSupport import StatsHandler
 from TorCtl import PathSupport, TorCtl
-from TorCtl.PathSupport import ExitPolicyRestriction,OrNodeRestriction
+from TorCtl.PathSupport import ExitPolicyRestriction,OrNodeRestriction,RestrictionError
 from TorCtl.TorUtil import plog
+
+import traceback
 
 # For testing:
 from dist_check import run_check
@@ -38,6 +40,7 @@ __selmgr = PathSupport.SelectionManager(
       use_exit=None,
       use_guards=True,
       restrict_guards=False)
+      #extra_node_rstr=PathSupport.RateLimitedRestriction(True))
 
 # Original value of FetchUselessDescriptors
 FUDValue = None
@@ -248,8 +251,13 @@ def guardslice(guard_slices,p,s,end,ncircuits,max_circuits,dirname):
           plog("DEBUG", "Too many circuits: "+str(h.circ_count-h.circ_succeeded-h.circ_failed)+", delaying build")
           h.schedule_low_prio(circuit_builder)
           return
-        circ = h.c.build_circuit(h.selmgr.select_path())   
-        h.circuits[circ.circ_id] = circ
+        try:
+          circ = h.c.build_circuit(h.selmgr.select_path())   
+          h.circuits[circ.circ_id] = circ
+        except RestrictionError, e:
+          # XXX: Hrmm..
+          traceback.print_exc()
+          plog("WARN", "Impossible restrictions: "+str(e))
       c._handler.schedule_low_prio(circuit_builder)
     except TorCtl.ErrorReply,e:
       plog("NOTICE","Error building circuit: " + str(e.args))
