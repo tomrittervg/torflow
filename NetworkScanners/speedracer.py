@@ -34,7 +34,7 @@ stop_pct = 78
 pct_step = 3
 # Number of fetches per slice:
 count = 250
-save_every = 10
+save_every = 2
 
 class MetatrollerException(Exception):
     "Metatroller does not accept this command."
@@ -124,11 +124,12 @@ def speedrace(meta, skip, pct):
         else:
             plog('DEBUG', str(skip) + '-' + str(pct) + '% circuit build+fetch failed for ' + str(build_exit))
 
-        if (successful % save_every) == 0:
+        if successful and (successful % save_every) == 0:
           race_time = strftime("20%y-%m-%d-%H:%M:%S")
           meta.send_command_and_check('CLOSEALLCIRCS')
           meta.send_command_and_check('SAVESTATS '+os.getcwd()+'/data/speedraces/stats-'+str(skip)+':'+str(pct)+"-"+str(successful)+"-"+race_time)
           meta.send_command_and_check('SAVERATIOS '+os.getcwd()+'/data/speedraces/ratios-'+str(skip)+':'+str(pct)+"-"+str(successful)+"-"+race_time)
+          meta.send_command_and_check('SAVESQL '+os.getcwd()+'/data/speedraces/sql-'+str(skip)+':'+str(pct)+"-"+str(successful)+"-"+race_time)
           meta.send_command_and_check('COMMIT')
 
     plog('INFO', str(skip) + '-' + str(pct) + '% ' + str(count) + ' fetches took ' + str(attempt) + ' tries.')
@@ -148,6 +149,7 @@ def main(argv):
         
     # configure metatroller
     commands = [
+        'SQLSUPPORT sqlite:///'+os.getcwd()+'/data/speedraces/speedracer.sqlite',
         'PATHLEN 2',
         'UNIFORM 1',
         'ORDEREXITS 0',
@@ -176,6 +178,7 @@ def main(argv):
           meta.send_command_and_check('CLOSEALLCIRCS')
           meta.send_command_and_check('SAVESTATS '+os.getcwd()+'/data/speedraces/stats-'+str(pct) + ':' + str(pct + pct_step)+"-"+str(count)+"-"+strftime("20%y-%m-%d-%H:%M:%S"))
           meta.send_command_and_check('SAVERATIOS '+os.getcwd()+'/data/speedraces/ratios-'+str(pct) + ':' + str(pct + pct_step)+"-"+str(count)+"-"+strftime("20%y-%m-%d-%H:%M:%S"))
+          meta.send_command_and_check('SAVESQL '+os.getcwd()+'/data/speedraces/sql-'+str(pct) + ':' + str(pct + pct_step)+"-"+str(count)+"-"+strftime("20%y-%m-%d-%H:%M:%S"))
           plog('DEBUG', 'Wrote stats')
           pct += pct_step
           meta.send_command_and_check('COMMIT')

@@ -65,6 +65,9 @@ def clear_dns_cache(c):
 def commandloop(s, c, h):
   "The main metatroller listener loop"
   s.write("220 Welcome to the Tor Metatroller "+mt_version+"! Try HELP for Info\r\n\r\n")
+
+  percent_skip=__selmgr.percent_skip
+  percent_fast=__selmgr.percent_fast
   while 1:
     buf = s.readline()
     if not buf: break
@@ -215,6 +218,19 @@ def commandloop(s, c, h):
         s.write("250 OK\r\n")
       except ValueError:
         s.write("510 Integer expected\r\n")
+    elif command == "SQLSUPPORT":
+     try:
+        if arg:
+          plog("DEBUG", "Got sqlite: "+arg)
+          use_db = arg
+          from TorCtl import SQLSupport
+          SQLSupport.setup_db(use_db, True)
+          h.add_event_listener(SQLSupport.ConsensusTrackerListener())
+          h.add_event_listener(SQLSupport.StreamListener())
+          plog("DEBUG", "Did sqlite: "+arg)
+          s.write("250 OK\r\n")
+     except ValueError:
+       s.write("510 database expected\r\n")
     elif command == "CLOSEALLCIRCS":
       def notlambda(this): this.close_all_circuits()
       h.schedule_immediate(notlambda)
@@ -230,6 +246,24 @@ def commandloop(s, c, h):
       else: rfilename="./data/stats/ratios-"+time.strftime("20%y-%m-%d-%H:%M:%S")
       def notlambda(this): this.write_ratios(rfilename)
       h.schedule_low_prio(notlambda)
+      s.write("250 OK\r\n")
+    elif command == "SAVESQL":
+      # TODO: Use threading conditions more. Maybe even get some
+      # better status reporting than always blindly printing OK.
+
+      if arg: rfilename = arg
+      else: rfilename="./data/stats/sql-"+time.strftime("20%y-%m-%d-%H:%M:%S")
+      cond = threading.Condition() 
+      def notlambda(h):
+        cond.acquire()
+        SQLSupport.RouterStats.write_stats(file(rfilename, "w"),
+                             percent_skip, percent_fast, recompute=True)
+        cond.notify()
+        cond.release()
+      cond.acquire()
+      h.schedule_low_prio(notlambda)
+      cond.wait()
+      cond.release()
       s.write("250 OK\r\n")
     elif command == "RESETSTATS":
       plog("DEBUG", "Got resetstats")
