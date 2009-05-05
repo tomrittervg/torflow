@@ -224,7 +224,7 @@ def commandloop(s, c, h):
           plog("DEBUG", "Got sqlite: "+arg)
           use_db = arg
           from TorCtl import SQLSupport
-          SQLSupport.setup_db(use_db, True)
+          SQLSupport.setup_db(use_db, echo=False, drop=True)
           h.add_event_listener(SQLSupport.ConsensusTrackerListener())
           h.add_event_listener(SQLSupport.StreamListener())
           plog("DEBUG", "Did sqlite: "+arg)
@@ -257,7 +257,9 @@ def commandloop(s, c, h):
       def notlambda(h):
         cond.acquire()
         SQLSupport.RouterStats.write_stats(file(rfilename, "w"),
-                             percent_skip, percent_fast, recompute=True)
+                             percent_skip, percent_fast, 
+                              order_by=SQLSupport.RouterStats.sbw,
+                              recompute=True)
         cond.notify()
         cond.release()
       cond.acquire()
