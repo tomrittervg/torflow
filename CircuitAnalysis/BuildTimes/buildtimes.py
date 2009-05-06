@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/python
 # uses metatroller to collect circuit build times for 5% slices of guard nodes
 # [OUTPUT] one directory, with three files: StatsHandler aggregate stats file, file with all circuit events (for detailed reference), file with just buildtimes
 
@@ -130,7 +130,7 @@ def cleanup():
   plog("INFO", "Resetting FetchUselessDescriptors="+FUDValue)
   c.set_option("FetchUselessDescriptors", FUDValue) 
 
-def open_controller(filename,ncircuits):
+def open_controller(filename,ncircuits,use_sql):
   """ starts stat gathering thread """
 
   s = socket.socket(socket.AF_INET,socket.SOCK_STREAM)
@@ -140,6 +140,13 @@ def open_controller(filename,ncircuits):
   c.debug(file(filename+".log", "w", buffering=0))
   h = CircStatsGatherer(c,__selmgr,filename,ncircuits)
   c.set_event_handler(h)
+
+  if use_sql:
+    from TorCtl import SQLSupport
+    SQLSupport.setup_db("sqlite:///"+filename+".sqlite", drop=True)
+    c.add_event_listener(SQLSupport.ConsensusTrackerListener())
+    c.add_event_listener(SQLSupport.CircuitListener())
+  
   global FUDValue
   if not FUDValue:
     FUDValue = c.get_option("FetchUselessDescriptors")[0][1]
@@ -160,7 +167,7 @@ def getargs():
     usage()
     sys.exit(2)
   try:
-    opts,args = getopt.getopt(sys.argv[1:],"b:e:s:n:d:c:g")
+    opts,args = getopt.getopt(sys.argv[1:],"b:e:s:n:d:c:gq")
   except getopt.GetoptError,err:
     print str(err)
     usage()
@@ -169,6 +176,7 @@ def getargs():
   end=80
   pslice=5
   dirname=""
+  use_sql=False
   guard_slices = False
   max_circuits=60
   for o,a in opts:
@@ -187,18 +195,21 @@ def getargs():
       else: usage()
     elif o == '-g':
       guard_slices = True
+    elif o == '-q':
+      use_sql = True
+      from TorCtl import SQLSupport
     elif o == '-c':
       if a.isdigit(): max_circuits = int(a)
       else: usage()
     else:
       assert False, "Bad option"
-  return guard_slices,ncircuits,max_circuits,begin,end,pslice,dirname
+  return guard_slices,ncircuits,max_circuits,begin,end,pslice,dirname,use_sql
 
 def usage():
-    print 'usage: buildtimes.py [-b <#begin percentile>] [-e <end percentile] [-s <percentile slice size>] [-g] -n <# circuits> -d <output dir name> [-c <max concurrent circuits>]'
+    print 'usage: buildtimes.py [-b <#begin percentile>] [-e <end percentile] [-s <percentile slice size>] [-g] [-q] -n <# circuits> -d <output dir name> [-c <max concurrent circuits>]'
     sys.exit(1)
 
-def guardslice(guard_slices,p,s,end,ncircuits,max_circuits,dirname):
+def guardslice(guard_slices,p,s,end,ncircuits,max_circuits,dirname,use_sql):
 
   print 'Making new directory:',dirname
   if not os.path.isdir(dirname):
@@ -236,7 +247,7 @@ def guardslice(guard_slices,p,s,end,ncircuits,max_circuits,dirname):
   __selmgr.__ordered_exit_gen = None
 
   try:
-    c = open_controller(basefile_name,ncircuits)
+    c = open_controller(basefile_name,ncircuits,use_sql)
   except PathSupport.NoNodesRemain:
     print 'No nodes remain at this percentile range ('+str(p)+"-"+str(s)+")"
     return
@@ -270,10 +281,18 @@ def guardslice(guard_slices,p,s,end,ncircuits,max_circuits,dirname):
       break
 
   cond = threading.Condition() 
-  def notlambda(h):
+  def notlambda(h, use_sql=use_sql):
     cond.acquire()
     h.close_all_circuits()
     h.write_stats(aggfile_name)
+
+    if use_sql:
+      from TorCtl import SQLSupport
+      SQLSupport.RouterStats.write_stats(file(aggfile_name+"-sql", "w"), 
+                     recompute=True,
+                     order_by=SQLSupport.RouterStats.circ_bi_rate,
+                     stats_clause=SQLSupport.RouterStats.circ_try_to>0)
+
 
     f = open(uptime_name, "w")
     # Write out idhex+uptime info
@@ -315,14 +334,14 @@ def guardslice(guard_slices,p,s,end,ncircuits,max_circuits,dirname):
   print "Done in main."
 
 def main():
-  guard_slices,ncircuits,max_circuits,begin,end,pct,dirname = getargs()
+  guard_slices,ncircuits,max_circuits,begin,end,pct,dirname,use_sql = getargs()
  
   atexit.register(cleanup) 
 
   print "Using max_circuits: "+str(max_circuits)
 
   for p in xrange(begin,end,pct):
-    guardslice(guard_slices,p,p+pct,end,ncircuits,max_circuits,dirname)
+    guardslice(guard_slices,p,p+pct,end,ncircuits,max_circuits,dirname,use_sql)
 
 if __name__ == '__main__':
   main()
