@@ -84,7 +84,9 @@ def http_request(address):
 
     try:
         reply = urllib2.urlopen(request)
-        reply.read()
+        decl_length = reply.info().get("Content-Length")
+        read_len = len(reply.read())
+        plog("DEBUG", "Read: "+str(read_len)+" of declared "+str(decl_length))
         return 1
     except (ValueError, urllib2.URLError):
         plog('ERROR', 'The http-request address ' + address + ' is malformed')
