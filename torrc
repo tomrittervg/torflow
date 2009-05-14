@@ -4,6 +4,7 @@ ControlPort 9061
 SafeLogging 0
 Log debug stderr
 FetchUselessDescriptors 1
+DataDirectory ./tor-data/
 
 # XXX: This should be for test scans only. Our timeout values must match the
 # normal Tor clients.
