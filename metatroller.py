@@ -31,11 +31,11 @@ import time
 import math
 #from TorCtl import *
 
-from TorCtl import TorUtil, PathSupport, TorCtl, StatsSupport
+from TorCtl import TorUtil, PathSupport, TorCtl #, StatsSupport
 from TorCtl.TorUtil import *
 from TorCtl.PathSupport import *
 from TorCtl.TorUtil import meta_port, meta_host, control_port, control_host, control_pass
-from TorCtl.StatsSupport import StatsHandler,StatsRouter
+#from TorCtl.StatsSupport import StatsHandler,StatsRouter
 
 mt_version = "0.1.0-dev"
 max_detach = 3
@@ -269,7 +269,7 @@ def commandloop(s, c, h):
       s.write("250 OK\r\n")
     elif command == "RESETSTATS":
       plog("DEBUG", "Got resetstats")
-      def notlambda(this): this.reset_stats()
+      def notlambda(this): this.reset()
       h.schedule_low_prio(notlambda)
       s.write("250 OK\r\n")
     elif command == "COMMIT":
@@ -310,7 +310,7 @@ def startup():
   c = PathSupport.Connection(s)
   c.debug(file("control.log", "w", buffering=0))
   c.authenticate(control_pass)
-  h = StatsHandler(c, __selmgr)
+  h = PathSupport.PathBuilder(c, __selmgr) # StatsHandler(c, __selmgr)
 
   c.set_event_handler(h)
 
