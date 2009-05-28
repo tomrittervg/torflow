@@ -18,6 +18,7 @@ import os
 import traceback
 import copy
 import threading
+import ConfigParser
 
 sys.path.append("../../")
 
@@ -32,17 +33,14 @@ from SocksiPy import socks
 
 user_agent = "Mozilla/4.0 (compatible; MSIE 6.0; Windows NT 5.1; .NET CLR 1.0.3705; .NET CLR 1.1.4322)"
 
-# Some constants for measurements
-url = "https://svn.torproject.org/svn/tor/trunk/doc/design-paper/tor-design.pdf"
+#          cutoff percent                URL
+urls =         [(10,          "https://128.174.236.117/4096k"),
+                (20,          "https://128.174.236.117/2048k"),
+                (30,          "https://128.174.236.117/1024k"),
+                (60,          "https://128.174.236.117/512k"),
+                (75,          "https://128.174.236.117/256k"),
+                (100,         "https://128.174.236.117/128k")]
 
-# XXX: Make this into easy-to-select ranges for paralelization
-start_pct = 0
-stop_pct = 78
-# Slice size:
-pct_step = 3
-# Number of fetches per slice:
-count = 250
-save_every = 10
 
 # Do NOT modify this object directly after it is handed to PathBuilder
 # Use PathBuilder.schedule_selmgr instead.
@@ -50,13 +48,34 @@ save_every = 10
 __selmgr = PathSupport.SelectionManager(
       pathlen=2,
       order_exits=False,
-      percent_fast=15,
+      percent_fast=100,
       percent_skip=0,
       min_bw=1024,
-      use_all_exits=False,
+      use_all_exits=False, # XXX: need to fix conserve_exits to ensure 443
       uniform=True,
       use_exit=None,
       use_guards=False)
+
+def read_config(filename):
+  config = ConfigParser.SafeConfigParser()
+  config.read(filename)
+
+  start_pct = config.getint('BwAuthority', 'start_pct')
+  stop_pct = config.getint('BwAuthority', 'stop_pct')
+
+  nodes_per_slice = config.getint('BwAuthority', 'nodes_per_slice')
+  save_every = config.getint('BwAuthority', 'save_every')
+  circs_per_node = config.getint('BwAuthority', 'circs_per_node')
+  out_dir = config.get('BwAuthority', 'out_dir')
+
+  return (start_pct,stop_pct,nodes_per_slice,save_every,circs_per_node,out_dir)
+
+def choose_url(percentile):
+  for (pct, url) in urls:
+    if percentile < pct:
+      #return url
+      return "https://86.59.21.36/torbrowser/dist/tor-im-browser-1.2.0_ru_split/tor-im-browser-1.2.0_ru_split.part01.exe"
+  raise PathSupport.NoNodesRemain("No nodes left for url choice!")
 
 # Note: be careful writing functions for this class. Remember that
 # the PathBuilder has its own thread that it recieves events on
@@ -111,20 +130,45 @@ class BwScanHandler(PathSupport.PathBuilder):
       sm.percent_skip=percent_skip
     self.schedule_selmgr(notlambda)
 
-  # TODO: Do we really want to totally reset stats, or can we update
-  # the SQL stats to just drop all but the N most recent streams for each
-  # node..
   def reset_stats(self):
-    def notlambda(this): this.reset()
+    def notlambda(this): 
+      this.reset()
     self.schedule_low_prio(notlambda)
 
+  def save_sql_file(self, sql_file, new_file):
+    cond = threading.Condition()
+    def notlambda(this):
+      cond.acquire()
+      SQLSupport.tc_session.close()
+      try:
+        os.rename(sql_file, new_file)
+      except Exception,e:
+        plog("WARN", "Error moving sql file: "+str(e))
+      SQLSupport.setup_db('sqlite:////'+sql_file, echo=False, drop=True)
+      cond.notify()
+      cond.release()
+    cond.acquire()
+    self.schedule_low_prio(notlambda)
+    cond.wait()
+    cond.release()
+
   def commit(self):
-    def notlambda(this): this.run_all_jobs = True
+    # FIXME: This needs two stages+condition to really be correct
+    def notlambda(this): 
+      this.run_all_jobs = True
     self.schedule_immediate(notlambda)
 
   def close_circuits(self):
-    def notlambda(this): this.close_all_circuits()
-    self.schedule_immediate(notlambda)
+    cond = threading.Condition()
+    def notlambda(this):
+      cond.acquire()
+      this.close_all_circuits()
+      cond.notify()
+      cond.release()
+    cond.acquire()
+    self.schedule_low_prio(notlambda)
+    cond.wait()
+    cond.release()
 
   def new_exit(self):
     cond = threading.Condition()
@@ -142,9 +186,48 @@ class BwScanHandler(PathSupport.PathBuilder):
     cond.release()
 
   def is_count_met(self, count, position=0):
-    # TODO: wait on condition and check all routerstatuses
-    pass
+    cond = threading.Condition()
+    cond._finished = True # lol python haxx. Could make subclass, but why?? :)
+    def notlambda(this):
+      cond.acquire()
+      for r in this.sorted_r:
+        if len(r._generated) > position:
+          if r._generated[position] < count:
+            cond._finished = False
+            break
+      cond.notify()
+      cond.release()
+    cond.acquire()
+    self.schedule_low_prio(notlambda)
+    cond.wait()
+    cond.release()
+    return cond._finished
 
+  def rank_to_percent(self, rank):
+    cond = threading.Condition()
+    def notlambda(this):
+      cond.acquire()
+      cond._pct = (100.0*rank)/len(this.sorted_r) # lol moar haxx
+      cond.notify()
+      cond.release()
+    cond.acquire()
+    self.schedule_low_prio(notlambda)
+    cond.wait()
+    cond.release()
+    return cond._pct
+
+  def percent_to_rank(self, pct):
+    cond = threading.Condition()
+    def notlambda(this):
+      cond.acquire()
+      cond._rank = int(round((pct*len(this.sorted_r))/100.0,0)) # lol moar haxx
+      cond.notify()
+      cond.release()
+    cond.acquire()
+    self.schedule_low_prio(notlambda)
+    cond.wait()
+    cond.release()
+    return cond._rank
 
 def http_request(address):
   ''' perform an http GET-request and return 1 for success or 0 for failure '''
@@ -171,18 +254,18 @@ def http_request(address):
     traceback.print_exc()
     return 0 
 
-def speedrace(hdlr, skip, pct):
-  hdlr.set_pct_rstr(skip, pct)
+def speedrace(hdlr, start_pct, stop_pct, circs_per_node, save_every, out_dir):
+  hdlr.set_pct_rstr(start_pct, stop_pct)
 
   attempt = 0
   successful = 0
-  while successful < count:
+  while not hdlr.is_count_met(circs_per_node):
     hdlr.new_exit()
     
     attempt += 1
     
     t0 = time()
-    ret = http_request(url)
+    ret = http_request(choose_url(start_pct))
     delta_build = time() - t0
     if delta_build >= 550.0:
       plog('NOTICE', 'Timer exceeded limit: ' + str(delta_build) + '\n')
@@ -190,30 +273,33 @@ def speedrace(hdlr, skip, pct):
     build_exit = hdlr.get_exit_node()
     if ret == 1:
       successful += 1
-      plog('DEBUG', str(skip) + '-' + str(pct) + '% circuit build+fetch took ' + str(delta_build) + ' for ' + str(build_exit))
+      plog('DEBUG', str(start_pct) + '-' + str(stop_pct) + '% circuit build+fetch took ' + str(delta_build) + ' for ' + str(build_exit))
     else:
-      plog('DEBUG', str(skip) + '-' + str(pct) + '% circuit build+fetch failed for ' + str(build_exit))
+      plog('DEBUG', str(start_pct)+'-'+str(stop_pct)+'% circuit build+fetch failed for ' + str(build_exit))
 
-    if ret and successful and successful != count \
-           and (successful % save_every) == 0:
+    if save_every and ret and successful and (successful % save_every) == 0:
       race_time = strftime("20%y-%m-%d-%H:%M:%S")
-      hdlr.close_circuits()
-      hdlr.write_sql_stats(skip, pct, os.getcwd()+'/out.1/sql-'+str(skip)+':'+str(pct)+"-"+str(successful)+"-"+race_time)
-      hdlr.write_strm_bws(skip, pct, os.getcwd()+'/out.1/bws-'+str(skip)+':'+str(pct)+"-"+str(successful)+"-"+race_time)
       hdlr.commit()
+      hdlr.close_circuits()
+      lo = str(round(start_pct,1))
+      hi = str(round(stop_pct,1))
+      hdlr.write_sql_stats(start_pct, stop_pct, os.getcwd()+'/'+out_dir+'/sql-'+lo+':'+hi+"-"+str(successful)+"-"+race_time)
+      hdlr.write_strm_bws(start_pct, stop_pct, os.getcwd()+'/'+out_dir+'/bws-'+lo+':'+hi+"-"+str(successful)+"-"+race_time)
 
-  plog('INFO', str(skip) + '-' + str(pct) + '% ' + str(count) + ' fetches took ' + str(attempt) + ' tries.')
+  plog('INFO', str(start_pct) + '-' + str(stop_pct) + '% ' + str(successful) + ' fetches took ' + str(attempt) + ' tries.')
 
 def main(argv):
-  # XXX: Parse options for this file and also for output dir
-  TorUtil.read_config("bwauthority.cfg.1") 
-  
+  TorUtil.read_config(argv[1]) 
+  (start_pct,stop_pct,nodes_per_slice,save_every,
+         circs_per_node,out_dir) = read_config(argv[1])
+ 
   try:
     (c,hdlr) = setup_handler()
   except Exception, e:
     plog("WARN", "Can't connect to Tor: "+str(e))
 
-  hdlr.attach_sql_listener('sqlite:///'+os.getcwd()+'/out.1/speedracer.sqlite')
+  sql_file = os.getcwd()+'/'+out_dir+'/bwauthority.sqlite'
+  hdlr.attach_sql_listener('sqlite:///'+sql_file)
 
   # set SOCKS proxy
   socks.setdefaultproxy(socks.PROXY_TYPE_SOCKS5, tor_host, tor_port)
@@ -224,19 +310,25 @@ def main(argv):
     plog('INFO', 'Beginning time loop')
     
     while pct < stop_pct:
+      pct_step = hdlr.rank_to_percent(nodes_per_slice)
       hdlr.reset_stats()
       hdlr.commit()
       plog('DEBUG', 'Reset stats')
 
-      speedrace(hdlr, pct, pct + pct_step)
+      speedrace(hdlr, pct, pct+pct_step, circs_per_node, save_every, out_dir)
 
       plog('DEBUG', 'speedroced')
-      hdlr.close_circits()
-      hdlr.write_sql_stats(pct, pct+pct_step, os.getcwd()+'/out.1/sql-'+str(pct) + ':' + str(pct + pct_step)+"-"+str(count)+"-"+strftime("20%y-%m-%d-%H:%M:%S"))
-      hdlr.write_strm_bws(pct, pct+pct_step, os.getcwd()+'/out.1/bws-'+str(pct)+':'+str(pct+pct_step)+"-"+str(count)+"-"+strftime("20%y-%m-%d-%H:%M:%S"))
+      hdlr.commit()
+      hdlr.close_circuits()
+
+      lo = str(round(pct,1))
+      hi = str(round(pct+pct_step,1))
+      
+      hdlr.write_sql_stats(pct, pct+pct_step, os.getcwd()+'/'+out_dir+'/sql-'+lo+':'+hi+"-done-"+strftime("20%y-%m-%d-%H:%M:%S"))
+      hdlr.write_strm_bws(pct, pct+pct_step, os.getcwd()+'/'+out_dir+'/bws-'+lo+':'+hi+"-done-"+strftime("20%y-%m-%d-%H:%M:%S"))
       plog('DEBUG', 'Wrote stats')
       pct += pct_step
-      hdlr.commit() # XXX: Right place for this?
+      hdlr.save_sql_file(sql_file, "db-"+str(lo)+":"+str(hi)+"-"+strftime("20%y-%m-%d-%H:%M:%S")+".sqlite")
 
 def cleanup(c, f):
   plog("INFO", "Resetting __LeaveStreamsUnattached=0 and FetchUselessDescriptors="+f)
@@ -270,10 +362,15 @@ def setup_handler():
   atexit.register(cleanup, *(c, f))
   return (c,h)
 
+def usage(argv):
+  print "Usage: "+argv[0]+" <configfile>"
+  return
+
 # initiate the program
 if __name__ == '__main__':
   try:
-    main(sys.argv)
+    if len(sys.argv) < 2: usage(sys.argv)
+    else: main(sys.argv)
   except KeyboardInterrupt:
     plog('INFO', "Ctrl + C was pressed. Exiting ... ")
     traceback.print_exc()
