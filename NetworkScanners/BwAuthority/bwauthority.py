@@ -67,8 +67,10 @@ def read_config(filename):
   save_every = config.getint('BwAuthority', 'save_every')
   circs_per_node = config.getint('BwAuthority', 'circs_per_node')
   out_dir = config.get('BwAuthority', 'out_dir')
+  max_fetch_time = config.getint('BwAuthority', 'max_fetch_time')
 
-  return (start_pct,stop_pct,nodes_per_slice,save_every,circs_per_node,out_dir)
+  return (start_pct,stop_pct,nodes_per_slice,save_every,
+            circs_per_node,out_dir,max_fetch_time)
 
 def choose_url(percentile):
   for (pct, url) in urls:
@@ -170,6 +172,18 @@ class BwScanHandler(PathSupport.PathBuilder):
     cond.wait()
     cond.release()
 
+  def close_streams(self, reason):
+    cond = threading.Condition()
+    def notlambda(this):
+      cond.acquire()
+      this.close_all_streams(reason)
+      cond.notify()
+      cond.release()
+    cond.acquire()
+    self.schedule_low_prio(notlambda)
+    cond.wait()
+    cond.release()
+
   def new_exit(self):
     cond = threading.Condition()
     def notlambda(this):
@@ -254,7 +268,8 @@ def http_request(address):
     traceback.print_exc()
     return 0 
 
-def speedrace(hdlr, start_pct, stop_pct, circs_per_node, save_every, out_dir):
+def speedrace(hdlr, start_pct, stop_pct, circs_per_node, save_every, out_dir, 
+              max_fetch_time):
   hdlr.set_pct_rstr(start_pct, stop_pct)
 
   attempt = 0
@@ -265,10 +280,16 @@ def speedrace(hdlr, start_pct, stop_pct, circs_per_node, save_every, out_dir):
     attempt += 1
     
     t0 = time()
+    # XXX: This noise is due to a difficult to find Tor bug that
+    # causes some exits to hang forever on streams :(
+    timer = threading.Timer(max_fetch_time, lambda: hdlr.close_streams(7))
+    timer.start()
     ret = http_request(choose_url(start_pct))
+    timer.cancel()
+
     delta_build = time() - t0
-    if delta_build >= 550.0:
-      plog('NOTICE', 'Timer exceeded limit: ' + str(delta_build) + '\n')
+    if delta_build >= max_fetch_time:
+      plog('WARN', 'Timer exceeded limit: ' + str(delta_build) + '\n')
 
     build_exit = hdlr.get_exit_node()
     if ret == 1:
@@ -291,7 +312,7 @@ def speedrace(hdlr, start_pct, stop_pct, circs_per_node, save_every, out_dir):
 def main(argv):
   TorUtil.read_config(argv[1]) 
   (start_pct,stop_pct,nodes_per_slice,save_every,
-         circs_per_node,out_dir) = read_config(argv[1])
+         circs_per_node,out_dir,max_fetch_time) = read_config(argv[1])
  
   try:
     (c,hdlr) = setup_handler()
@@ -315,7 +336,8 @@ def main(argv):
       hdlr.commit()
       plog('DEBUG', 'Reset stats')
 
-      speedrace(hdlr, pct, pct+pct_step, circs_per_node, save_every, out_dir)
+      speedrace(hdlr, pct, pct+pct_step, circs_per_node, save_every, out_dir,
+                max_fetch_time)
 
       plog('DEBUG', 'speedroced')
       hdlr.commit()
