@@ -25,7 +25,6 @@ sys.path.append("../../")
 
 from TorCtl.TorUtil import plog
 
-from TorCtl.TorUtil import control_port, control_host, tor_port, tor_host, control_pass
 
 from TorCtl import PathSupport,SQLSupport,TorCtl,TorUtil
 
@@ -382,13 +381,14 @@ def main(argv):
   try:
     (c,hdlr) = setup_handler(tor_dir+"/control_auth_cookie")
   except Exception, e:
+    traceback.print_exc()
     plog("WARN", "Can't connect to Tor: "+str(e))
 
   sql_file = os.getcwd()+'/'+out_dir+'/bwauthority.sqlite'
   hdlr.attach_sql_listener('sqlite:///'+sql_file)
 
   # set SOCKS proxy
-  socks.setdefaultproxy(socks.PROXY_TYPE_SOCKS5, tor_host, tor_port)
+  socks.setdefaultproxy(socks.PROXY_TYPE_SOCKS5, TorUtil.tor_host, TorUtil.tor_port)
   socket.socket = socks.socksocket
 
   while True:
@@ -426,11 +426,12 @@ def cleanup(c, f):
     pass
 
 def setup_handler(cookie_file):
-  plog('INFO', 'Connecting to Tor...')
+  plog('INFO', 'Connecting to Tor at '+TorUtil.control_host+":"+str(TorUtil.control_port))
   s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-  s.connect((control_host,control_port))
+  s.connect((TorUtil.control_host,TorUtil.control_port))
   c = PathSupport.Connection(s)
   #c.debug(file("control.log", "w", buffering=0))
+  #c.authenticate()
   c.authenticate_cookie(file(cookie_file, "r"))
   h = BwScanHandler(c, __selmgr)
 
