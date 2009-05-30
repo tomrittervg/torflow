@@ -37,6 +37,7 @@ user_agent = "Mozilla/4.0 (compatible; MSIE 6.0; Windows NT 5.1; .NET CLR 1.0.37
 # Note these urls should be https due to caching considerations.
 # If you really must make them http, be sure to change exit_ports to [80]
 # below, or else the scan will not finish.
+# As the network balances, these can become more uniform in size
 #          cutoff percent                URL
 urls =         [(10,          "https://128.174.236.117/4096k"),
                 (20,          "https://128.174.236.117/2048k"),
@@ -72,16 +73,17 @@ def read_config(filename):
   save_every = config.getint('BwAuthority', 'save_every')
   circs_per_node = config.getint('BwAuthority', 'circs_per_node')
   out_dir = config.get('BwAuthority', 'out_dir')
+  tor_dir = config.get('BwAuthority', 'tor_dir')
   max_fetch_time = config.getint('BwAuthority', 'max_fetch_time')
 
   return (start_pct,stop_pct,nodes_per_slice,save_every,
-            circs_per_node,out_dir,max_fetch_time)
+            circs_per_node,out_dir,max_fetch_time,tor_dir)
 
 def choose_url(percentile):
   for (pct, url) in urls:
     if percentile < pct:
-      #return url
-      return "https://86.59.21.36/torbrowser/dist/tor-im-browser-1.2.0_ru_split/tor-im-browser-1.2.0_ru_split.part01.exe"
+      return url
+      #return "https://86.59.21.36/torbrowser/dist/tor-im-browser-1.2.0_ru_split/tor-im-browser-1.2.0_ru_split.part01.exe"
   raise PathSupport.NoNodesRemain("No nodes left for url choice!")
 
 # Note: be careful writing functions for this class. Remember that
@@ -165,30 +167,24 @@ class BwScanHandler(PathSupport.PathBuilder):
     cond.release()
 
   def commit(self):
-    cond1 = threading.Condition()
-    cond2 = threading.Condition()
+    plog("INFO", "Scanner committing jobs...")
+    cond = threading.Condition()
     def notlambda2(this):
+      cond.acquire()
       plog("INFO", "Commit done.")
-      cond2.notify()
-      cond2.release()
+      cond.notify()
+      cond.release()
 
     def notlambda1(this):
-      cond1.acquire()
-      cond2.acquire()
       plog("INFO", "Committing jobs...")
       this.run_all_jobs = True
       self.schedule_low_prio(notlambda2)
-      cond1.notify()
-      cond1.release()
 
-    cond1.acquire()
-    cond2.acquire()
+    cond.acquire()
     self.schedule_immediate(notlambda1)
 
-    cond1.wait()
-    cond1.release()
-    cond2.wait()
-    cond2.release()
+    cond.wait()
+    cond.release()
     plog("INFO", "Scanner commit done.")
 
   def close_circuits(self):
@@ -284,22 +280,22 @@ class BwScanHandler(PathSupport.PathBuilder):
 
   def wait_for_consensus(self):
     cond = threading.Condition()
-    # XXX: We want to set a flag that says "Don't compute consensus db
-    # until we get called again plz". Locks and semaphores are off limits
-    # because this is the same thread+codepath
     def notlambda(this):
       if this.sql_consensus_listener.last_desc_at \
                  != SQLSupport.ConsensusTrackerListener.CONSENSUS_DONE:
+        this.sql_consensus_listener.wait_for_signal = False
         plog("INFO", "Waiting on consensus result: "+str(this.run_all_jobs))
         this.schedule_low_prio(notlambda)
       else:
         cond.acquire()
+        this.sql_consensus_listener.wait_for_signal = True
         cond.notify()
         cond.release()
     cond.acquire()
     self.schedule_low_prio(notlambda)
     cond.wait()
     cond.release()
+    plog("INFO", "Consensus OK")
 
 def http_request(address):
   ''' perform an http GET-request and return 1 for success or 0 for failure '''
@@ -380,10 +376,10 @@ def speedrace(hdlr, start_pct, stop_pct, circs_per_node, save_every, out_dir,
 def main(argv):
   TorUtil.read_config(argv[1]) 
   (start_pct,stop_pct,nodes_per_slice,save_every,
-         circs_per_node,out_dir,max_fetch_time) = read_config(argv[1])
+         circs_per_node,out_dir,max_fetch_time,tor_dir) = read_config(argv[1])
  
   try:
-    (c,hdlr) = setup_handler()
+    (c,hdlr) = setup_handler(tor_dir+"/control_auth_cookie")
   except Exception, e:
     plog("WARN", "Can't connect to Tor: "+str(e))
 
@@ -418,7 +414,7 @@ def main(argv):
       hdlr.write_strm_bws(pct, pct+pct_step, os.getcwd()+'/'+out_dir+'/bws-'+lo+':'+hi+"-done-"+time.strftime("20%y-%m-%d-%H:%M:%S"))
       plog('DEBUG', 'Wrote stats')
       pct += pct_step
-      hdlr.save_sql_file(sql_file, "db-"+str(lo)+":"+str(hi)+"-"+time.strftime("20%y-%m-%d-%H:%M:%S")+".sqlite")
+      hdlr.save_sql_file(sql_file, os.getcwd()+"/"+out_dir+"/db-"+str(lo)+":"+str(hi)+"-"+time.strftime("20%y-%m-%d-%H:%M:%S")+".sqlite")
 
 def cleanup(c, f):
   plog("INFO", "Resetting __LeaveStreamsUnattached=0 and FetchUselessDescriptors="+f)
@@ -428,13 +424,13 @@ def cleanup(c, f):
   except TorCtl.TorCtlClosed:
     pass
 
-def setup_handler():
+def setup_handler(cookie_file):
   plog('INFO', 'Connecting to Tor...')
   s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
   s.connect((control_host,control_port))
   c = PathSupport.Connection(s)
   #c.debug(file("control.log", "w", buffering=0))
-  c.authenticate(control_pass)
+  c.authenticate_cookie(file(cookie_file, "r"))
   h = BwScanHandler(c, __selmgr)
 
   c.set_event_handler(h)
