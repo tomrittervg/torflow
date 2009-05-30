@@ -348,7 +348,9 @@ def speedrace(hdlr, start_pct, stop_pct, circs_per_node, save_every, out_dir,
     # causes some exits to hang forever on streams :(
     timer = threading.Timer(max_fetch_time, lambda: hdlr.close_streams(7))
     timer.start()
-    ret = http_request(choose_url(start_pct))
+    url = choose_url(start_pct)
+    plog("DEBUG", "Launching stream request for url "+url+" in "+str(start_pct)+'-'+str(stop_pct) + '%')
+    ret = http_request(url)
     timer.cancel()
 
     delta_build = time.time() - t0
@@ -390,7 +392,7 @@ def main(argv):
   # set SOCKS proxy
   socks.setdefaultproxy(socks.PROXY_TYPE_SOCKS5, TorUtil.tor_host, TorUtil.tor_port)
   socket.socket = socks.socksocket
-  plog("INFO", "Set socks proxy to "+TorUtil.tor_host+":"+TorUtil.tor_port)
+  plog("INFO", "Set socks proxy to "+TorUtil.tor_host+":"+str(TorUtil.tor_port))
 
   while True:
     pct = start_pct
