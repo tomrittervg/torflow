@@ -171,6 +171,7 @@ class BwScanHandler(PathSupport.PathBuilder):
     cond = threading.Condition()
     def notlambda2(this):
       cond.acquire()
+      this.run_all_jobs = False
       plog("INFO", "Commit done.")
       cond.notify()
       cond.release()
