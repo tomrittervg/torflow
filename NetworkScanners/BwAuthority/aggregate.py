@@ -11,8 +11,8 @@ nodes = {}
 def base10_round(bw_val):
   # This keeps the first 3 decimal digits of the bw value only
   # to minimize changes for consensus diffs.
-  # Resulting error is +/-0.05%
-  return round(bw_val,-(int(math.log10(bw_val))-2))
+  # Resulting error is +/-0.5%
+  return int(round(bw_val,-(int(math.log10(bw_val))-2)))
 
 def closest_to_one(ratio_list):
   min_dist = 0x7fffffff
@@ -26,6 +26,7 @@ def closest_to_one(ratio_list):
 class Node:
   def __init__(self):
     self.idhex = None
+    self.nick = None
     self.strm_bw = []
     self.filt_bw = []
     self.ns_bw = []
@@ -37,8 +38,10 @@ class Node:
     self.new_bw = None
 
   def add_line(self, line):
-    if self.idhex != line.idhex:
+    if self.idhex and self.idhex != line.idhex:
       raise Exception("Line mismatch")
+    self.idhex = line.idhex
+    self.nick = line.nick
     self.strm_bw.append(line.strm_bw)     
     self.filt_bw.append(line.filt_bw)     
     self.ns_bw.append(line.ns_bw)     
@@ -64,10 +67,11 @@ class Node:
 
 class Line:
   def __init__(self, line):
-    self.idhex = re.search("[\s]*node_id=([\S]+)[\s]*", line).group(0)
-    self.strm_bw = int(re.search("[\s]*strm_bw=([\d]+)[\s]*", line).group(0))
-    self.filt_bw = int(re.search("[\s]*filt_bw=([\d]+)[\s]*", line).group(0))
-    self.ns_bw = int(re.search("[\s]*ns_bw=([\d]+)[\s]*", line).group(0))
+    self.idhex = re.search("[\s]*node_id=([\S]+)[\s]*", line).group(1)
+    self.nick = re.search("[\s]*nick=([\S]+)[\s]*", line).group(1)
+    self.strm_bw = int(re.search("[\s]*strm_bw=([\S]+)[\s]*", line).group(1))
+    self.filt_bw = int(re.search("[\s]*filt_bw=([\S]+)[\s]*", line).group(1))
+    self.ns_bw = int(re.search("[\s]*ns_bw=([\S]+)[\s]*", line).group(1))
 
 def main(argv):
   for d in argv[1:-1]:
@@ -75,26 +79,29 @@ def main(argv):
     # scan dirs that are recent enough
     for root, dirs, files in os.walk(d):
       for f in files:
-        if f.find("-done-"):
-          fp = file(f, "r")
+        if re.search("^bws-[\S]+-done-", f): 
+          fp = file(d+"/"+f, "r")
           ranks = fp.readline()
           timestamp = float(fp.readline())
           fp.close()
           if ranks not in bw_files or bw_files[ranks][0] < timestamp:
-            bw_files[ranks] = (timestamp, f)
+            bw_files[ranks] = (timestamp, d+"/"+f)
   
   for (t,f) in bw_files.itervalues():
     fp = file(f, "r")
     fp.readline()
     fp.readline()
     for l in fp.readlines():
-      line = Line(l)
-      if line.idhex not in nodes:
-        n = Node()
-        nodes[line.idhex] = n
-      else:
-        n = nodes[line.idhex]
-      n.add_line(line)        
+      try:
+        line = Line(l)
+        if line.idhex not in nodes:
+          n = Node()
+          nodes[line.idhex] = n
+        else:
+          n = nodes[line.idhex]
+        n.add_line(line)
+      except ValueError,e:
+        print "Conversion error "+str(e)+" at "+l
     fp.close()
    
   pre_strm_avg = sum(map(lambda n: n.avg_strm_bw(), nodes.itervalues()))/ \
@@ -106,10 +113,10 @@ def main(argv):
     n.choose_strm_bw(pre_strm_avg) 
     n.choose_filt_bw(pre_filt_avg)
 
-  true_strm_avg = sum(map(lambda n: n.chosen_sbw, nodes.itervalues()))/ \
-                  float(len(nodes))
-  true_filt_avg = sum(map(lambda n: n.chosen_fbw, nodes.itervalues()))/ \
-                  float(len(nodes))
+  true_strm_avg = sum(map(lambda n: n.strm_bw[n.chosen_sbw], 
+                       nodes.itervalues()))/float(len(nodes))
+  true_filt_avg = sum(map(lambda n: n.filt_bw[n.chosen_fbw], 
+                       nodes.itervalues()))/float(len(nodes))
 
   for n in nodes.itervalues():
     n.fbw_ratio = n.filt_bw[n.chosen_fbw]/true_filt_avg
@@ -122,13 +129,13 @@ def main(argv):
       n.new_bw = n.ns_bw[n.chosen_fbw]*n.ratio
 
   n_print = nodes.values()
-  n_print.sort(lambda x,y: x.new_bw < y.new_bw)
+  n_print.sort(lambda x,y: int(x.new_bw) - int(y.new_bw))
 
   oldest_timestamp = min(map(lambda (t,f): t, bw_files.itervalues()))
   out = file(argv[-1], "w")
   out.write(str(int(round(oldest_timestamp,0)))+"\n")
   for n in n_print:
-    out.write("node_id="+n.idhex+" bw="+str(base10_round(n.new_bw))+"\n")
+    out.write("node_id="+n.idhex+" bw="+str(base10_round(n.new_bw))+" nick="+n.nick+"\n")
   out.close()
  
 if __name__ == "__main__":
