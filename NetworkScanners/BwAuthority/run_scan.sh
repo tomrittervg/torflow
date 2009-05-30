@@ -12,8 +12,8 @@ $TOR_EXE -f ./scanner.1/torrc &
 $TOR_EXE -f ./scanner.2/torrc & 
 $TOR_EXE -f ./scanner.3/torrc & 
 
-./bwautority.py ./scanner.1/bwauthority.cfg >& ./scanner.1/bw.log &
-./bwautority.py ./scanner.2/bwauthority.cfg >& ./scanner.2/bw.log &
-./bwautority.py ./scanner.3/bwauthority.cfg >& ./scanner.3/bw.log &
+./bwauthority.py ./scanner.1/bwauthority.cfg >& ./scanner.1/bw.log &
+./bwauthority.py ./scanner.2/bwauthority.cfg >& ./scanner.2/bw.log &
+./bwauthority.py ./scanner.3/bwauthority.cfg >& ./scanner.3/bw.log &
 
 
