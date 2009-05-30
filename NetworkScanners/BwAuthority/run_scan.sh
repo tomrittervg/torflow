@@ -8,6 +8,11 @@
 #      git checkout control-ns-wfix
 TOR_EXE=../../../tor.git/src/or/tor
 
+for i in scanner.*
+do
+  rm $i/scan-data/*
+done
+
 $TOR_EXE -f ./scanner.1/torrc & 
 $TOR_EXE -f ./scanner.2/torrc & 
 $TOR_EXE -f ./scanner.3/torrc & 

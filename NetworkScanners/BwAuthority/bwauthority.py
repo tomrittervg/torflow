@@ -390,6 +390,7 @@ def main(argv):
   # set SOCKS proxy
   socks.setdefaultproxy(socks.PROXY_TYPE_SOCKS5, TorUtil.tor_host, TorUtil.tor_port)
   socket.socket = socks.socksocket
+  plog("INFO", "Set socks proxy to "+TorUtil.tor_host+":"+TorUtil.tor_port)
 
   while True:
     pct = start_pct
