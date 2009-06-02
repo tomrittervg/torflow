@@ -232,18 +232,20 @@ class BwScanHandler(PathSupport.PathBuilder):
     def notlambda(this):
       cond.acquire()
       # TODO: Using the entry_gen router list is somewhat ghetto..
-      for r in this.selmgr.path_selector.entry_gen.rstr_routers:
-        if r._generated[position] < count:
-          cond._finished = False
-          plog("DEBUG", "Entry router "+r.idhex+"="+r.nickname+" not done: "+str(r._generated[position])+", down: "+str(r.down)+", OK: "+str(this.selmgr.path_selector.entry_gen.rstr_list.r_is_ok(r))+", sorted_r: "+str(r in this.sorted_r))
-          # XXX:
-          #break
-      for r in this.selmgr.path_selector.exit_gen.rstr_routers:
-        if r._generated[position] < count:
-          cond._finished = False
-          plog("DEBUG", "Exit router "+r.idhex+"="+r.nickname+" not done: "+str(r._generated[position])+", down: "+str(r.down)+", OK: "+str(this.selmgr.path_selector.exit_gen.rstr_list.r_is_ok(r))+", sorted_r: "+str(r in this.sorted_r))
-          # XXX:
-          #break
+      if this.selmgr.path_selector.entry_gen.rstr_routers and \
+          this.selmgr.path_selector.exit_gen.rstr_routers:
+        for r in this.selmgr.path_selector.entry_gen.rstr_routers:
+          if r._generated[position] < count:
+            cond._finished = False
+            plog("DEBUG", "Entry router "+r.idhex+"="+r.nickname+" not done: "+str(r._generated[position])+", down: "+str(r.down)+", OK: "+str(this.selmgr.path_selector.entry_gen.rstr_list.r_is_ok(r))+", sorted_r: "+str(r in this.sorted_r))
+            # XXX:
+            #break
+        for r in this.selmgr.path_selector.exit_gen.rstr_routers:
+          if r._generated[position] < count:
+            cond._finished = False
+            plog("DEBUG", "Exit router "+r.idhex+"="+r.nickname+" not done: "+str(r._generated[position])+", down: "+str(r.down)+", OK: "+str(this.selmgr.path_selector.exit_gen.rstr_list.r_is_ok(r))+", sorted_r: "+str(r in this.sorted_r))
+            # XXX:
+            #break
       cond.notify()
       cond.release()
     cond.acquire()
@@ -381,7 +383,7 @@ def main(argv):
          circs_per_node,out_dir,max_fetch_time,tor_dir) = read_config(argv[1])
  
   try:
-    (c,hdlr) = setup_handler(tor_dir+"/control_auth_cookie")
+    (c,hdlr) = setup_handler(out_dir, tor_dir+"/control_auth_cookie")
   except Exception, e:
     traceback.print_exc()
     plog("WARN", "Can't connect to Tor: "+str(e))
@@ -428,14 +430,14 @@ def cleanup(c, f):
   except TorCtl.TorCtlClosed:
     pass
 
-def setup_handler(cookie_file):
+def setup_handler(out_dir, cookie_file):
   plog('INFO', 'Connecting to Tor at '+TorUtil.control_host+":"+str(TorUtil.control_port))
   s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
   s.connect((TorUtil.control_host,TorUtil.control_port))
   c = PathSupport.Connection(s)
-  #c.debug(file("control.log", "w", buffering=0))
-  #c.authenticate()
+  c.debug(file(out_dir+"/control.log", "w", buffering=0))
   c.authenticate_cookie(file(cookie_file, "r"))
+  #f = c.get_option("__LeaveStreamsUnattached")[0]
   h = BwScanHandler(c, __selmgr)
 
   c.set_event_handler(h)
