@@ -36,12 +36,12 @@ user_agent = "Mozilla/4.0 (compatible; MSIE 6.0; Windows NT 5.1; .NET CLR 1.0.37
 # Note these urls should be https due to caching considerations.
 # If you really must make them http, be sure to change exit_ports to [80]
 # below, or else the scan will not finish.
-# As the network balances, these can become more uniform in size
+# TODO: As the network balances, these can become more uniform in size
 #          cutoff percent                URL
 urls =         [(10,          "https://128.174.236.117/4096k"),
                 (20,          "https://128.174.236.117/2048k"),
                 (30,          "https://128.174.236.117/1024k"),
-                (60,          "https://128.174.236.117/512k"),
+                (50,          "https://128.174.236.117/512k"),
                 (75,          "https://128.174.236.117/256k"),
                 (100,         "https://128.174.236.117/128k")]
 
@@ -75,8 +75,15 @@ def read_config(filename):
   tor_dir = config.get('BwAuthority', 'tor_dir')
   max_fetch_time = config.getint('BwAuthority', 'max_fetch_time')
 
+  sleep_start = config.get('BwAuthority', 'sleep_stop')
+  sleep_stop = config.get('BwAuthority', 'sleep_start')
+
+  sleep_start = tuple(map(int, sleep_start.split(":")))
+  sleep_stop = tuple(map(int, sleep_stop.split(":")))
+
   return (start_pct,stop_pct,nodes_per_slice,save_every,
-            circs_per_node,out_dir,max_fetch_time,tor_dir)
+            circs_per_node,out_dir,max_fetch_time,tor_dir,
+            sleep_start,sleep_stop)
 
 def choose_url(percentile):
   for (pct, url) in urls:
@@ -128,7 +135,7 @@ class BwScanHandler(PathSupport.PathBuilder):
              +"\n")
       SQLSupport.RouterStats.write_bws(f, percent_skip, percent_fast,
                             order_by=SQLSupport.RouterStats.sbw,
-                            recompute=False) # XXX: Careful here..
+                            recompute=False)
       f.close()
       cond.notify()
       cond.release()
@@ -201,6 +208,7 @@ class BwScanHandler(PathSupport.PathBuilder):
 
   def close_streams(self, reason):
     cond = threading.Condition()
+    plog("NOTICE", "Wedged Tor stream. Closing all streams")
     def notlambda(this):
       cond.acquire()
       this.close_all_streams(reason)
@@ -325,7 +333,7 @@ def http_request(address):
     return 0 
 
 def speedrace(hdlr, start_pct, stop_pct, circs_per_node, save_every, out_dir, 
-              max_fetch_time):
+              max_fetch_time, sleep_start_tp, sleep_stop_tp):
   hdlr.set_pct_rstr(start_pct, stop_pct)
 
   attempt = 0
@@ -334,10 +342,9 @@ def speedrace(hdlr, start_pct, stop_pct, circs_per_node, save_every, out_dir,
     hdlr.wait_for_consensus()
 
     # Check local time. Do not scan between 01:30 and 05:30 local time
-    # XXX: -> config file?
     lt = time.localtime()
-    sleep_start = time.mktime(lt[0:3]+(1,30,0,0,0)+(lt[-1],))
-    sleep_stop = time.mktime(lt[0:3]+(5,30,0,0,0)+(lt[-1],))
+    sleep_start = time.mktime(lt[0:3]+sleep_start_tp+(0,0,0)+(lt[-1],))
+    sleep_stop = time.mktime(lt[0:3]+sleep_stop_tp+(0,0,0)+(lt[-1],))
     t0 = time.time()
     if sleep_start <= t0 and t0 <= sleep_stop:
       plog("NOTICE", "It's bedtime. Sleeping for "+str(round((sleep_stop-t0)/3600.0,1))+"h")
@@ -372,15 +379,17 @@ def speedrace(hdlr, start_pct, stop_pct, circs_per_node, save_every, out_dir,
       hdlr.commit()
       lo = str(round(start_pct,1))
       hi = str(round(stop_pct,1))
+      # Warning, don't remove the sql stats without changing the recompute
+      # param in write_strm_bws to True
       hdlr.write_sql_stats(start_pct, stop_pct, os.getcwd()+'/'+out_dir+'/sql-'+lo+':'+hi+"-"+str(successful)+"-"+race_time)
       hdlr.write_strm_bws(start_pct, stop_pct, os.getcwd()+'/'+out_dir+'/bws-'+lo+':'+hi+"-"+str(successful)+"-"+race_time)
 
   plog('INFO', str(start_pct) + '-' + str(stop_pct) + '% ' + str(successful) + ' fetches took ' + str(attempt) + ' tries.')
 
 def main(argv):
-  TorUtil.read_config(argv[1]) 
-  (start_pct,stop_pct,nodes_per_slice,save_every,
-         circs_per_node,out_dir,max_fetch_time,tor_dir) = read_config(argv[1])
+  TorUtil.read_config(argv[1])
+  (start_pct,stop_pct,nodes_per_slice,save_every,circs_per_node,out_dir,
+      max_fetch_time,tor_dir,sleep_start,sleep_stop) = read_config(argv[1])
  
   try:
     (c,hdlr) = setup_handler(out_dir, tor_dir+"/control_auth_cookie")
@@ -407,7 +416,7 @@ def main(argv):
       plog('DEBUG', 'Reset stats')
 
       speedrace(hdlr, pct, pct+pct_step, circs_per_node, save_every, out_dir,
-                max_fetch_time)
+                max_fetch_time, sleep_start, sleep_stop)
 
       plog('DEBUG', 'speedroced')
       hdlr.close_circuits()
@@ -415,7 +424,9 @@ def main(argv):
 
       lo = str(round(pct,1))
       hi = str(round(pct+pct_step,1))
-      
+
+      # Warning, don't remove the sql stats without changing the recompute
+      # param in write_strm_bws to True
       hdlr.write_sql_stats(pct, pct+pct_step, os.getcwd()+'/'+out_dir+'/sql-'+lo+':'+hi+"-done-"+time.strftime("20%y-%m-%d-%H:%M:%S"))
       hdlr.write_strm_bws(pct, pct+pct_step, os.getcwd()+'/'+out_dir+'/bws-'+lo+':'+hi+"-done-"+time.strftime("20%y-%m-%d-%H:%M:%S"))
       plog('DEBUG', 'Wrote stats')

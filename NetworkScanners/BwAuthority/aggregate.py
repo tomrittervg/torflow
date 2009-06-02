@@ -4,9 +4,14 @@ import re
 import math
 import sys
 
-
 bw_files = {}
 nodes = {}
+
+# XXX: Do not generate output file if we don't have a 'done' file
+# from each scanner.
+# XXX: Alpha smoothing, here or in tor?
+# XXX: Consolidate scanner.1, scanner.2, scanner.3 into one dir
+# so it is easier to traverse them.
 
 def base10_round(bw_val):
   # This keeps the first 3 decimal digits of the bw value only
