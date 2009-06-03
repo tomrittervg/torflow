@@ -71,6 +71,7 @@ def read_config(filename):
   nodes_per_slice = config.getint('BwAuthority', 'nodes_per_slice')
   save_every = config.getint('BwAuthority', 'save_every')
   circs_per_node = config.getint('BwAuthority', 'circs_per_node')
+  min_streams = config.getint('BwAuthority', 'min_streams')
   out_dir = config.get('BwAuthority', 'out_dir')
   tor_dir = config.get('BwAuthority', 'tor_dir')
   max_fetch_time = config.getint('BwAuthority', 'max_fetch_time')
@@ -83,7 +84,7 @@ def read_config(filename):
 
   return (start_pct,stop_pct,nodes_per_slice,save_every,
             circs_per_node,out_dir,max_fetch_time,tor_dir,
-            sleep_start,sleep_stop)
+            sleep_start,sleep_stop,min_streams)
 
 def choose_url(percentile):
   for (pct, url) in urls:
@@ -106,16 +107,15 @@ class BwScanHandler(PathSupport.PathBuilder):
     self.add_event_listener(self.sql_consensus_listener)
     self.add_event_listener(SQLSupport.StreamListener())
 
-  def write_sql_stats(self, percent_skip, percent_fast, rfilename=None):
+  def write_sql_stats(self, stats_filter=None, rfilename=None):
     if not rfilename:
       rfilename="./data/stats/sql-"+time.strftime("20%y-%m-%d-%H:%M:%S")
     cond = threading.Condition()
     def notlambda(h):
       cond.acquire()
       SQLSupport.RouterStats.write_stats(file(rfilename, "w"),
-                            percent_skip, percent_fast,
-                            order_by=SQLSupport.RouterStats.sbw,
-                            recompute=True)
+                            0, 100, order_by=SQLSupport.RouterStats.sbw,
+                            recompute=True, stat_clause=stats_filter)
       cond.notify()
       cond.release()
     cond.acquire()
@@ -123,19 +123,17 @@ class BwScanHandler(PathSupport.PathBuilder):
     cond.wait()
     cond.release()
 
-  def write_strm_bws(self, percent_skip, percent_fast, rfilename=None):
+  def write_strm_bws(self, slice_num, stats_filter=None, rfilename=None):
     if not rfilename:
       rfilename="./data/stats/bws-"+time.strftime("20%y-%m-%d-%H:%M:%S")
     cond = threading.Condition()
     def notlambda(this):
       cond.acquire()
       f=file(rfilename, "w")
-      f.write("low="+str(int(round((percent_skip*len(this.sorted_r))/100.0,0)))
-             +" hi="+str(int(round((percent_fast*len(this.sorted_r))/100.0,0)))
-             +"\n")
-      SQLSupport.RouterStats.write_bws(f, percent_skip, percent_fast,
+      f.write("slicenum="+str(slice_num)+"\n")
+      SQLSupport.RouterStats.write_bws(f, 0, 100,
                             order_by=SQLSupport.RouterStats.sbw,
-                            recompute=False)
+                            recompute=False, stat_clase=stats_filter)
       f.close()
       cond.notify()
       cond.release()
@@ -240,8 +238,9 @@ class BwScanHandler(PathSupport.PathBuilder):
     def notlambda(this):
       cond.acquire()
       # TODO: Using the entry_gen router list is somewhat ghetto..
-      if this.selmgr.path_selector.entry_gen.rstr_routers and \
-          this.selmgr.path_selector.exit_gen.rstr_routers:
+      if (not this.selmgr.bad_restrictions) or \
+        (this.selmgr.path_selector.entry_gen.rstr_routers and \
+          this.selmgr.path_selector.exit_gen.rstr_routers):
         for r in this.selmgr.path_selector.entry_gen.rstr_routers:
           if r._generated[position] < count:
             cond._finished = False
@@ -381,15 +380,17 @@ def speedrace(hdlr, start_pct, stop_pct, circs_per_node, save_every, out_dir,
       hi = str(round(stop_pct,1))
       # Warning, don't remove the sql stats without changing the recompute
       # param in write_strm_bws to True
-      hdlr.write_sql_stats(start_pct, stop_pct, os.getcwd()+'/'+out_dir+'/sql-'+lo+':'+hi+"-"+str(successful)+"-"+race_time)
-      hdlr.write_strm_bws(start_pct, stop_pct, os.getcwd()+'/'+out_dir+'/bws-'+lo+':'+hi+"-"+str(successful)+"-"+race_time)
+      hdlr.write_sql_stats(os.getcwd()+'/'+out_dir+'/sql-'+lo+':'+hi+"-"+str(successful)+"-"+race_time, stats_filter=SQLSupport.RouterStats.circ_chosen >= 1)
+
+      hdlr.write_strm_bws(os.getcwd()+'/'+out_dir+'/bws-'+lo+':'+hi+"-"+str(successful)+"-"+race_time, stats_filter=SQLSupport.RouterStats.strm_chosen >= 1)
 
   plog('INFO', str(start_pct) + '-' + str(stop_pct) + '% ' + str(successful) + ' fetches took ' + str(attempt) + ' tries.')
 
 def main(argv):
   TorUtil.read_config(argv[1])
   (start_pct,stop_pct,nodes_per_slice,save_every,circs_per_node,out_dir,
-      max_fetch_time,tor_dir,sleep_start,sleep_stop) = read_config(argv[1])
+      max_fetch_time,tor_dir,sleep_start,sleep_stop,
+             min_streams) = read_config(argv[1])
  
   try:
     (c,hdlr) = setup_handler(out_dir, tor_dir+"/control_auth_cookie")
@@ -408,7 +409,7 @@ def main(argv):
   while True:
     pct = start_pct
     plog('INFO', 'Beginning time loop')
-    
+    slice_num = 0 
     while pct < stop_pct:
       pct_step = hdlr.rank_to_percent(nodes_per_slice)
       hdlr.reset_stats()
@@ -424,14 +425,21 @@ def main(argv):
 
       lo = str(round(pct,1))
       hi = str(round(pct+pct_step,1))
-
-      # Warning, don't remove the sql stats without changing the recompute
+      # There may be a consensus change between the point of speed
+      # racing and the writing of stats causing a discrepency
+      # between the immediate, current consensus result used to determine
+      # termination and this average-based result :(
+      # We may need a filter based on circuit chosen and not percentage, or 
+      # we may need to convert this to be most recent rank, and not avg 
+      # (the latter still leaves a small race condition).
+      hdlr.write_sql_stats(os.getcwd()+'/'+out_dir+'/sql-'+lo+':'+hi+"-done-"+time.strftime("20%y-%m-%d-%H:%M:%S"), stats_clause=SQLSupport.RouterStats.circ_chosen >= 1)
+      # Warning, don't remove the sql stats call without changing the recompute
       # param in write_strm_bws to True
-      hdlr.write_sql_stats(pct, pct+pct_step, os.getcwd()+'/'+out_dir+'/sql-'+lo+':'+hi+"-done-"+time.strftime("20%y-%m-%d-%H:%M:%S"))
-      hdlr.write_strm_bws(pct, pct+pct_step, os.getcwd()+'/'+out_dir+'/bws-'+lo+':'+hi+"-done-"+time.strftime("20%y-%m-%d-%H:%M:%S"))
+      hdlr.write_strm_bws(os.getcwd()+'/'+out_dir+'/bws-'+lo+':'+hi+"-done-"+time.strftime("20%y-%m-%d-%H:%M:%S"), slice_num, stats_clause=SQLSupport.RouterStats.strm_closed >= min_streams)
       plog('DEBUG', 'Wrote stats')
       pct += pct_step
       hdlr.save_sql_file(sql_file, os.getcwd()+"/"+out_dir+"/db-"+str(lo)+":"+str(hi)+"-"+time.strftime("20%y-%m-%d-%H:%M:%S")+".sqlite")
+      slice_num += 1
 
 def cleanup(c, f):
   plog("INFO", "Resetting __LeaveStreamsUnattached=0 and FetchUselessDescriptors="+f)

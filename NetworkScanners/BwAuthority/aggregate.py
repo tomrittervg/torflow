@@ -7,11 +7,11 @@ import sys
 bw_files = {}
 nodes = {}
 
-# XXX: Do not generate output file if we don't have a 'done' file
-# from each scanner.
 # XXX: Alpha smoothing, here or in tor?
-# XXX: Consolidate scanner.1, scanner.2, scanner.3 into one dir
-# so it is easier to traverse them.
+#      - Tor, because we want to be able to opine about stuff
+#        we did not measure this round
+#      - Or maybe that's an argument for reading the whole consensus
+#        and doing it here.. but that will always be one behind..
 
 def base10_round(bw_val):
   # This keeps the first 3 decimal digits of the bw value only
@@ -79,23 +79,32 @@ class Line:
     self.ns_bw = int(re.search("[\s]*ns_bw=([\S]+)[\s]*", line).group(1))
 
 def main(argv):
-  for d in argv[1:-1]:
+  for da in argv[1:-1]:
     # First, create a list of the most recent files in the
     # scan dirs that are recent enough
-    for root, dirs, files in os.walk(d):
-      for f in files:
-        if re.search("^bws-[\S]+-done-", f): 
-          fp = file(d+"/"+f, "r")
-          ranks = fp.readline()
-          timestamp = float(fp.readline())
-          fp.close()
-          if ranks not in bw_files or bw_files[ranks][0] < timestamp:
-            bw_files[ranks] = (timestamp, d+"/"+f)
+    for root, dirs, f in os.walk(da):
+      for ds in dirs:
+        print ds
+        if re.match("^scanner.[\d+]$", ds):
+          print ds
+          for sr, sd, files in os.walk(da+"/"+ds+"/scan-data"):
+            for f in files:
+              if re.search("^bws-[\S]+-done-", f):
+                print sr+"/"+f
+                found_done = True
+                fp = file(sr+"/"+f, "r")
+                slicenum = sr+"/"+fp.readline()
+                timestamp = float(fp.readline())
+                fp.close()
+                if slicenum not in bw_files \
+                       or bw_files[slicenum][0] < timestamp:
+                  bw_files[slicenum] = (timestamp, sr+"/"+f)
+          
   
   for (t,f) in bw_files.itervalues():
     fp = file(f, "r")
-    fp.readline()
-    fp.readline()
+    fp.readline() # slicenum
+    fp.readline() # timestamp
     for l in fp.readlines():
       try:
         line = Line(l)
