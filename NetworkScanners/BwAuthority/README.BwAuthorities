@@ -1,0 +1,112 @@
+             So You Want to Fix the Tor Network: Episode One
+                                  - or -
+           How to Run a Bandwidth-Measuring Directory Authority
+
+
+0. Run a Directory Authority
+
+See http://git.torproject.org/checkout/tor/master/doc/v3-authority-howto.txt
+
+You will want the authority to use the new bandwidth voting code for
+your authority. You can get it with:
+
+     git clone git://git.torproject.org/git/tor.git tor.git
+     cd tor.git
+     git remote add mikeperry git://git.torproject.org/~mikeperry/git/tor
+     git fetch mikeperry
+     git branch --track bandwidth-voting mikeperry/bandwidth-voting
+     git checkout bandwidth-voting
+     git rebase master # or origin/maint-0.2.1
+
+
+1. Find a machine with 10Mbit+ downstream
+
+This can be the same as your directory authority, but if you are 
+handy with rsync, it does not have to be. You will not need the 10Mbit
+continuously, but it should be available on demand, as some of the
+faster nodes actually do have this much slack capacity.
+
+
+
+2. Get a checkout of Tor with the new network status control fixes:
+
+This checkout will need to be on the machine that does the scanning.
+
+     git clone git://git.torproject.org/git/tor.git tor.git
+     cd tor.git
+     git remote add mikeperry git://git.torproject.org/~mikeperry/git/tor
+     git fetch mikeperry
+     git branch --track rs-format-fix mikeperry/rs-format-fix
+     git checkout rs-format-fix
+     git rebase master # or origin/maint-0.2.1
+
+Note that the rs-format-fix is a child branch of bandwidth-voting, so if
+you only want to have one git codebase for both the scanner and the
+authority, you can just checkout rs-format-fix (I think).
+
+
+
+3. Compile Tor for your authority and your scanner
+
+No special configure script options are needed.
+
+
+
+4. Enable voting on bandwidths in your authority torrc
+
+The new configuration option is V3BandwidthsFile. It specifies the 
+file containing your measured results, which we will configure
+in the later steps. Pick a location accessible by your Tor 
+directory authority process and any rsync user you may have.
+
+
+
+5. Download SQLAlchemy 0.5.x-latest.
+
+While TorFlow is written to be compatible with both 0.4.x and 0.5.x of
+SQLAlchemy, 0.4.8 seems to exhibit odd object persistence bugs. If your
+distribution does not provide 0.5.4 or newer, you will likely want to
+download that tarball from:
+
+http://pypi.python.org/pypi/SQLAlchemy/
+
+Untar it in the same directory that contains the TorFlow checkout and
+your git checkout (for peace of mind, you will want all three in the
+same place).
+
+
+
+6. Spot-check ./run_scan.sh
+
+This is the script that will launch the scanners. By default, it
+launches three in parallel, and expects the git checkout of the
+rs-format-fix branch to be in ../../../tor.git/, and the SQLAlchemy
+extraction to be in ../../../SQLAlchemy-0.5.4p2. 
+
+Again, note that this is the same directory as this torflow checkout.
+
+
+
+7. Set up a cron job to submit results
+
+Ideally a cron job would aggregate the results and provide them to your
+directory authority at least every four hours, but more often is better:
+
+# echo "45 0-23/4 * * * $HOME/code/torflow-trunk/NetworkScanners/BwAuthority/cron.sh" | crontab
+
+Note that authorities vote every hour starting at 50 past the hour.
+Hence the 45 to give us time to gather the results and copy them over.
+
+In general, if you have any other bandwidth-intensive backup or mirror
+cron jobs on your scanning server, you should schedule them for between
+1:30am and 5:30am, as this is when your scanner will be idle. If this is
+not possible, you can configure your scanner to sleep during a different
+time by editing the bwauthority.cfg files in ./data/scanner.*.
+
+
+
+8. PROFIT!
+
+That's all there is to it. No '????' step needed!
+
+
