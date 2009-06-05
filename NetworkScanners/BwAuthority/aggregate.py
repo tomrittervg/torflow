@@ -3,15 +3,16 @@ import os
 import re
 import math
 import sys
+import socket
+
+sys.path.append("../../")
+from TorCtl.TorUtil import plog
+from TorCtl import TorCtl,TorUtil
 
 bw_files = {}
 nodes = {}
-
-# XXX: Alpha smoothing, here or in tor?
-#      - Tor, because we want to be able to opine about stuff
-#        we did not measure this round
-#      - Or maybe that's an argument for reading the whole consensus
-#        and doing it here.. but that will always be one behind..
+prev_consensus = {}
+ALPHA = 0.3333 # Prev consensus values count for 1/3 of the avg 
 
 def base10_round(bw_val):
   # This keeps the first 3 decimal digits of the bw value only
@@ -79,6 +80,20 @@ class Line:
     self.ns_bw = int(re.search("[\s]*ns_bw=([\S]+)[\s]*", line).group(1))
 
 def main(argv):
+  TorUtil.read_config(argv[1]+"/scanner.1/bwauthority.cfg")
+ 
+  s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+  s.connect((TorUtil.control_host,TorUtil.control_port))
+  c = TorCtl.Connection(s)
+  c.authenticate_cookie(file(argv[1]+"/scanner.1/tor-data/control_auth_cookie",
+                              "r"))
+  ns_list = c.get_network_status()
+  for n in ns_list:
+    if n.bandwidth == None:
+      plog("ERROR", "Your Tor is not providing NS w bandwidths!")
+      sys.exit(0)
+    prev_consensus["$"+n.idhex] = n
+
   for da in argv[1:-1]:
     # First, create a list of the most recent files in the
     # scan dirs that are recent enough
@@ -138,9 +153,11 @@ def main(argv):
     if closest_to_one((n.sbw_ratio, n.fbw_ratio)) == 0:
       n.ratio = n.sbw_ratio
       n.new_bw = n.ns_bw[n.chosen_sbw]*n.ratio
-    else: 
+    else:
       n.ratio = n.fbw_ratio
       n.new_bw = n.ns_bw[n.chosen_fbw]*n.ratio
+    if n.idhex in prev_consensus:
+      n.new_bw = ((prev_consensus[n.idhex].bandwidth*ALPHA + n.new_bw)/(ALPHA + 1))/1024.0
 
   n_print = nodes.values()
   n_print.sort(lambda x,y: int(x.new_bw) - int(y.new_bw))
