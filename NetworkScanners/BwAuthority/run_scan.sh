@@ -7,7 +7,7 @@
 #      git branch --track rs-format-fix mikeperry/rs-format-fix
 #      git checkout rs-format-fix
 TOR_EXE=../../../tor.git/src/or/tor
-#PYTHONPATH=../../../SQLAlchemy-0.5.4p2/lib
+PYTHONPATH=../../../SQLAlchemy-0.5.4p2/lib
 
 for i in data/scanner.*
 do
