@@ -4,6 +4,7 @@ import re
 import math
 import sys
 import socket
+import time
 
 sys.path.append("../../")
 from TorCtl.TorUtil import plog
@@ -202,7 +203,14 @@ def main(argv):
 
   for n in prev_consensus.itervalues():
     if not n.measured:
-      plog("INFO", "Didn't measure "+n.idhex+"="+n.nickname)
+      if "Fast" in n.flags and "Running" in n.flags:
+        r = c.get_router(n)
+        if r and not r.down and r.bw > 0:
+          if time.mktime(r.published.utctimetuple()) - r.uptime \
+                 < oldest_timestamp:
+            # We still tend to miss about 80 nodes even with these
+            # checks.. Possibly going in and out of hibernation?
+            plog("INFO", "Didn't measure "+n.idhex+"="+n.nickname)
 
   n_print = nodes.values()
   n_print.sort(lambda x,y: int(x.new_bw) - int(y.new_bw))
