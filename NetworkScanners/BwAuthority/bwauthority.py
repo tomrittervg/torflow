@@ -332,8 +332,9 @@ def http_request(address):
     traceback.print_exc()
     return 0 
 
-def speedrace(hdlr, start_pct, stop_pct, circs_per_node, save_every, out_dir, 
-              max_fetch_time, sleep_start_tp, sleep_stop_tp):
+def speedrace(hdlr, start_pct, stop_pct, circs_per_node, save_every, out_dir,
+              max_fetch_time, sleep_start_tp, sleep_stop_tp, slice_num,
+              min_streams, sql_file):
   hdlr.set_pct_rstr(start_pct, stop_pct)
 
   attempt = 0
@@ -386,6 +387,25 @@ def speedrace(hdlr, start_pct, stop_pct, circs_per_node, save_every, out_dir,
 
   plog('INFO', str(start_pct) + '-' + str(stop_pct) + '% ' + str(successful) + ' fetches took ' + str(attempt) + ' tries.')
 
+  hdlr.close_circuits()
+  hdlr.commit()
+  
+  lo = str(round(start_pct,1))
+  hi = str(round(stop_pct,1))
+
+  # There may be a consensus change between the point of speed
+  # racing and the writing of stats causing a discrepency
+  # between the immediate, current consensus result used to determine
+  # termination and this average-based result.
+  # So instead of using percentiles to filter here, we filter based on 
+  # circuit chosen.
+  hdlr.write_sql_stats(os.getcwd()+'/'+out_dir+'/sql-'+lo+':'+hi+"-done-"+time.strftime("20%y-%m-%d-%H:%M:%S"), stats_filter=sqlalchemy.or_(SQLSupport.RouterStats.circ_try_from > 0, SQLSupport.RouterStats.circ_try_to > 0))
+  # Warning, don't remove the sql stats call without changing the recompute
+  # param in write_strm_bws to True
+  hdlr.write_strm_bws(os.getcwd()+'/'+out_dir+'/bws-'+lo+':'+hi+"-done-"+time.strftime("20%y-%m-%d-%H:%M:%S"), slice_num, stats_filter=sqlalchemy.and_(SQLSupport.RouterStats.strm_closed >= min_streams, SQLSupport.RouterStats.filt_sbw >= 0, SQLSupport.RouterStats.sbw >=0 ))
+  plog('DEBUG', 'Wrote stats')
+  hdlr.save_sql_file(sql_file, os.getcwd()+"/"+out_dir+"/bw-db-"+str(lo)+":"+str(hi)+"-"+time.strftime("20%y-%m-%d-%H:%M:%S")+".sqlite")
+
 def main(argv):
   TorUtil.read_config(argv[1])
   (start_pct,stop_pct,nodes_per_slice,save_every,circs_per_node,out_dir,
@@ -417,28 +437,16 @@ def main(argv):
       plog('DEBUG', 'Reset stats')
 
       speedrace(hdlr, pct, pct+pct_step, circs_per_node, save_every, out_dir,
-                max_fetch_time, sleep_start, sleep_stop)
+                max_fetch_time, sleep_start, sleep_stop, slice_num,
+                min_streams, sql_file)
 
-      plog('DEBUG', 'speedroced')
-      hdlr.close_circuits()
-      hdlr.commit()
+      # TODO: Change pathlen to 3 and kill exit+ConserveExit restrictions
+      # And record circ failure rates..
 
-      lo = str(round(pct,1))
-      hi = str(round(pct+pct_step,1))
-      # There may be a consensus change between the point of speed
-      # racing and the writing of stats causing a discrepency
-      # between the immediate, current consensus result used to determine
-      # termination and this average-based result :(
-      # We may need a filter based on circuit chosen and not percentage, or 
-      # we may need to convert this to be most recent rank, and not avg 
-      # (the latter still leaves a small race condition).
-      hdlr.write_sql_stats(os.getcwd()+'/'+out_dir+'/sql-'+lo+':'+hi+"-done-"+time.strftime("20%y-%m-%d-%H:%M:%S"), stats_filter=sqlalchemy.or_(SQLSupport.RouterStats.circ_try_from > 0, SQLSupport.RouterStats.circ_try_to > 0))
-      # Warning, don't remove the sql stats call without changing the recompute
-      # param in write_strm_bws to True
-      hdlr.write_strm_bws(os.getcwd()+'/'+out_dir+'/bws-'+lo+':'+hi+"-done-"+time.strftime("20%y-%m-%d-%H:%M:%S"), slice_num, stats_filter=sqlalchemy.and_(SQLSupport.RouterStats.strm_closed >= min_streams, SQLSupport.RouterStats.filt_sbw >= 0, SQLSupport.RouterStats.sbw >=0 ))
-      plog('DEBUG', 'Wrote stats')
+      #circ_measure(hdlr, pct, pct+pct_step, circs_per_node, save_every, 
+      #  out_dir, max_fetch_time, sleep_start, sleep_stop, slice_num, sql_file)
+
       pct += pct_step
-      hdlr.save_sql_file(sql_file, os.getcwd()+"/"+out_dir+"/db-"+str(lo)+":"+str(hi)+"-"+time.strftime("20%y-%m-%d-%H:%M:%S")+".sqlite")
       slice_num += 1
 
 def cleanup(c, f):
