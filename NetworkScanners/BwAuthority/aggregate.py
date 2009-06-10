@@ -20,6 +20,9 @@ def base10_round(bw_val):
   # This keeps the first 3 decimal digits of the bw value only
   # to minimize changes for consensus diffs.
   # Resulting error is +/-0.5%
+  if bw_val == 0:
+    plog("NOTICE", "Zero bandwidth!")
+    return 0
   return int(round(bw_val,-(int(math.log10(bw_val))-2)))
 
 def closest_to_one(ratio_list):
@@ -116,9 +119,16 @@ def main(argv):
                          "r"))
 
   ns_list = c.get_network_status()
-  ns_list.sort(lambda x, y: x.bandwidth < y.bandwidth)
-  got_ns_bw = False
   for n in ns_list:
+    if n.bandwidth == None: n.bandwidth = -1
+  ns_list.sort(lambda x, y: y.bandwidth - x.bandwidth)
+  for n in ns_list:
+    if n.bandwidth == -1: n.bandwidth = None
+  got_ns_bw = False
+  max_rank = len(ns_list)
+  for i in xrange(max_rank):
+    n = ns_list[i]
+    n.list_rank = i
     if n.bandwidth == None:
       plog("NOTICE", "Your Tor is not providing NS w bandwidths for "+n.idhex)
     else:
@@ -204,13 +214,16 @@ def main(argv):
   for n in prev_consensus.itervalues():
     if not n.measured:
       if "Fast" in n.flags and "Running" in n.flags:
-        r = c.get_router(n)
+        try:
+          r = c.get_router(n)
+        except TorCtl.ErrorReply:
+          r = None
         if r and not r.down and r.bw > 0:
           if time.mktime(r.published.utctimetuple()) - r.uptime \
                  < oldest_timestamp:
             # We still tend to miss about 80 nodes even with these
             # checks.. Possibly going in and out of hibernation?
-            plog("INFO", "Didn't measure "+n.idhex+"="+n.nickname)
+            plog("INFO", "Didn't measure "+n.idhex+"="+n.nickname+" at "+str(round((100.0*n.list_rank)/max_rank,1))+" "+str(n.bandwidth))
 
   n_print = nodes.values()
   n_print.sort(lambda x,y: int(x.new_bw) - int(y.new_bw))
