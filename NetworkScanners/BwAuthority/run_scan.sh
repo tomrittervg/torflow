@@ -17,6 +17,7 @@ done
 $TOR_EXE -f ./data/scanner.1/torrc & 
 $TOR_EXE -f ./data/scanner.2/torrc & 
 $TOR_EXE -f ./data/scanner.3/torrc & 
+$TOR_EXE -f ./data/scanner.4/torrc & 
 
 # If this is a fresh start, we should allow the tors time to download
 # new descriptors.
@@ -27,5 +28,6 @@ export PYTHONPATH
 ./bwauthority.py ./data/scanner.1/bwauthority.cfg >& ./data/scanner.1/bw.log &
 ./bwauthority.py ./data/scanner.2/bwauthority.cfg >& ./data/scanner.2/bw.log &
 ./bwauthority.py ./data/scanner.3/bwauthority.cfg >& ./data/scanner.3/bw.log &
+./bwauthority.py ./data/scanner.4/bwauthority.cfg >& ./data/scanner.4/bw.log &
 
 
