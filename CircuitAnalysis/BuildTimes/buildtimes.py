@@ -38,9 +38,10 @@ __selmgr = PathSupport.SelectionManager(
       use_all_exits=False,
       uniform=True,
       use_exit=None,
-      use_guards=True,
+      use_guards=False,
       restrict_guards=False)
-      #extra_node_rstr=PathSupport.RateLimitedRestriction(True))
+#      extra_node_rstr=PathSupport.FlagsRestriction(mandatory=[], 
+#                             forbidden=["V2Dir"]))
 
 # Original value of FetchUselessDescriptors
 FUDValue = None
@@ -67,6 +68,8 @@ class CircStatsGatherer(StatsHandler):
     self.circ_built = 0
     self.nstats = nstats
     self.done = False
+    if self.selmgr.bad_restrictions:
+      raise PathSupport.NoNodesRemain("No nodes remain after init")
     # Set up the exit restriction to include either 443 or 80 exits.
     # Since Tor dynamically pre-builds circuits depending on port usage, and 
     # these are the two most commonly used user ports, this seems as good 
@@ -253,12 +256,11 @@ def guardslice(guard_slices,p,s,end,ncircuits,max_circuits,dirname,use_sql):
     return
  
   for i in xrange(0,ncircuits):
-    print 'Building circuit',i
     try:
       def circuit_builder(h):
         # reschedule if some number n circuits outstanding
+        from TorCtl.TorUtil import plog
         if h.circ_count - h.circ_succeeded - h.circ_failed > max_circuits:
-          from TorCtl.TorUtil import plog
           plog("DEBUG", "Too many circuits: "+str(h.circ_count-h.circ_succeeded-h.circ_failed)+", delaying build")
           h.schedule_low_prio(circuit_builder)
           return
