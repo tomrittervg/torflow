@@ -15,6 +15,7 @@ timestamps = {}
 nodes = {}
 prev_consensus = {}
 ALPHA = 0.3333 # Prev consensus values count for 1/3 of the avg 
+MAX_AGE = 60*60*24*4 # Discard measurements from more than 2 days ago 
 
 def base10_round(bw_val):
   # This keeps the first 3 decimal digits of the bw value only
@@ -23,7 +24,8 @@ def base10_round(bw_val):
   if bw_val == 0:
     plog("NOTICE", "Zero bandwidth!")
     return 0
-  return int(round(bw_val,-(int(math.log10(bw_val))-2)))
+  return int(max((1000,
+                   round(round(bw_val,-(int(math.log10(bw_val))-2)), -3))))
 
 def closest_to_one(ratio_list):
   min_dist = 0x7fffffff
@@ -46,6 +48,7 @@ class Node:
     self.node_data = {}
     self.idhex = None
     self.nick = None
+    self.chosen_time = None
     self.chosen_sbw = None
     self.chosen_fbw = None
     self.sbw_ratio = None
@@ -55,6 +58,7 @@ class Node:
     self.strm_bw = []
     self.filt_bw = []
     self.ns_bw = []
+    self.timestamps = []
 
   def add_line(self, line):
     if self.idhex and self.idhex != line.idhex:
@@ -65,6 +69,8 @@ class Node:
       or self.node_data[line.slice_file].timestamp < line.timestamp:
       self.node_data[line.slice_file] = NodeData(line.timestamp)
 
+    # FIXME: This is kinda nutty. Can we simplify? For instance,
+    # do these really need to be lists inside the nd?
     nd = self.node_data[line.slice_file]
     nd.strm_bw.append(line.strm_bw)
     nd.filt_bw.append(line.filt_bw)
@@ -73,11 +79,14 @@ class Node:
     self.strm_bw = []
     self.filt_bw = []
     self.ns_bw = []
+    self.timestamps = []
 
     for nd in self.node_data.itervalues():
       self.strm_bw.extend(nd.strm_bw)
       self.filt_bw.extend(nd.filt_bw)
       self.ns_bw.extend(nd.ns_bw)
+      for i in xrange(len(nd.ns_bw)):
+        self.timestamps.append(nd.timestamp)
 
   def avg_strm_bw(self):
     return sum(self.strm_bw)/float(len(self.strm_bw))
@@ -110,6 +119,7 @@ class Line:
 
 def main(argv):
   TorUtil.read_config(argv[1]+"/scanner.1/bwauthority.cfg")
+  TorUtil.loglevel = "INFO"
  
   s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
   s.connect((TorUtil.control_host,TorUtil.control_port))
@@ -156,15 +166,14 @@ def main(argv):
                 slicenum = sr+"/"+fp.readline()
                 timestamp = float(fp.readline())
                 fp.close()
+                if time.time() - timestamp > MAX_AGE:
+                  plog("INFO", "Skipping old file "+f)
+                  continue
                 bw_files.append((slicenum, timestamp, sr+"/"+f))
+                # FIXME: Can we kill this?
                 if slicenum not in timestamps or \
                      timestamps[slicenum] < timestamp:
                   timestamps[slicenum] = timestamp
-
-  # FIXME: Hrmm.. there may be edge cases here where we have
-  # an extra slice number that is never scanned again (ie the network
-  # shrinks). This will leave us with really old timestamps.
-  oldest_timestamp = min(timestamps.itervalues())
 
   # Need to only use most recent slice-file for each node..
   for (s,t,f) in bw_files:
@@ -189,14 +198,23 @@ def main(argv):
   pre_filt_avg = sum(map(lambda n: n.avg_filt_bw(), nodes.itervalues()))/ \
                   float(len(nodes))
 
+  plog("INFO", "Network pre_strm_avg: "+str(pre_strm_avg))
+  plog("INFO", "Network pre_filt_avg: "+str(pre_filt_avg))
+
   for n in nodes.itervalues():
     n.choose_strm_bw(pre_strm_avg)
     n.choose_filt_bw(pre_filt_avg)
+    plog("DEBUG", "Node "+n.nick+" chose sbw: "+\
+                str(n.strm_bw[n.chosen_sbw])+" fbw: "+\
+                str(n.filt_bw[n.chosen_fbw]))
 
   true_strm_avg = sum(map(lambda n: n.strm_bw[n.chosen_sbw],
                        nodes.itervalues()))/float(len(nodes))
   true_filt_avg = sum(map(lambda n: n.filt_bw[n.chosen_fbw],
                        nodes.itervalues()))/float(len(nodes))
+
+  plog("INFO", "Network true_strm_avg: "+str(true_strm_avg))
+  plog("INFO", "Network true_filt_avg: "+str(true_filt_avg))
 
   for n in nodes.itervalues():
     n.fbw_ratio = n.filt_bw[n.chosen_fbw]/true_filt_avg
@@ -204,12 +222,21 @@ def main(argv):
     if closest_to_one((n.sbw_ratio, n.fbw_ratio)) == 0:
       n.ratio = n.sbw_ratio
       n.new_bw = n.ns_bw[n.chosen_sbw]*n.ratio
+      n.chosen_time = n.timestamps[n.chosen_sbw]
     else:
       n.ratio = n.fbw_ratio
       n.new_bw = n.ns_bw[n.chosen_fbw]*n.ratio
+      n.chosen_time = n.timestamps[n.chosen_fbw]
+    # XXX: Bytes or kb, we really need to decide.. and be careful when 
+    # we do
     if n.idhex in prev_consensus and prev_consensus[n.idhex].bandwidth != None:
       prev_consensus[n.idhex].measured = True
-      n.new_bw = ((prev_consensus[n.idhex].bandwidth*ALPHA + n.new_bw)/(ALPHA + 1))/1024.0
+      n.new_bw = ((prev_consensus[n.idhex].bandwidth*ALPHA + n.new_bw)/(ALPHA + 1))
+
+  oldest_timestamp = min(map(lambda n: n.chosen_time,
+             filter(lambda n: n.idhex in prev_consensus,
+                       nodes.itervalues())))
+  plog("INFO", "Oldest measured node: "+time.ctime(oldest_timestamp))
 
   for n in prev_consensus.itervalues():
     if not n.measured:
@@ -231,7 +258,7 @@ def main(argv):
   out = file(argv[-1], "w")
   out.write(str(int(round(oldest_timestamp,0)))+"\n")
   for n in n_print:
-    out.write("node_id="+n.idhex+" bw="+str(base10_round(n.new_bw))+" nick="+n.nick+"\n")
+    out.write("node_id="+n.idhex+" bw="+str(base10_round(n.new_bw))+" nick="+n.nick+" measured_at="+str(n.chosen_time)+"\n")
   out.close()
  
 if __name__ == "__main__":
