@@ -26,7 +26,10 @@ sys.path.append("../../")
 
 from TorCtl.TorUtil import plog
 
-
+# XXX: Temporary for debugging memory leak 
+import gc
+gc.set_debug(gc.DEBUG_COLLECTABLE|gc.DEBUG_UNCOLLECTABLE|gc.DEBUG_INSTANCES|gc.DEBUG_OBJECTS)
+ 
 from TorCtl import PathSupport,SQLSupport,TorCtl,TorUtil
 
 sys.path.append("../libs")
@@ -439,6 +442,9 @@ def main(argv):
       speedrace(hdlr, pct, pct+pct_step, circs_per_node, save_every, out_dir,
                 max_fetch_time, sleep_start, sleep_stop, slice_num,
                 min_streams, sql_file)
+
+      # XXX: Temporary for debugging memory leak..
+      TorUtil.dump_class_ref_counts()
 
       # TODO: Change pathlen to 3 and kill exit+ConserveExit restrictions
       # And record circ failure rates..
