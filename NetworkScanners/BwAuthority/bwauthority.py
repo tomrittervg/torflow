@@ -26,9 +26,9 @@ sys.path.append("../../")
 
 from TorCtl.TorUtil import plog
 
-# XXX: Temporary for debugging memory leak 
-import gc
-gc.set_debug(gc.DEBUG_COLLECTABLE|gc.DEBUG_UNCOLLECTABLE|gc.DEBUG_INSTANCES|gc.DEBUG_OBJECTS)
+# WAAAYYYYYY too noisy.
+#import gc
+#gc.set_debug(gc.DEBUG_COLLECTABLE|gc.DEBUG_UNCOLLECTABLE|gc.DEBUG_INSTANCES|gc.DEBUG_OBJECTS)
  
 from TorCtl import PathSupport,SQLSupport,TorCtl,TorUtil
 
