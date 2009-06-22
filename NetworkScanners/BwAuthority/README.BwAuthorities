@@ -26,6 +26,7 @@ handy with rsync, it does not have to be. You will not need the 10Mbit
 continuously, but it should be available on demand, as some of the
 faster nodes actually do have this much slack capacity.
 
+The machine will require around 4-5Gbytes/day.
 
 
 2. Get a checkout of Tor with the new network status control fixes:
@@ -103,10 +104,35 @@ cron jobs on your scanning server, you should schedule them for between
 not possible, you can configure your scanner to sleep during a different
 time by editing the bwauthority.cfg files in ./data/scanner.*.
 
+For more fine grained tuning, note that the scanner using ./data/scanner.1
+will require the most bandwidth, and ./data/scanner.4 will require the 
+least.
 
 
 8. PROFIT!
 
 That's all there is to it. No '????' step needed!
+
+
+
+Appendix A: Creating the HTTPS scanning server
+
+The scanner server will need approx 30-40Mbit of upstream available, and will
+need to serve https via a fixed IP. SSL is needed to avoid HTTP content
+caches at the various exit nodes. Self-signed certs are OK.
+
+The server will consume around 12-15Gbytes/day.
+
+Here are two shell script snippets to generate the files we will need 
+for scanning and testing:
+
+for i in 64 32 16 8 4 2 1; do
+  dd if=/dev/urandom of=./${i}M bs=1k count=`expr $i \* 1024`
+done
+
+for i in 512 256 128 64 32 16; do
+  dd if=/dev/urandom of=./${i}k bs=1k count=$i
+done
+
 
 
