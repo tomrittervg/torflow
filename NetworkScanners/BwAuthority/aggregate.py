@@ -15,7 +15,7 @@ timestamps = {}
 nodes = {}
 prev_consensus = {}
 ALPHA = 0.3333 # Prev consensus values count for 1/3 of the avg 
-MAX_AGE = 60*60*24*4 # Discard measurements from more than 2 days ago 
+MAX_AGE = 60*60*24*2.5 # Discard measurements from more than 2.5 days ago 
 
 def base10_round(bw_val):
   # This keeps the first 3 decimal digits of the bw value only
@@ -25,7 +25,8 @@ def base10_round(bw_val):
     plog("NOTICE", "Zero bandwidth!")
     return 0
   return int(max((1000,
-                   round(round(bw_val,-(int(math.log10(bw_val))-2)), -3))))
+                   round(round(bw_val,-(int(math.log10(bw_val))-2)),
+                                                       -3)))/1000)
 
 def closest_to_one(ratio_list):
   min_dist = 0x7fffffff
