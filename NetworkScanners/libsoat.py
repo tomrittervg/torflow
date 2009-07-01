@@ -100,7 +100,7 @@ class TestResult(object):
     else:
       self.exit_node = "[No Exit Used]"
       self.exit_name = ""
-      self.exit_ip = ""
+      self.exit_ip = 0
       self.contact = "[No Exit Used]"
     self.exit_obj = exit_obj
     self.site = site
@@ -113,7 +113,7 @@ class TestResult(object):
     self.verbose=0
     self.from_rescan = False
     self.filename=None
-    self._pickle_revision = 4
+    self._pickle_revision = 5
 
   def depickle_upgrade(self):
     if not "_pickle_revision" in self.__dict__: # upgrade to v0
@@ -130,6 +130,10 @@ class TestResult(object):
     if self._pickle_revision < 4:
       self._pickle_revision = 4
       self.contact = None
+    if self._pickle_revision < 5:
+      self._pickle_revision = 5
+      if type(self.exit_ip) == str or not self.exit_ip: self.exit_ip = 0
+
 
   def _rebase(self, filename, new_data_root):
     if not filename: return filename

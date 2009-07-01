@@ -249,6 +249,8 @@ class Test:
       if r.site == target:
         kill_results.append(r)
     for r in kill_results:
+      # XXX: Need to re-add this node to our test set 
+      # (If it is still up)
       if r.status == TEST_FAILURE:
         # Save this new result file in false positive dir 
         # and remove old one
