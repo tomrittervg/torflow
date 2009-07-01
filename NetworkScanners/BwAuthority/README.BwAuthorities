@@ -14,8 +14,8 @@ your authority. You can get it with:
      cd tor.git
      git remote add mikeperry git://git.torproject.org/~mikeperry/git/tor
      git fetch mikeperry
-     git branch --track bandwidth-voting mikeperry/bandwidth-voting
-     git checkout bandwidth-voting
+     git branch --track bandwidth-voting2 mikeperry/bandwidth-voting2
+     git checkout bandwidth-voting2
      git rebase master # or origin/maint-0.2.1
 
 
@@ -37,8 +37,8 @@ This checkout will need to be on the machine that does the scanning.
      cd tor.git
      git remote add mikeperry git://git.torproject.org/~mikeperry/git/tor
      git fetch mikeperry
-     git branch --track rs-format-fix mikeperry/rs-format-fix
-     git checkout rs-format-fix
+     git branch --track rs-format-fix3 mikeperry/rs-format-fix3
+     git checkout rs-format-fix3
      git rebase master # or origin/maint-0.2.1
 
 Note that the rs-format-fix is a child branch of bandwidth-voting, so if
