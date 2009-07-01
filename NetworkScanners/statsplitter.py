@@ -33,6 +33,39 @@ sorted_rlist = c.read_routers(c.get_network_status())
 sorted_rlist.sort(lambda x, y: cmp(y.bw, x.bw))
 for i in xrange(len(sorted_rlist)): sorted_rlist[i].list_rank = i
 
+mid_rst = FlagsRestriction([], ["Exit", "Guard"])
+nmid_rst = PathSupport.OrNodeRestriction(
+          [
+  PathSupport.FlagsRestriction(mandatory=["Guard"], forbidden=[]),
+  PathSupport.FlagsRestriction(mandatory=["Exit"], forbidden=[])
+          ]
+                        )
+
+bw_limit_rst = RateLimitedRestriction(True)
+nbw_limit_rst = RateLimitedRestriction(False)
+
+win_rst = PathSupport.OSRestriction(ok=["Win"])
+nwin_rst = PathSupport.OSRestriction(ok=[], bad=["Win"])
+
+v2dir_rst = PathSupport.FlagsRestriction(["V2Dir"])
+nv2dir_rst = PathSupport.FlagsRestriction([],["V2Dir"])
+
+win_mid = NodeRestrictionList([mid_rst, win_rst])
+win_nmid = NodeRestrictionList([nmid_rst, win_rst])
+
+v2dir_mid = NodeRestrictionList([mid_rst, v2dir_rst])
+nv2dir_mid = NodeRestrictionList([mid_rst, nv2dir_rst])
+
+
+nbw_limit_mid = NodeRestrictionList([mid_rst, nbw_limit_rst])
+nbw_limit_nmid = NodeRestrictionList([nmid_rst, nbw_limit_rst])
+
+win_nltd = NodeRestrictionList([nbw_limit_rst, win_rst])
+nwin_nltd = NodeRestrictionList([nbw_limit_rst, nwin_rst])
+
+super_bad = OrNodeRestriction([win_rst, nbw_limit_rst])
+
+
 fast_rst = FlagsRestriction(["Fast"], [])
 exit_rst = FlagsRestriction(["Exit"], [])
 dir_rst = FlagsRestriction(["V2Dir"], [])
@@ -71,8 +104,8 @@ def check(start, stop):
 
   print str(start)+"-"+str(stop)+": N: "+str(nodes)+", Bw: "+str(round(bw/(1024*1024.0), 2))+", X: "+str(exits)+", XBw: "+str(round(exit_bw/(1024*1024.0),2))+", BT: "+str(heavy)+", Dirs:"+str(dirs)+", Up: "+str(round(up/nodes_up/60/60/24, 2))
 
-for i in xrange(0,100,3):
-  check(i,i+3)
+for i in xrange(0,100,10):
+  check(i,i+10)
 
 def check_entropy(rlist, clipping_point):
   clipped = 0
