@@ -7,12 +7,17 @@
 #      git branch --track rs-format-fix mikeperry/rs-format-fix
 #      git checkout rs-format-fix
 TOR_EXE=../../../tor.git/src/or/tor
-PYTHONPATH=../../../SQLAlchemy-0.5.4p2/lib
+PYTHONPATH=../../../SQLAlchemy-0.5.5/lib:../../../Elixir-0.6.1/
 
 for i in data/scanner.*
 do
   rm $i/scan-data/*
 done
+
+# NOTE: You may want to add this step, if these are the only
+# tors run by this user.
+# killall tor && sleep 5 && killall -9 tor
+
 
 $TOR_EXE -f ./data/scanner.1/torrc & 
 $TOR_EXE -f ./data/scanner.2/torrc & 

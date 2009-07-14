@@ -52,7 +52,7 @@ authority, you can just checkout rs-format-fix7.
 No special configure script options are needed.
 
 
-4. Download SQLAlchemy 0.5.x-latest.
+4. Download SQLAlchemy 0.5.x-latest and Elixir 0.6.x-latest
 
 While TorFlow is written to be compatible with both 0.4.x and 0.5.x of
 SQLAlchemy, 0.4.8 seems to exhibit odd object persistence bugs. If your
@@ -64,6 +64,11 @@ http://pypi.python.org/pypi/SQLAlchemy/
 Untar it in the same directory that contains the TorFlow checkout and
 your git checkout (for peace of mind, you will want all three in the
 same place).
+
+If your distribution does not provide Elixir 0.6.1 or above, do the
+same with Elixir:
+
+http://pypi.python.org/pypi/Elixir/
 
 
 5. Enable voting on bandwidths in your authority torrc
@@ -95,7 +100,7 @@ step 4.
 This is the script that will launch the scanners. By default, it
 launches four in parallel, and expects the git checkout of the
 rs-format-fix branch to be in ../../../tor.git/, and the SQLAlchemy
-extraction to be in ../../../SQLAlchemy-0.5.4p2. 
+extraction to be in ../../../SQLAlchemy-0.5.5
 
 Again, note that this is the same directory that contains the
 torflow checkout directory.
