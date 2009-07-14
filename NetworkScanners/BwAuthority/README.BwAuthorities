@@ -81,7 +81,7 @@ any other users from writing the file there.
 6. (Optional) Create a user capable of writing the bwscan file
 
 This can either be the user that will run the scanning scripts, 
-or the user that will recieve the scp of the result from the remote
+or the user that will receive the scp of the result from the remote
 machine. It should have write access to your bwscan dir from
 step 4.
 
@@ -97,7 +97,8 @@ launches four in parallel, and expects the git checkout of the
 rs-format-fix branch to be in ../../../tor.git/, and the SQLAlchemy
 extraction to be in ../../../SQLAlchemy-0.5.4p2. 
 
-Again, note that this is the same directory as this torflow checkout.
+Again, note that this is the same directory that contains this
+torflow checkout.
 
 
 8. Set up a cron job to submit results
