@@ -42,12 +42,11 @@ user_agent = "Mozilla/4.0 (compatible; MSIE 6.0; Windows NT 5.1; .NET CLR 1.0.37
 # below, or else the scan will not finish.
 # TODO: As the network balances, these can become more uniform in size
 #          cutoff percent                URL
-urls =         [(10,          "https://128.174.236.117/4096k"),
-                (20,          "https://128.174.236.117/2048k"),
-                (30,          "https://128.174.236.117/1024k"),
-                (50,          "https://128.174.236.117/512k"),
-                (75,          "https://128.174.236.117/256k"),
-                (100,         "https://128.174.236.117/128k")]
+urls =         [(10,          "https://38.229.70.2/2M"),
+                (20,          "https://38.229.70.2/1M"),
+                (30,          "https://38.229.70.2/512k"),
+                (50,          "https://38.229.70.2/256k"),
+                (100,         "https://38.229.70.2/128k")]
 
 
 # Do NOT modify this object directly after it is handed to PathBuilder
@@ -352,7 +351,7 @@ def speedrace(hdlr, start_pct, stop_pct, circs_per_node, save_every, out_dir,
     t0 = time.time()
     if sleep_start <= t0 and t0 <= sleep_stop:
       plog("NOTICE", "It's bedtime. Sleeping for "+str(round((sleep_stop-t0)/3600.0,1))+"h")
-      #time.sleep(sleep_stop - t0)
+      time.sleep(sleep_stop - t0)
 
     hdlr.new_exit()
     attempt += 1
@@ -444,7 +443,7 @@ def main(argv):
                 min_streams, sql_file)
 
       # XXX: Temporary for debugging memory leak..
-      TorUtil.dump_class_ref_counts()
+      TorUtil.dump_class_ref_counts(referrer_depth=1)
 
       # TODO: Change pathlen to 3 and kill exit+ConserveExit restrictions
       # And record circ failure rates..
