@@ -14,9 +14,9 @@ your authority. You can get it with:
      cd tor.git
      git remote add mikeperry git://git.torproject.org/~mikeperry/git/tor
      git fetch mikeperry
-     git branch --track bandwidth-voting2 mikeperry/bandwidth-voting2
-     git checkout bandwidth-voting2
-     git rebase master # or origin/maint-0.2.1
+     git branch --track bandwidth-voting4 mikeperry/bandwidth-voting4
+     git checkout bandwidth-voting4
+     git rebase master
 
 
 1. Find a machine with 10Mbit+ downstream
@@ -37,13 +37,13 @@ This checkout will need to be on the machine that does the scanning.
      cd tor.git
      git remote add mikeperry git://git.torproject.org/~mikeperry/git/tor
      git fetch mikeperry
-     git branch --track rs-format-fix3 mikeperry/rs-format-fix3
-     git checkout rs-format-fix3
-     git rebase master # or origin/maint-0.2.1
+     git branch --track rs-format-fix7 mikeperry/rs-format-fix7
+     git checkout rs-format-fix7
+     git rebase master
 
 Note that the rs-format-fix is a child branch of bandwidth-voting, so if
 you only want to have one git codebase for both the scanner and the
-authority, you can just checkout rs-format-fix (I think).
+authority, you can just checkout rs-format-fix7.
 
 
 
@@ -52,17 +52,7 @@ authority, you can just checkout rs-format-fix (I think).
 No special configure script options are needed.
 
 
-
-4. Enable voting on bandwidths in your authority torrc
-
-The new configuration option is V3BandwidthsFile. It specifies the 
-file containing your measured results, which we will configure
-in the later steps. Pick a location accessible by your Tor 
-directory authority process and any rsync user you may have.
-
-
-
-5. Download SQLAlchemy 0.5.x-latest.
+4. Download SQLAlchemy 0.5.x-latest.
 
 While TorFlow is written to be compatible with both 0.4.x and 0.5.x of
 SQLAlchemy, 0.4.8 seems to exhibit odd object persistence bugs. If your
@@ -76,19 +66,41 @@ your git checkout (for peace of mind, you will want all three in the
 same place).
 
 
+5. Enable voting on bandwidths in your authority torrc
 
-6. Spot-check ./run_scan.sh
+The new configuration option is V3BandwidthsFile. It specifies the 
+file containing your measured results, which we will configure
+in the later steps. Pick a location accessible by your Tor 
+directory authority process and any rsync user you may have. 
+
+I recommend /var/lib/tor.bwscans/bwscan. If you try to use
+/var/lib/tor, tor will reset your permissions and exclude
+any other users from writing the file there.
+
+
+6. (Optional) Create a user capable of writing the bwscan file
+
+This can either be the user that will run the scanning scripts, 
+or the user that will recieve the scp of the result from the remote
+machine. It should have write access to your bwscan dir from
+step 4.
+
+# useradd bwscanner
+# chown toruser:bwscanner /var/lib/tor.bwscans/
+# chmod 770 /var/lib/tor.bwscans/
+
+
+7. Spot-check ./run_scan.sh
 
 This is the script that will launch the scanners. By default, it
-launches three in parallel, and expects the git checkout of the
+launches four in parallel, and expects the git checkout of the
 rs-format-fix branch to be in ../../../tor.git/, and the SQLAlchemy
 extraction to be in ../../../SQLAlchemy-0.5.4p2. 
 
 Again, note that this is the same directory as this torflow checkout.
 
 
-
-7. Set up a cron job to submit results
+8. Set up a cron job to submit results
 
 Ideally a cron job would aggregate the results and provide them to your
 directory authority at least every four hours, but more often is better:
@@ -100,7 +112,7 @@ Hence the 45 to give us time to gather the results and copy them over.
 
 In general, if you have any other bandwidth-intensive backup or mirror
 cron jobs on your scanning server, you should schedule them for between
-1:30am and 5:30am, as this is when your scanner will be idle. If this is
+1:30am and 4:30am, as this is when your scanner will be idle. If this is
 not possible, you can configure your scanner to sleep during a different
 time by editing the bwauthority.cfg files in ./data/scanner.*.
 
@@ -109,7 +121,7 @@ will require the most bandwidth, and ./data/scanner.4 will require the
 least.
 
 
-8. PROFIT!
+9. PROFIT!
 
 That's all there is to it. No '????' step needed!
 
