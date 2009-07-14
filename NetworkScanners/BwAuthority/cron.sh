@@ -1,6 +1,6 @@
 #!/bin/sh
 
-SCANNER_DIR=~/code/torflow-trunk/NetworkScanners/BwAuthority
+SCANNER_DIR=~/torsvn/torflow/NetworkScanners/BwAuthority
 
 TIMESTAMP=`date +%Y%m%d-%H%M`
 TOR_DEST=$SCANNER_DIR/bwscan.V3BandwidthsFile
