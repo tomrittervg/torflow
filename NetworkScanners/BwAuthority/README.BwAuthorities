@@ -70,6 +70,9 @@ same with Elixir:
 
 http://pypi.python.org/pypi/Elixir/
 
+Both these libraries also depend upon python-pysqlite2, which should be 
+a package for your distribution (you want 2.3.x for SQLite 3.x).
+
 
 5. Enable voting on bandwidths in your authority torrc
 
