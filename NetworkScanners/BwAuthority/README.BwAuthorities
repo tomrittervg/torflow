@@ -97,8 +97,8 @@ launches four in parallel, and expects the git checkout of the
 rs-format-fix branch to be in ../../../tor.git/, and the SQLAlchemy
 extraction to be in ../../../SQLAlchemy-0.5.4p2. 
 
-Again, note that this is the same directory that contains this
-torflow checkout.
+Again, note that this is the same directory that contains the
+torflow checkout directory.
 
 
 8. Set up a cron job to submit results
