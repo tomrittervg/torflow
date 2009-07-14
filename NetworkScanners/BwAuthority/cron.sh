@@ -8,5 +8,4 @@ cd $SCANNER_DIR # Needed for import to work properly.
 $SCANNER_DIR/aggregate.py $SCANNER_DIR/data $OUTPUT
 
 cp $OUTPUT $TOR_DEST
-#scp $OUTPUT tor@authority.org:/var/lib/tor/V3Bandwidths 
-
+#scp $OUTPUT tor@authority.org:/var/lib/tor.bwscans/bwscan
