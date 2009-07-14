@@ -41,6 +41,8 @@ user_agent = "Mozilla/4.0 (compatible; MSIE 6.0; Windows NT 5.1; .NET CLR 1.0.37
 # If you really must make them http, be sure to change exit_ports to [80]
 # below, or else the scan will not finish.
 # TODO: As the network balances, these can become more uniform in size
+# TODO: We'll also want to try to prefer pairing unmeasured nodes 
+# together then, and use a different url set for them.
 #          cutoff percent                URL
 urls =         [(10,          "https://38.229.70.2/2M"),
                 (20,          "https://38.229.70.2/1M"),
@@ -79,8 +81,8 @@ def read_config(filename):
   tor_dir = config.get('BwAuthority', 'tor_dir')
   max_fetch_time = config.getint('BwAuthority', 'max_fetch_time')
 
-  sleep_start = config.get('BwAuthority', 'sleep_stop')
-  sleep_stop = config.get('BwAuthority', 'sleep_start')
+  sleep_start = config.get('BwAuthority', 'sleep_start')
+  sleep_stop = config.get('BwAuthority', 'sleep_stop')
 
   sleep_start = tuple(map(int, sleep_start.split(":")))
   sleep_stop = tuple(map(int, sleep_stop.split(":")))
