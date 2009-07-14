@@ -11,7 +11,8 @@ PYTHONPATH=../../../SQLAlchemy-0.5.5/lib:../../../Elixir-0.6.1/
 
 # NOTE: You may want to remove this line if these are not the only
 # tors run by this user:
-killall tor && killall bwauthority.py && sleep 5 && killall -9 tor
+killall bwauthority.py
+killall tor && sleep 5 && killall -9 tor
 
 for i in data/scanner.*
 do
