@@ -15,6 +15,7 @@ timestamps = {}
 nodes = {}
 prev_consensus = {}
 ALPHA = 0.3333 # Prev consensus values count for 1/3 of the avg 
+MIN_REPORT = 60 # Percent of the network we must measure before reporting
 MAX_AGE = 60*60*24*2.5 # Discard measurements from more than 2.5 days ago 
 
 def base10_round(bw_val):
@@ -232,8 +233,6 @@ def main(argv):
       n.ratio = n.fbw_ratio
       n.new_bw = n.ns_bw[n.chosen_fbw]*n.ratio
       n.chosen_time = n.timestamps[n.chosen_fbw]
-    # XXX: Bytes or kb, we really need to decide.. and be careful when 
-    # we do
     if n.idhex in prev_consensus and prev_consensus[n.idhex].bandwidth != None:
       prev_consensus[n.idhex].measured = True
       n.new_bw = ((prev_consensus[n.idhex].bandwidth*ALPHA + n.new_bw)/(ALPHA + 1))
@@ -243,6 +242,7 @@ def main(argv):
                        nodes.itervalues())))
   plog("INFO", "Oldest measured node: "+time.ctime(oldest_timestamp))
 
+  missed_nodes = 0.0
   for n in prev_consensus.itervalues():
     if not n.measured:
       if "Fast" in n.flags and "Running" in n.flags:
@@ -253,9 +253,17 @@ def main(argv):
         if r and not r.down and r.bw > 0:
           if time.mktime(r.published.utctimetuple()) - r.uptime \
                  < oldest_timestamp:
+            missed_nodes += 1.0
             # We still tend to miss about 80 nodes even with these
             # checks.. Possibly going in and out of hibernation?
             plog("INFO", "Didn't measure "+n.idhex+"="+n.nickname+" at "+str(round((100.0*n.list_rank)/max_rank,1))+" "+str(n.bandwidth))
+
+  measured_pct = round(100.0*len(nodes)/(len(nodes)+missed_nodes),1)
+  if measured_pct < MIN_REPORT:
+    plog("NOTICE", "Did not measure "+str(MIN_REPORT)+"% of nodes yet ("+str(measured_pct)+"%)")
+    sys.exit(1)
+
+  plog("NOTICE", "Measured "+str(measured_pct)+"% of all tor nodes.")
 
   n_print = nodes.values()
   n_print.sort(lambda x,y: int(x.new_bw) - int(y.new_bw))
@@ -263,7 +271,7 @@ def main(argv):
   out = file(argv[-1], "w")
   out.write(str(int(round(oldest_timestamp,0)))+"\n")
   for n in n_print:
-    out.write("node_id="+n.idhex+" bw="+str(base10_round(n.new_bw))+" nick="+n.nick+" measured_at="+str(n.chosen_time)+"\n")
+    out.write("node_id="+n.idhex+" bw="+str(base10_round(n.new_bw))+" nick="+n.nick+" measured_at="+str(int(n.chosen_time))+"\n")
   out.close()
  
 if __name__ == "__main__":
