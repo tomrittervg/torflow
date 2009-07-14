@@ -193,7 +193,11 @@ def main(argv):
       except ValueError,e:
         print "Conversion error "+str(e)+" at "+l
     fp.close()
-   
+
+  if len(nodes) == 0:
+    plog("NOTICE", "No scan results yet.")
+    sys.exit(1)
+ 
   pre_strm_avg = sum(map(lambda n: n.avg_strm_bw(), nodes.itervalues()))/ \
                   float(len(nodes))
   pre_filt_avg = sum(map(lambda n: n.avg_filt_bw(), nodes.itervalues()))/ \
@@ -264,3 +268,4 @@ def main(argv):
  
 if __name__ == "__main__":
   main(sys.argv)
+  sys.exit(0)

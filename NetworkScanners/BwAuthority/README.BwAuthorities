@@ -108,13 +108,20 @@ torflow checkout directory.
 
 8. Set up a cron job to submit results
 
-Ideally a cron job would aggregate the results and provide them to your
-directory authority at least every four hours, but more often is better:
+The provided cron.sh script is meant to be used in a cron job to aggregate the
+results and provide them to your directory authority at least every four
+hours, but more often is better:
 
 # echo "45 0-23 * * * $HOME/code/torflow-trunk/NetworkScanners/BwAuthority/cron.sh" | crontab
 
 Note that authorities vote every hour starting at 50 past the hour.
 Hence the 45 to give us time to gather the results and copy them over.
+
+The script has two locations that you should consider editing. First
+is the SCANNER_DIR variable, which you should point at this 
+directory. The second is the bit at the end, where you need to choose
+if you want to scp the result (held in file $OUTPUT) to a different
+machine, or just copy it into place.
 
 In general, if you have any other bandwidth-intensive backup or mirror
 cron jobs on your scanning server, you should schedule them for between
