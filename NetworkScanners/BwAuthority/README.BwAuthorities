@@ -111,7 +111,7 @@ torflow checkout directory.
 Ideally a cron job would aggregate the results and provide them to your
 directory authority at least every four hours, but more often is better:
 
-# echo "45 0-23/4 * * * $HOME/code/torflow-trunk/NetworkScanners/BwAuthority/cron.sh" | crontab
+# echo "45 0-23 * * * $HOME/code/torflow-trunk/NetworkScanners/BwAuthority/cron.sh" | crontab
 
 Note that authorities vote every hour starting at 50 past the hour.
 Hence the 45 to give us time to gather the results and copy them over.
