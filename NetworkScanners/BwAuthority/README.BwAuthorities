@@ -86,12 +86,13 @@ I recommend /var/lib/tor.bwscans/bwscan. If you try to use
 any other users from writing the file there.
 
 
-6. (Optional) Create a user capable of writing the bwscan file
+6. Create a new user capable of writing the bwscan file
 
-This can either be the user that will run the scanning scripts, 
-or the user that will receive the scp of the result from the remote
-machine. It should have write access to your bwscan dir from
-step 4.
+You will need to run the scanning scripts as a separate user. That's
+because the scripts run commands like 'killall tor' and expect it not
+to affect any other tor processes.
+
+The new user should have write access to your bwscan dir from step 4.
 
 # useradd bwscanner
 # chown toruser:bwscanner /var/lib/tor.bwscans/
