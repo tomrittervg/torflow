@@ -3,6 +3,7 @@ SocksPort 9130 # what port to advertise for application connections
 ControlPort 9131
 SafeLogging 0
 Log notice file ./data/scanner.3/tor.log
-FetchUselessDescriptors 1
 DataDirectory ./data/scanner.3/tor-data
+PidFile ./data/scanner.3/tor.pid
 CookieAuthentication 1
+FetchUselessDescriptors 1
