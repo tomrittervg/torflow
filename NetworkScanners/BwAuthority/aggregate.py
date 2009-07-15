@@ -225,7 +225,7 @@ def main(argv):
   for n in nodes.itervalues():
     n.fbw_ratio = n.filt_bw[n.chosen_fbw]/true_filt_avg
     n.sbw_ratio = n.strm_bw[n.chosen_sbw]/true_strm_avg
-    if closest_to_one((n.sbw_ratio, n.fbw_ratio)) == 0:
+    if n.sbw_ratio > n.fbw_ratio:
       n.ratio = n.sbw_ratio
       n.new_bw = n.ns_bw[n.chosen_sbw]*n.ratio
       n.chosen_time = n.timestamps[n.chosen_sbw]
