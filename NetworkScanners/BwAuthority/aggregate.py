@@ -122,7 +122,7 @@ class Line:
 
 def main(argv):
   TorUtil.read_config(argv[1]+"/scanner.1/bwauthority.cfg")
-  TorUtil.loglevel = "INFO"
+  TorUtil.loglevel = "WARN"
  
   s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
   s.connect((TorUtil.control_host,TorUtil.control_port))
@@ -193,7 +193,7 @@ def main(argv):
           n = nodes[line.idhex]
         n.add_line(line)
       except ValueError,e:
-        print "Conversion error "+str(e)+" at "+l
+        plog("NOTICE", "Conversion error "+str(e)+" at "+l)
     fp.close()
 
   if len(nodes) == 0:
@@ -281,7 +281,7 @@ if __name__ == "__main__":
     sys.exit(0)
   except socket.error, e:
     traceback.print_exc()
-    plog("NOTICE", "Socket error. Are the scanning Tors running?")
+    plog("WARN", "Socket error. Are the scanning Tors running?")
     sys.exit(1)
   except Exception, e:
     plog("ERROR", "Exception during aggregate: "+str(e))

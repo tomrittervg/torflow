@@ -12,5 +12,5 @@ $SCANNER_DIR/aggregate.py $SCANNER_DIR/data $OUTPUT
 if [ $? == 0 ]
 then
  cp $OUTPUT $TOR_DEST
- #scp $OUTPUT bwscan@torauthority.org:/var/lib/tor.scans/bwscan
+ #scp $OUTPUT bwscan@torauthority.org:/var/lib/tor.scans/bwscan > /dev/null
 fi

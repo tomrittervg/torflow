@@ -126,7 +126,12 @@ Because cron.sh is likely to be updated by SVN, you're going to want to
 make your own copy before you install the cron job:
 
 # cp cron.sh cron-mine.sh
-# echo "45 0-23 * * * $HOME/code/torflow-trunk/NetworkScanners/BwAuthority/cron-mine.sh" | crontab
+# echo -e "`crontab -l`\n45 0-23 * * * $HOME/code/torflow-trunk/NetworkScanners/BwAuthority/cron-mine.sh" | crontab
+
+You probably also want to make sure that the run_scan.sh script is started
+every reboot under this same user. You can do this via:
+
+# echo -e "@reboot $HOME/code/torflow-trunk/NetworkScanners/BwAuthority/run_scan.sh\n`crontab -l`" | crontab
 
 Note that authorities vote every hour starting at 50 past the hour.
 Hence the 45 to give us time to gather the results and copy them over.
