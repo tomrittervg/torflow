@@ -5,6 +5,7 @@ import math
 import sys
 import socket
 import time
+import traceback
 
 sys.path.append("../../")
 from TorCtl.TorUtil import plog
@@ -275,5 +276,14 @@ def main(argv):
   out.close()
  
 if __name__ == "__main__":
-  main(sys.argv)
-  sys.exit(0)
+  try:
+    main(sys.argv)
+    sys.exit(0)
+  except socket.error, e:
+    traceback.print_exc()
+    plog("NOTICE", "Socket error. Are the scanning Tors running?")
+    sys.exit(1)
+  except Exception, e:
+    plog("ERROR", "Exception during aggregate: "+str(e))
+    traceback.print_exc()
+    sys.exit(1)
