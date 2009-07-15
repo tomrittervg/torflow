@@ -9,22 +9,24 @@
 TOR_EXE=../../../tor.git/src/or/tor
 PYTHONPATH=../../../SQLAlchemy-0.5.5/lib:../../../Elixir-0.6.1/
 
-# NOTE: You may want to remove this line if these are not the only
-# tors run by this user:
 killall bwauthority.py
 
 for i in data/scanner.*
 do
   if [ -f "$i/tor.pid" ]; then
     PID=`cat $i/tor.pid`
-    kill $PID && sleep 2 && kill -9 $PID
-    rm "$i/tor.pid"
+    kill $PID
   fi
 done
 
+sleep 5
+
+# FIXME: We resume in a ghetto way by saving the bws-*done* files.
+# A more accurate resume could be implemented in bwauthority.py
 for i in data/scanner.*
 do
-  rm $i/scan-data/*
+  find $i/scan-data/ -depth -type f -print | egrep -v -- "-done-|\/.svn" | xargs -P 1024 rm
+  #rm $i/scan-data/*
 done
 
 $TOR_EXE -f ./data/scanner.1/torrc & 
