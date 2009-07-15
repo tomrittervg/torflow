@@ -1,6 +1,6 @@
 #!/bin/sh
 
-SCANNER_DIR=~/torsvn/torflow/NetworkScanners/BwAuthority
+SCANNER_DIR=~/code/tor/torflow/NetworkScanners/BwAuthority
 
 TIMESTAMP=`date +%Y%m%d-%H%M`
 TOR_DEST=$SCANNER_DIR/bwscan.V3BandwidthsFile
@@ -12,5 +12,5 @@ $SCANNER_DIR/aggregate.py $SCANNER_DIR/data $OUTPUT
 if [ $? == 0 ]
 then
  cp $OUTPUT $TOR_DEST
- scp $OUTPUT bwscan@torauthority.org:/var/lib/tor.bwscans/bwscan
+ #scp $OUTPUT bwscan@torauthority.org:/var/lib/tor.scans/bwscan
 fi

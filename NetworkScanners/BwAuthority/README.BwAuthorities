@@ -46,7 +46,6 @@ you only want to have one git codebase for both the scanner and the
 authority, you can just checkout rs-format-fix7.
 
 
-
 3. Compile Tor for your authority and your scanner
 
 No special configure script options are needed.
@@ -70,8 +69,15 @@ same with Elixir:
 
 http://pypi.python.org/pypi/Elixir/
 
+So for example, an ls in ~/code/tor/ should look like this:
+
+# ls ~/code/tor/
+Elixir-0.6.1         SQLAlchemy-0.5.5           tor.git
+Elixir-0.6.1.tar.gz  SQLAlchemy-0.5.5.tar.gz    torflow-trunk
+
 Both these libraries also depend upon python-pysqlite2, which should be 
 a package for your distribution (you want 2.3.x for SQLite 3.x).
+
 
 
 5. Enable voting on bandwidths in your authority torrc
@@ -81,7 +87,7 @@ file containing your measured results, which we will configure
 in the later steps. Pick a location accessible by your Tor 
 directory authority process and any rsync user you may have. 
 
-I recommend /var/lib/tor.bwscans/bwscan. If you try to use
+I recommend /var/lib/tor.scans/bwscan. If you try to use
 /var/lib/tor, tor will reset your permissions and exclude
 any other users from writing the file there.
 
@@ -95,8 +101,8 @@ to affect any other tor processes.
 The new user should have write access to your bwscan dir from step 4.
 
 # useradd bwscanner
-# chown toruser:bwscanner /var/lib/tor.bwscans/
-# chmod 770 /var/lib/tor.bwscans/
+# chown toruser:bwscanner /var/lib/tor.scans/
+# chmod 770 /var/lib/tor.scans/
 
 
 7. Spot-check ./run_scan.sh
@@ -112,11 +118,15 @@ torflow checkout directory.
 
 8. Set up a cron job to submit results
 
-The provided cron.sh script is meant to be used in a cron job to aggregate the
-results and provide them to your directory authority at least every four
-hours, but more often is better:
+The provided cron.sh script is meant to be used in a cron job to
+aggregate the results and provide them to your directory authority at
+least every four hours, but more often is better.
 
-# echo "45 0-23 * * * $HOME/code/torflow-trunk/NetworkScanners/BwAuthority/cron.sh" | crontab
+Because cron.sh is likely to be updated by SVN, you're going to want to
+make your own copy before you install the cron job:
+
+# cp cron.sh cron-mine.sh
+# echo "45 0-23 * * * $HOME/code/torflow-trunk/NetworkScanners/BwAuthority/cron-mine.sh" | crontab
 
 Note that authorities vote every hour starting at 50 past the hour.
 Hence the 45 to give us time to gather the results and copy them over.
