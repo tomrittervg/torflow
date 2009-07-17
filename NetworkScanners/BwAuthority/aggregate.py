@@ -17,7 +17,10 @@ nodes = {}
 prev_consensus = {}
 ALPHA = 0.3333 # Prev consensus values count for 1/3 of the avg 
 MIN_REPORT = 60 # Percent of the network we must measure before reporting
-MAX_AGE = 60*60*24*2.5 # Discard measurements from more than 2.5 days ago 
+# Keep most measurements in consideration. The code below chooses
+# the most recent one. 15 days is just to stop us from choking up 
+# all the CPU once these things run for a year or so.
+MAX_AGE = 60*60*24*15 
 
 def base10_round(bw_val):
   # This keeps the first 3 decimal digits of the bw value only
@@ -58,6 +61,7 @@ class Node:
     self.fbw_ratio = None
     self.ratio = None
     self.new_bw = None
+    self.change = None
     self.strm_bw = []
     self.filt_bw = []
     self.ns_bw = []
@@ -122,7 +126,7 @@ class Line:
 
 def main(argv):
   TorUtil.read_config(argv[1]+"/scanner.1/bwauthority.cfg")
-  TorUtil.loglevel = "WARN"
+  TorUtil.loglevel = "NOTICE"
  
   s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
   s.connect((TorUtil.control_host,TorUtil.control_port))
@@ -139,6 +143,9 @@ def main(argv):
     if n.bandwidth == -1: n.bandwidth = None
   got_ns_bw = False
   max_rank = len(ns_list)
+
+  # FIXME: This is poor form.. We should subclass the Networkstatus class
+  # instead of just adding members
   for i in xrange(max_rank):
     n = ns_list[i]
     n.list_rank = i
@@ -169,6 +176,10 @@ def main(argv):
                 slicenum = sr+"/"+fp.readline()
                 timestamp = float(fp.readline())
                 fp.close()
+                # old measurements are probably
+                # better than no measurements. We may not
+                # measure hibernating routers for days.
+                # This filter is just to remove REALLY old files
                 if time.time() - timestamp > MAX_AGE:
                   plog("INFO", "Skipping old file "+f)
                   continue
@@ -230,12 +241,16 @@ def main(argv):
       n.ratio = n.sbw_ratio
       n.new_bw = n.ns_bw[n.chosen_sbw]*n.ratio
       n.chosen_time = n.timestamps[n.chosen_sbw]
+      n.change = n.new_bw - n.ns_bw[n.chosen_sbw]
     else:
       n.ratio = n.fbw_ratio
       n.new_bw = n.ns_bw[n.chosen_fbw]*n.ratio
       n.chosen_time = n.timestamps[n.chosen_fbw]
+      n.change = n.new_bw - n.ns_bw[n.chosen_fbw]
     if n.idhex in prev_consensus and prev_consensus[n.idhex].bandwidth != None:
       prev_consensus[n.idhex].measured = True
+      # XXX: Maybe we should base this on the consensus value
+      # at the time of measurement from the Node class.
       n.new_bw = ((prev_consensus[n.idhex].bandwidth*ALPHA + n.new_bw)/(ALPHA + 1))
 
   oldest_timestamp = min(map(lambda n: n.chosen_time,
@@ -267,12 +282,12 @@ def main(argv):
   plog("NOTICE", "Measured "+str(measured_pct)+"% of all tor nodes.")
 
   n_print = nodes.values()
-  n_print.sort(lambda x,y: int(x.new_bw) - int(y.new_bw))
+  n_print.sort(lambda x,y: int(y.change) - int(x.change))
 
   out = file(argv[-1], "w")
-  out.write(str(int(round(oldest_timestamp,0)))+"\n")
+  out.write(str(int(round(time.time(),0)))+"\n")
   for n in n_print:
-    out.write("node_id="+n.idhex+" bw="+str(base10_round(n.new_bw))+" nick="+n.nick+" measured_at="+str(int(n.chosen_time))+"\n")
+    out.write("node_id="+n.idhex+" bw="+str(base10_round(n.new_bw))+" diff="+str(int(round(n.change/1000.0,0)))+ " nick="+n.nick+ " measured_at="+str(int(n.chosen_time))+"\n")
   out.close()
  
 if __name__ == "__main__":
