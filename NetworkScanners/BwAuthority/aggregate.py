@@ -162,12 +162,17 @@ def main(argv):
     plog("ERROR", "Your Tor is not providing NS w bandwidths!")
     sys.exit(0)
 
+  # Take the most recent timestamp from each scanner 
+  # and use the oldest for the timestamp of the result.
+  # That way we can ensure all the scanners continue running.
+  scanner_timestamps = []
   for da in argv[1:-1]:
     # First, create a list of the most recent files in the
     # scan dirs that are recent enough
     for root, dirs, f in os.walk(da):
       for ds in dirs:
         if re.match("^scanner.[\d+]$", ds):
+          newest_timestamp = 0
           for sr, sd, files in os.walk(da+"/"+ds+"/scan-data"):
             for f in files:
               if re.search("^bws-[\S]+-done-", f):
@@ -183,11 +188,14 @@ def main(argv):
                 if time.time() - timestamp > MAX_AGE:
                   plog("INFO", "Skipping old file "+f)
                   continue
+                if timestamp > newest_timestamp:
+                  newest_timestamp = timestamp
                 bw_files.append((slicenum, timestamp, sr+"/"+f))
                 # FIXME: Can we kill this?
                 if slicenum not in timestamps or \
                      timestamps[slicenum] < timestamp:
                   timestamps[slicenum] = timestamp
+          scanner_timestamps.append(newest_timestamp)
 
   # Need to only use most recent slice-file for each node..
   for (s,t,f) in bw_files:
@@ -285,7 +293,7 @@ def main(argv):
   n_print.sort(lambda x,y: int(y.change) - int(x.change))
 
   out = file(argv[-1], "w")
-  out.write(str(int(round(time.time(),0)))+"\n")
+  out.write(str(int(round(min(scanner_timestamps),0)))+"\n")
   for n in n_print:
     out.write("node_id="+n.idhex+" bw="+str(base10_round(n.new_bw))+" diff="+str(int(round(n.change/1000.0,0)))+ " nick="+n.nick+ " measured_at="+str(int(n.chosen_time))+"\n")
   out.close()
