@@ -249,17 +249,18 @@ def main(argv):
       n.ratio = n.sbw_ratio
       n.new_bw = n.ns_bw[n.chosen_sbw]*n.ratio
       n.chosen_time = n.timestamps[n.chosen_sbw]
-      n.change = n.new_bw - n.ns_bw[n.chosen_sbw]
+      n.change = 0 - n.ns_bw[n.chosen_sbw]
     else:
       n.ratio = n.fbw_ratio
       n.new_bw = n.ns_bw[n.chosen_fbw]*n.ratio
       n.chosen_time = n.timestamps[n.chosen_fbw]
-      n.change = n.new_bw - n.ns_bw[n.chosen_fbw]
+      n.change = 0 - n.ns_bw[n.chosen_fbw]
     if n.idhex in prev_consensus and prev_consensus[n.idhex].bandwidth != None:
       prev_consensus[n.idhex].measured = True
       # XXX: Maybe we should base this on the consensus value
       # at the time of measurement from the Node class.
       n.new_bw = ((prev_consensus[n.idhex].bandwidth*ALPHA + n.new_bw)/(ALPHA + 1))
+    n.change += n.new_bw
 
   oldest_timestamp = min(map(lambda n: n.chosen_time,
              filter(lambda n: n.idhex in prev_consensus,
