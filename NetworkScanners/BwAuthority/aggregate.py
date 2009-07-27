@@ -276,12 +276,12 @@ def main(argv):
         except TorCtl.ErrorReply:
           r = None
         if r and not r.down and r.bw > 0:
-          if time.mktime(r.published.utctimetuple()) - r.uptime \
-                 < oldest_timestamp:
-            missed_nodes += 1.0
-            # We still tend to miss about 80 nodes even with these
-            # checks.. Possibly going in and out of hibernation?
-            plog("INFO", "Didn't measure "+n.idhex+"="+n.nickname+" at "+str(round((100.0*n.list_rank)/max_rank,1))+" "+str(n.bandwidth))
+          #if time.mktime(r.published.utctimetuple()) - r.uptime \
+          #       < oldest_timestamp:
+          missed_nodes += 1.0
+          # We still tend to miss about 80 nodes even with these
+          # checks.. Possibly going in and out of hibernation?
+          plog("INFO", "Didn't measure "+n.idhex+"="+n.nickname+" at "+str(round((100.0*n.list_rank)/max_rank,1))+" "+str(n.bandwidth))
 
   measured_pct = round(100.0*len(nodes)/(len(nodes)+missed_nodes),1)
   if measured_pct < MIN_REPORT:
