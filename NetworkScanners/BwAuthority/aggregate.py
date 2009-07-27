@@ -301,7 +301,6 @@ def main(argv):
 if __name__ == "__main__":
   try:
     main(sys.argv)
-    sys.exit(0)
   except socket.error, e:
     traceback.print_exc()
     plog("WARN", "Socket error. Are the scanning Tors running?")
@@ -310,3 +309,4 @@ if __name__ == "__main__":
     plog("ERROR", "Exception during aggregate: "+str(e))
     traceback.print_exc()
     sys.exit(1)
+  sys.exit(0)
