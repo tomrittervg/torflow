@@ -343,7 +343,10 @@ def speedrace(hdlr, start_pct, stop_pct, circs_per_node, save_every, out_dir,
 
   attempt = 0
   successful = 0
-  while not hdlr.is_count_met(circs_per_node):
+  # XXX: Also run for at least 2*circs_per_node*nodes/3 successful fetches
+  # to ensure we don't skip slices in the case of temporary network failure
+  while True:
+    if hdlr.is_count_met(circs_per_node): break
     hdlr.wait_for_consensus()
 
     # Check local time. Do not scan between 01:30 and 05:30 local time

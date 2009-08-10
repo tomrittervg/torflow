@@ -104,15 +104,36 @@ class Node:
   def avg_ns_bw(self):
     return sum(self.ns_bw)/float(len(self.ns_bw))
 
-  def choose_strm_bw(self, net_avg):
+  # This can be bad for bootstrapping or highly bw-variant nodes... 
+  # we will choose an old measurement in that case.. We need
+  # to build some kind of time-bias here..
+  def _choose_strm_bw_one(self, net_avg):
     i = closest_to_one(map(lambda f: f/net_avg, self.strm_bw))
     self.chosen_sbw = i
     return self.chosen_sbw
 
-  def choose_filt_bw(self, net_avg):
+  def _choose_filt_bw_one(self, net_avg):
     i = closest_to_one(map(lambda f: f/net_avg, self.filt_bw))
     self.chosen_fbw = i
     return self.chosen_fbw
+
+  # Simply return the most recent one instead of this
+  # closest-to-one stuff
+  def choose_filt_bw(self, new_avg):
+    max_idx = 0
+    for i in xrange(len(self.timestamps)):
+      if self.timestamps[i] > self.timestamps[max_idx]:
+        max_idx = i
+    self.chosen_fbw = max_idx
+    return self.chosen_fbw
+
+  def choose_strm_bw(self, new_avg):
+    max_idx = 0
+    for i in xrange(len(self.timestamps)):
+      if self.timestamps[i] > self.timestamps[max_idx]:
+        max_idx = i
+    self.chosen_sbw = max_idx
+    return self.chosen_sbw
 
 class Line:
   def __init__(self, line, slice_file, timestamp):
