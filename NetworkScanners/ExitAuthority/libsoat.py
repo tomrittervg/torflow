@@ -13,7 +13,7 @@ import re
 import copy
 import socket
 import struct
-sys.path.append("./libs")
+sys.path.append("../libs")
 from OpenSSL import crypto
 from BeautifulSoup.BeautifulSoup import Tag, SoupStrainer
 
@@ -21,11 +21,11 @@ import sets
 from sets import Set
 from soat_config import *
 
-sys.path.append("../")
+sys.path.append("../../")
 from TorCtl.TorUtil import *
 
 # Antlr stuff
-sys.path.append("./libs/jsparser/")
+sys.path.append("../libs/jsparser/")
 import antlr3
 from JavaScriptParser import tokenNames as JSTokenNames
 from JavaScriptLexer import JavaScriptLexer

@@ -47,9 +47,9 @@ import Queue
 import threading
 import atexit
 
-from libsoat import *
+sys.path.append("../../")
 
-sys.path.append("../")
+from libsoat import *
 
 from TorCtl import TorUtil, TorCtl, PathSupport, ScanSupport
 from TorCtl.TorUtil import meta_port, meta_host, control_port, control_host, tor_port, tor_host
@@ -61,7 +61,7 @@ import OpenSSL
 from OpenSSL import *
 
 
-sys.path.append("./libs/")
+sys.path.append("../libs/")
 from BeautifulSoup.BeautifulSoup import SoupStrainer, Tag
 from SocksiPy import socks
 import Pyssh.pyssh
