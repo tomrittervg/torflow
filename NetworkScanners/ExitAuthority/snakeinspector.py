@@ -20,7 +20,7 @@ sys.path.append("../")
 import TorCtl.TorUtil
 from TorCtl.TorUtil import *
 
-TorCtl.TorUtil.loglevel="NOTICE"
+TorCtl.TorUtil.loglevel="INFO"
 
 if TorCtl.TorUtil.loglevels[TorCtl.TorUtil.loglevel] > TorCtl.TorUtil.loglevels["INFO"]:
   # Kill stderr (jsdiffer and exception noise) if our loglevel is above INFO

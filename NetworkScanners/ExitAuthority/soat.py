@@ -45,12 +45,13 @@ import cookielib
 import sha
 import Queue
 import threading
+import atexit
 
 from libsoat import *
 
 sys.path.append("../")
 
-from TorCtl import TorUtil, TorCtl, PathSupport
+from TorCtl import TorUtil, TorCtl, PathSupport, ScanSupport
 from TorCtl.TorUtil import meta_port, meta_host, control_port, control_host, tor_port, tor_host
 from TorCtl.TorUtil import *
 from TorCtl.PathSupport import *
@@ -68,10 +69,24 @@ import Pyssh.pyssh
 from soat_config import *
 
 search_cookies=None
-metacon=None
+scanhdlr=None
 datahandler=None
 linebreak = '\r\n'
 
+# Do NOT modify this object directly after it is handed to PathBuilder
+# Use PathBuilder.schedule_selmgr instead.
+# (Modifying the arguments here is OK)
+__selmgr = PathSupport.SelectionManager(
+      pathlen=2,
+      order_exits=True,
+      percent_fast=10, # XXX: This is fingerprintble..
+      percent_skip=0,
+      min_bw=1,
+      use_all_exits=True,
+      uniform=False,
+      use_exit=None,
+      use_guards=False,
+      exit_ports=[443])
 
 # Oh yeah. so dirty. Blame this guy if you hate me:
 # http://mail.python.org/pipermail/python-bugs-list/2008-October/061202.html
@@ -108,6 +123,129 @@ class NoDNSHTTPConnection(httplib.HTTPConnection):
 class NoDNSHTTPHandler(urllib2.HTTPHandler):
   def http_open(self, req):
     return self.do_open(NoDNSHTTPConnection, req)
+
+class ExitScanHandler(ScanSupport.ScanHandler):
+  def __init__(self, selmgr):
+    ScanSupport.ScanHandler.__init__(self, selmgr)
+    self.rlock = threading.Lock()
+    self.new_nodes=True
+
+  def has_new_nodes(self):
+    # XXX: Hrmm.. could do this with conditions instead..
+    ret = False
+    plog("DEBUG", "has_new_nodes begin")
+    try:
+      self.rlock.acquire()
+      ret = self.new_nodes
+      self.new_nodes = False
+    finally:
+      self.rlock.release()
+    plog("DEBUG", "has_new_nodes end")
+    return ret
+
+  def get_nodes_for_port(self, port):
+    ''' return a list of nodes that allow exiting to a given port '''
+    plog("DEBUG", "get_nodes_for_port begin")
+    cond = threading.Condition()
+    def notlambda(this):
+      cond.acquire()
+      restriction = NodeRestrictionList([FlagsRestriction(["Running", "Valid",
+"Fast"]), MinBWRestriction(min_node_bw), ExitPolicyRestriction('255.255.255.255', port)])
+      cond._result = [x for x in self.sorted_r if restriction.r_is_ok(x)]
+      self._sanity_check(cond._result)
+      cond.notify()
+      cond.release()
+    cond.acquire()
+    self.schedule_low_prio(notlambda)
+    cond.wait()
+    cond.release()
+    plog("DEBUG", "get_nodes_for_port end")
+    return cond._result
+
+  def new_consensus_event(self, n):
+    plog("DEBUG", "newconsensus_event begin")
+    try:
+      self.rlock.acquire()
+      ScanSupport.ScanHandler.new_consensus_event(self, n)
+      self.new_nodes = True
+    finally:
+      self.rlock.release()
+    plog("DEBUG", "newconsensus_event end")
+
+  def new_desc_event(self, d):
+    plog("DEBUG", "newdesc_event begin")
+    try:
+      self.rlock.acquire()
+      if ScanSupport.ScanHandler.new_desc_event(self, d):
+        self.new_nodes = True
+    finally:
+      self.rlock.release()
+    plog("DEBUG", "newdesc_event end")
+
+  # FIXME: Hrmm is this in the right place?
+  def check_all_exits_port_consistency(self):
+    '''
+    an independent test that finds nodes that allow connections over a
+    common protocol while disallowing connections over its secure version
+    (for instance http/https)
+    '''
+
+    # get the structure
+    routers = self.control.read_routers(self.control.get_network_status())
+    bad_exits = Set([])
+    specific_bad_exits = [None]*len(ports_to_check)
+    for i in range(len(ports_to_check)):
+      specific_bad_exits[i] = []
+
+    # check exit policies
+    for router in routers:
+      for i in range(len(ports_to_check)):
+        [common_protocol, common_restriction, secure_protocol, secure_restriction] = ports_to_check[i]
+        if common_restriction.r_is_ok(router) and not secure_restriction.r_is_ok(router):
+          bad_exits.add(router)
+          specific_bad_exits[i].append(router)
+          #plog('INFO', 'Router ' + router.nickname + ' allows ' + common_protocol + ' but not ' + secure_protocol)
+  
+
+    for i,exits in enumerate(specific_bad_exits):
+      [common_protocol, common_restriction, secure_protocol, secure_restriction] = ports_to_check[i]
+      plog("NOTICE", "Nodes allowing "+common_protocol+" but not "+secure_protocol+":\n\t"+"\n\t".join(map(lambda r: r.nickname+"="+r.idhex, exits)))
+      #plog('INFO', 'Router ' + router.nickname + ' allows ' + common_protocol + ' but not ' + secure_protocol)
+     
+
+    # report results
+    plog('INFO', 'Total nodes: ' + `len(routers)`)
+    for i in range(len(ports_to_check)):
+      [common_protocol, _, secure_protocol, _] = ports_to_check[i]
+      plog('INFO', 'Exits with ' + common_protocol + ' / ' + secure_protocol + ' problem: ' + `len(specific_bad_exits[i])` + ' (~' + `(len(specific_bad_exits[i]) * 100 / len(routers))` + '%)')
+    plog('INFO', 'Total bad exits: ' + `len(bad_exits)` + ' (~' + `(len(bad_exits) * 100 / len(routers))` + '%)')
+
+  # FIXME: Hrmm is this in the right place?
+  def check_dns_rebind(self):
+    ''' 
+    A DNS-rebind attack test that runs in the background and monitors REMAP events
+    The test makes sure that external hosts are not resolved to private addresses  
+    '''
+    plog('INFO', 'Monitoring REMAP events for weirdness')
+    # establish a control port connection
+    try:
+      s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+      s.connect((control_host, control_port))
+      c = Connection(s)
+      c.authenticate()
+    except socket.error, e:
+      plog('ERROR', 'Couldn\'t connect to the control port')
+      plog('ERROR', e)
+      exit()
+    except AttributeError, e:
+      plog('ERROR', 'A service other that the Tor control port is listening on ' + control_host + ':' + control_port)
+      plog('ERROR', e)
+      exit()
+
+    self.__dnshandler = DNSRebindScanner(self, c)
+
+
+
 
 # Http request handling
 def http_request(address, cookie_jar=None, headers=firefox_headers):
@@ -290,7 +428,7 @@ class Test:
     return random.choice(list(self.nodes))
 
   def update_nodes(self):
-    nodes = metacon.node_manager.get_nodes_for_port(self.port)
+    nodes = scanhdlr.get_nodes_for_port(self.port)
     self.node_map = {}
     for n in nodes: 
       self.node_map[n.idhex] = n
@@ -304,11 +442,11 @@ class Test:
       plog("ERROR", "No nodes remain after rescan load!")
     self.scan_nodes = len(self.nodes)
     self.nodes_to_mark = self.scan_nodes*self.tests_per_node
-    metacon.node_manager._sanity_check(map(lambda id: self.node_map[id], 
+    scanhdlr._sanity_check(map(lambda id: self.node_map[id], 
                      self.nodes))
 
   def mark_chosen(self, node, result):
-    exit_node = metacon.get_exit_node()[1:]
+    exit_node = scanhdlr.get_exit_node()[1:]
     if exit_node != node:
       plog("ERROR", "Asked to mark a node that is not current: "+node+" vs "+exit_node)
     plog("INFO", "Marking "+node+" with result "+str(result))
@@ -663,7 +801,7 @@ class HTTPTest(SearchBasedTest):
     for cookie in self.cookie_jar:
       plain_cookies += "\t"+cookie.name+":"+cookie.domain+cookie.path+" discard="+str(cookie.discard)+"\n"
     if tor_cookies != plain_cookies:
-      exit_node = metacon.get_exit_node()
+      exit_node = scanhdlr.get_exit_node()
       plog("ERROR", "Cookie mismatch at "+exit_node+":\nTor Cookies:"+tor_cookies+"\nPlain Cookies:\n"+plain_cookies)
       result = CookieTestResult(self.node_map[exit_node[1:]],
                           TEST_FAILURE, FAILURE_COOKIEMISMATCH, plain_cookies, 
@@ -853,7 +991,7 @@ class HTTPTest(SearchBasedTest):
     # reset the connection to direct
     socket.socket = defaultsocket
 
-    exit_node = metacon.get_exit_node()
+    exit_node = scanhdlr.get_exit_node()
     if exit_node == 0 or exit_node == '0' or not exit_node:
       plog('NOTICE', 'We had no exit node to test, skipping to the next test.')
       result = HttpTestResult(None, 
@@ -1533,7 +1671,10 @@ class SSLTest(SearchBasedTest):
       return (-666.0, None,  e.__class__.__name__+str(e))
 
   def get_resolved_ip(self, hostname):
-    mappings = metacon.control.get_address_mappings("cache")
+    # XXX: This is some extreme GIL abuse.. It may have race conditions
+    # on control prot shutdown.. but at that point it's game over for
+    # us anyways.
+    mappings = scanhdlr.c.get_address_mappings("cache")
     ret = None
     for m in mappings:
       if m.from_addr == hostname:
@@ -1641,7 +1782,7 @@ class SSLTest(SearchBasedTest):
     # reset the connection method back to direct
     socket.socket = defaultsocket
 
-    exit_node = metacon.get_exit_node()
+    exit_node = scanhdlr.get_exit_node()
     if not exit_node or exit_node == '0':
       plog('NOTICE', 'We had no exit node to test, skipping to the next test.')
       result = SSLTestResult(None, 
@@ -1837,7 +1978,7 @@ class POP3STest(Test):
     socket.socket = defaultsocket
 
     # check whether the test was valid at all
-    exit_node = metacon.get_exit_node()
+    exit_node = scanhdlr.get_exit_node()
     if exit_node == 0 or exit_node == '0':
       plog('INFO', 'We had no exit node to test, skipping to the next test.')
       return TEST_INCONCLUSIVE
@@ -1977,7 +2118,7 @@ class SMTPSTest(Test):
     socket.socket = defaultsocket 
 
     # check whether the test was valid at all
-    exit_node = metacon.get_exit_node()
+    exit_node = scanhdlr.get_exit_node()
     if exit_node == 0 or exit_node == '0':
       plog('INFO', 'We had no exit node to test, skipping to the next test.')
       return TEST_INCONCLUSIVE
@@ -2112,7 +2253,7 @@ class IMAPSTest(Test):
     socket.socket = defaultsocket 
 
     # check whether the test was valid at all
-    exit_node = metacon.get_exit_node()
+    exit_node = scanhdlr.get_exit_node()
     if exit_node == 0 or exit_node == '0':
       plog('NOTICE', 'We had no exit node to test, skipping to the next test.')
       return TEST_INCONCLUSIVE
@@ -2200,7 +2341,7 @@ class DNSTest(Test):
     ip = tor_resolve(address)
 
     # check whether the test was valid at all
-    exit_node = metacon.get_exit_node()
+    exit_node = scanhdlr.get_exit_node()
     if exit_node == 0 or exit_node == '0':
       plog('INFO', 'We had no exit node to test, skipping to the next test.')
       return TEST_SUCCESS
@@ -2255,87 +2396,6 @@ class Client:
       response = response[:-1]
     return response 
 
-class NodeManager(ConsensusTracker):
-  ''' 
-  A tor control event handler extending TorCtl.EventHandler.
-  Monitors NS and NEWDESC events, and updates each test
-  with new nodes
-  '''
-  def __init__(self, c):
-    ConsensusTracker.__init__(self, c)
-    self.rlock = threading.Lock()
-    self.new_nodes=True
-    c.set_event_handler(self)
-    c.set_events([TorCtl.EVENT_TYPE.NEWCONSENSUS,
-                  TorCtl.EVENT_TYPE.NEWDESC], True)
-
-  def idhex_to_r(self, idhex):
-    self.rlock.acquire()
-    result = None
-    try:
-      if idhex in self.routers:
-        result = self.routers[idhex]
-    finally:
-      self.rlock.release()
-    return result
-
-  def name_to_idhex(self, nick):
-    self.rlock.acquire()
-    result = None
-    try:
-      if nick in self.name_to_key:
-        result = self.name_to_key[nick]
-    finally:
-      self.rlock.release()
-    return result
-
-  def has_new_nodes(self):
-    ret = False
-    plog("DEBUG", "has_new_nodes begin")
-    try:
-      self.rlock.acquire()
-      ret = self.new_nodes
-      self.new_nodes = False
-    finally:
-      self.rlock.release()
-    plog("DEBUG", "has_new_nodes end")
-    return ret
-
-  def get_nodes_for_port(self, port):
-    ''' return a list of nodes that allow exiting to a given port '''
-    plog("DEBUG", "get_nodes_for_port begin")
-    restriction = NodeRestrictionList([FlagsRestriction(["Running", "Valid",
-"Fast"]), MinBWRestriction(min_node_bw), ExitPolicyRestriction('255.255.255.255', port)])
-    try:
-      self.rlock.acquire()
-      ret = [x for x in self.sorted_r if restriction.r_is_ok(x)]
-      # XXX: Can remove.
-      self._sanity_check(ret)
-    finally:
-      self.rlock.release()
-    plog("DEBUG", "get_nodes_for_port end")
-    return ret
- 
-  def new_consensus_event(self, n):
-    plog("DEBUG", "newconsensus_event begin")
-    try:
-      self.rlock.acquire()
-      ConsensusTracker.new_consensus_event(self, n)
-      self.new_nodes = True
-    finally:
-      self.rlock.release()
-    plog("DEBUG", "newconsensus_event end")
-
-  def new_desc_event(self, d):
-    plog("DEBUG", "newdesc_event begin")
-    try:
-      self.rlock.acquire()
-      if ConsensusTracker.new_desc_event(self, d):
-        self.new_nodes = True
-    finally:
-      self.rlock.release()
-    plog("DEBUG", "newdesc_event end")
-
 class DNSRebindScanner(EventHandler):
   ''' 
   A tor control event handler extending TorCtl.EventHandler 
@@ -2367,171 +2427,7 @@ class DNSRebindScanner(EventHandler):
        # check remote_reason == "RESOLVEFAILED"
        # getinfo.circuit_status()
        # TODO: Check what we do in these detached cases..
-       #metacon.node_manager.name_to_idhex(exit)
-
-class Metaconnection:
-  ''' Abstracts operations with the Metatroller '''
-  def __init__(self):
-    ''' 
-    Establish a connection to metatroller & control port, 
-    configure metatroller, load the number of previously tested nodes 
-    '''
-    # establish a metatroller connection
-    try:
-      self.__meta = Client(meta_host, meta_port)
-    except socket.error:
-      plog('ERROR', 'Couldn\'t connect to metatroller. Is it on?')
-      exit()
-  
-    # skip two lines of metatroller introduction
-    data = self.__meta.readline()
-    data = self.__meta.readline()
-    
-    # configure metatroller
-    commands = [
-      'PATHLEN 2',
-      'PERCENTFAST 10', # Cheat to win!
-      'USEALLEXITS 1',
-      'UNIFORM 0',
-      'BWCUTOFF 1',
-      'ORDEREXITS 1',
-      'GUARDNODES 0',
-      'RESETSTATS']
-
-    for c in commands:
-      self.__meta.writeline(c)
-      reply = self.__meta.readline()
-      if reply[:3] != '250': # first three chars indicate the reply code
-        reply += self.__meta.readline()
-        plog('ERROR', 'Error configuring metatroller (' + c + ' failed)')
-        plog('ERROR', reply)
-        exit()
-
-    # establish a control port connection
-    try:
-      s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-      s.connect((control_host, control_port))
-      c = Connection(s)
-      c.authenticate()
-      self.control = c
-    except socket.error, e:
-      plog('ERROR', 'Couldn\'t connect to the control port')
-      plog('ERROR', e)
-      exit()
-    except AttributeError, e:
-      plog('ERROR', 'A service other that the Tor control port is listening on ' + control_host + ':' + control_port)
-      plog('ERROR', e)
-      exit()
-    self.node_manager = NodeManager(c)
-   
-
-  def get_exit_node(self):
-    ''' ask metatroller for the last exit used '''
-    self.__meta.writeline("GETLASTEXIT")
-    reply = self.__meta.readline()
-    
-    if reply[:3] != '250':
-      reply += self.__meta.readline()
-      plog('ERROR', reply)
-      return 0
-    
-    p = re.compile('250 LASTEXIT=[\S]+')
-    m = p.match(reply)
-    self.__exit = m.group()[13:] # drop the irrelevant characters  
-    plog('INFO','Current node: ' + self.__exit)
-    return self.__exit
-
-  def get_new_circuit(self):
-    ''' tell metatroller to close the current circuit and open a new one '''
-    plog('DEBUG', 'Trying to construct a new circuit')
-    self.__meta.writeline("NEWEXIT")
-    reply = self.__meta.readline()
-
-    if reply[:3] != '250':
-      plog('ERROR', 'Choosing a new exit failed')
-      plog('ERROR', reply)
-
-  def set_new_exit(self, exit):
-    ''' 
-    tell metatroller to set the given node as the exit in the next circuit 
-    '''
-    plog('DEBUG', 'Trying to set ' + `exit` + ' as the exit for the next circuit')
-    self.__meta.writeline("SETEXIT $"+exit)
-    reply = self.__meta.readline()
-
-    if reply[:3] != '250':
-      plog('ERROR', 'Setting ' + exit + ' as the new exit failed')
-      plog('ERROR', reply)
-
-  def report_bad_exit(self, exit):
-    ''' 
-    report an evil exit to the control port using AuthDirBadExit 
-    Note: currently not used  
-    '''
-    # self.__contol.set_option('AuthDirBadExit', exit) ?
-    pass
-
-  # FIXME: Hrmm is this in the right place?
-  def check_all_exits_port_consistency(self):
-    ''' 
-    an independent test that finds nodes that allow connections over a common protocol
-    while disallowing connections over its secure version (for instance http/https)
-    '''
-
-    # get the structure
-    routers = self.control.read_routers(self.control.get_network_status())
-    bad_exits = Set([])
-    specific_bad_exits = [None]*len(ports_to_check)
-    for i in range(len(ports_to_check)):
-      specific_bad_exits[i] = []
-
-    # check exit policies
-    for router in routers:
-      for i in range(len(ports_to_check)):
-        [common_protocol, common_restriction, secure_protocol, secure_restriction] = ports_to_check[i]
-        if common_restriction.r_is_ok(router) and not secure_restriction.r_is_ok(router):
-          bad_exits.add(router)
-          specific_bad_exits[i].append(router)
-          #plog('INFO', 'Router ' + router.nickname + ' allows ' + common_protocol + ' but not ' + secure_protocol)
-  
-
-    for i,exits in enumerate(specific_bad_exits):
-      [common_protocol, common_restriction, secure_protocol, secure_restriction] = ports_to_check[i]
-      plog("NOTICE", "Nodes allowing "+common_protocol+" but not "+secure_protocol+":\n\t"+"\n\t".join(map(lambda r: r.nickname+"="+r.idhex, exits)))
-      #plog('INFO', 'Router ' + router.nickname + ' allows ' + common_protocol + ' but not ' + secure_protocol)
-     
-
-    # report results
-    plog('INFO', 'Total nodes: ' + `len(routers)`)
-    for i in range(len(ports_to_check)):
-      [common_protocol, _, secure_protocol, _] = ports_to_check[i]
-      plog('INFO', 'Exits with ' + common_protocol + ' / ' + secure_protocol + ' problem: ' + `len(specific_bad_exits[i])` + ' (~' + `(len(specific_bad_exits[i]) * 100 / len(routers))` + '%)')
-    plog('INFO', 'Total bad exits: ' + `len(bad_exits)` + ' (~' + `(len(bad_exits) * 100 / len(routers))` + '%)')
-
-  # FIXME: Hrmm is this in the right place?
-  def check_dns_rebind(self):
-    ''' 
-    A DNS-rebind attack test that runs in the background and monitors REMAP events
-    The test makes sure that external hosts are not resolved to private addresses  
-    '''
-    plog('INFO', 'Monitoring REMAP events for weirdness')
-    # establish a control port connection
-    try:
-      s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-      s.connect((control_host, control_port))
-      c = Connection(s)
-      c.authenticate()
-    except socket.error, e:
-      plog('ERROR', 'Couldn\'t connect to the control port')
-      plog('ERROR', e)
-      exit()
-    except AttributeError, e:
-      plog('ERROR', 'A service other that the Tor control port is listening on ' + control_host + ':' + control_port)
-      plog('ERROR', e)
-      exit()
-
-    self.__dnshandler = DNSRebindScanner(self, c)
-
+       #scanhdlr.name_to_idhex(exit)
 
 # some helpful methods
 
@@ -2621,9 +2517,43 @@ def int2bin(n):
 class NoURLsFound(Exception):
   pass
 
-#
+
+def cleanup(c, f):
+  plog("INFO", "Resetting __LeaveStreamsUnattached=0 and FetchUselessDescriptors="+f)
+  try:
+    c.set_option("__LeaveStreamsUnattached", "0")
+    c.set_option("FetchUselessDescriptors", f)
+  except TorCtl.TorCtlClosed:
+    pass
+
+def setup_handler(out_dir, cookie_file):
+  plog('INFO', 'Connecting to Tor at '+TorUtil.control_host+":"+str(TorUtil.control_port))
+  s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+  s.connect((TorUtil.control_host,TorUtil.control_port))
+  c = PathSupport.Connection(s)
+  c.debug(file(out_dir+"/control.log", "w", buffering=0))
+  c.authenticate_cookie(file(cookie_file, "r"))
+  #f = c.get_option("__LeaveStreamsUnattached")[0]
+  h = ExitScanHandler(c, __selmgr)
+
+  c.set_event_handler(h)
+  #c.set_periodic_timer(2.0, "PULSE")
+
+  c.set_events([TorCtl.EVENT_TYPE.STREAM,
+          TorCtl.EVENT_TYPE.BW,
+          TorCtl.EVENT_TYPE.NEWCONSENSUS,
+          TorCtl.EVENT_TYPE.NEWDESC,
+          TorCtl.EVENT_TYPE.CIRC,
+          TorCtl.EVENT_TYPE.STREAM_BW], True)
+
+  c.set_option("__LeaveStreamsUnattached", "1")
+  f = c.get_option("FetchUselessDescriptors")[0][1]
+  c.set_option("FetchUselessDescriptors", "1")
+  atexit.register(cleanup, *(c, f))
+  return (c,h)
+
+
 # main logic
-#
 def main(argv):
   # make sure we have something to test for
   if len(argv) < 2:
@@ -2681,19 +2611,25 @@ def main(argv):
   # Make logs go to disk so resumes are less painful
   #TorUtil.logfile = open(log_file_name, "a")
 
-  # initiate the connection to the metatroller
-  global metacon
-  metacon = Metaconnection()
+  # initiate the connection to tor
+  try:
+    global scanhdlr
+    # XXX: sync with tor somehow..
+    (c,scanhdlr) = setup_handler(out_dir, tor_dir+"/control_auth_cookie")
+  except Exception, e:
+    traceback.print_exc()
+    plog("WARN", "Can't connect to Tor: "+str(e))
+
   global datahandler
   datahandler = DataHandler()
 
   # initiate the passive dns rebind attack monitor
   if do_dns_rebind:
-    metacon.check_dns_rebind()
+    scanhdlr.check_dns_rebind()
 
   # check for sketchy exit policies
   if do_consistency:
-    metacon.check_all_exits_port_consistency()
+    scanhdlr.check_all_exits_port_consistency()
 
   # maybe only the consistency test was required
   if not (do_ssl or do_html or do_http):
@@ -2757,8 +2693,8 @@ def main(argv):
  
   if scan_exit:
     plog("NOTICE", "Scanning only "+scan_exit)
-    metacon.set_new_exit(scan_exit)
-    metacon.get_new_circuit()
+    scanhdlr.set_exit_node(scan_exit)
+    scanhdlr.new_exit()
 
     while 1:
       for test in tests.values():
@@ -2768,7 +2704,7 @@ def main(argv):
   # start testing
   while 1:
     avail_tests = tests.values()
-    if metacon.node_manager.has_new_nodes():
+    if scanhdlr.has_new_nodes():
       plog("INFO", "Got signal for node update.")
       for test in avail_tests:
         test.update_nodes()
@@ -2786,15 +2722,15 @@ def main(argv):
       if test.finished(): continue
       if not common_nodes: common_nodes = copy.copy(test.nodes)
       else: common_nodes &= test.nodes
-      metacon.node_manager._sanity_check(map(lambda id: test.node_map[id], 
+      scanhdlr._sanity_check(map(lambda id: test.node_map[id],
                                              test.nodes))
 
     if common_nodes:
       current_exit_idhex = random.choice(list(common_nodes))
       plog("DEBUG", "Chose to run "+str(n_tests)+" tests via "+current_exit_idhex+" (tests share "+str(len(common_nodes))+" exit nodes)")
 
-      metacon.set_new_exit(current_exit_idhex)
-      metacon.get_new_circuit()
+      scanhdlr.set_exit_node(current_exit_idhex)
+      scanhdlr.new_exit()
       for test in to_run:
         result = test.run_test()
         if result != TEST_INCONCLUSIVE:
@@ -2807,8 +2743,8 @@ def main(argv):
       for test in to_run:
         if test.finished(): continue
         current_exit = test.get_node()
-        metacon.set_new_exit(current_exit.idhex)
-        metacon.get_new_circuit()
+        scanhdlr.set_exit_node(current_exit.idhex)
+        scanhdlr.new_exit()
         result = test.run_test()
         if result != TEST_INCONCLUSIVE: 
           test.mark_chosen(current_exit_idhex, result)

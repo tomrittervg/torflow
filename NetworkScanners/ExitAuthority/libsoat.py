@@ -165,7 +165,7 @@ class TestResult(object):
   def __str__(self):
     ret = self.__class__.__name__+" for "+self.site+"\n"
     ret += " Time: "+time.ctime(self.timestamp)+"\n"
-    ret += " Exit: "+socket.inet_ntoa(struct.pack(">I",self.exit_ip))+" "+self.exit_node+" ("+self.exit_name+")\n"
+    ret += " Exit: "+socket.inet_ntoa(struct.pack(">I",self.exit_obj.ip))+" "+self.exit_node+" ("+self.exit_name+")\n"
     ret += " Contact: "+str(self.contact)+"\n"  
     ret += " "+str(RESULT_STRINGS[self.status])
     if self.reason:
@@ -186,7 +186,7 @@ class SSLTestResult(TestResult):
     super(SSLTestResult, self).__init__(exit_obj, ssl_site, status, reason)
     self.ssl_file = ssl_file
     self.exit_cert = exit_cert_pem # Meh, not that much space
-    self.exit_ip = exit_ip
+    self.exit_ip = exit_ip # XXX: Wrong!
     self.proto = "ssl"
 
   def rebase(self, new_data_root):

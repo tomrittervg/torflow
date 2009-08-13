@@ -30,7 +30,7 @@ from TorCtl.TorUtil import plog
 #import gc
 #gc.set_debug(gc.DEBUG_COLLECTABLE|gc.DEBUG_UNCOLLECTABLE|gc.DEBUG_INSTANCES|gc.DEBUG_OBJECTS)
  
-from TorCtl import PathSupport,SQLSupport,TorCtl,TorUtil
+from TorCtl import ScanSupport,PathSupport,SQLSupport,TorCtl,TorUtil
 
 sys.path.append("../libs")
 from SocksiPy import socks
@@ -98,145 +98,32 @@ def choose_url(percentile):
       #return "https://86.59.21.36/torbrowser/dist/tor-im-browser-1.2.0_ru_split/tor-im-browser-1.2.0_ru_split.part01.exe"
   raise PathSupport.NoNodesRemain("No nodes left for url choice!")
 
-# Note: be careful writing functions for this class. Remember that
-# the PathBuilder has its own thread that it recieves events on
-# independent from your thread that calls into here.
-class BwScanHandler(PathSupport.PathBuilder):
-  def get_exit_node(self):
-    return copy.copy(self.last_exit) # GIL FTW
+def http_request(address):
+  ''' perform an http GET-request and return 1 for success or 0 for failure '''
 
-  def attach_sql_listener(self, db_uri):
-    plog("DEBUG", "Got sqlite: "+db_uri)
-    SQLSupport.setup_db(db_uri, echo=False, drop=True)
-    self.sql_consensus_listener = SQLSupport.ConsensusTrackerListener()
-    self.add_event_listener(self.sql_consensus_listener)
-    self.add_event_listener(SQLSupport.StreamListener())
+  request = urllib2.Request(address)
+  request.add_header('User-Agent', user_agent)
 
-  def write_sql_stats(self, rfilename=None, stats_filter=None):
-    if not rfilename:
-      rfilename="./data/stats/sql-"+time.strftime("20%y-%m-%d-%H:%M:%S")
-    cond = threading.Condition()
-    def notlambda(h):
-      cond.acquire()
-      SQLSupport.RouterStats.write_stats(file(rfilename, "w"),
-                            0, 100, order_by=SQLSupport.RouterStats.sbw,
-                            recompute=True, disp_clause=stats_filter)
-      cond.notify()
-      cond.release()
-    cond.acquire()
-    self.schedule_low_prio(notlambda)
-    cond.wait()
-    cond.release()
+  try:
+    reply = urllib2.urlopen(request)
+    decl_length = reply.info().get("Content-Length")
+    read_len = len(reply.read())
+    plog("DEBUG", "Read: "+str(read_len)+" of declared "+str(decl_length))
+    return 1
+  except (ValueError, urllib2.URLError):
+    plog('ERROR', 'The http-request address ' + address + ' is malformed')
+    return 0
+  except (IndexError, TypeError):
+    plog('ERROR', 'An error occured while negotiating socks5 with Tor')
+    return 0
+  except KeyboardInterrupt:
+    raise KeyboardInterrupt
+  except:
+    plog('ERROR', 'An unknown HTTP error occured')
+    traceback.print_exc()
+    return 0
 
-  def write_strm_bws(self, rfilename=None, slice_num=0, stats_filter=None):
-    if not rfilename:
-      rfilename="./data/stats/bws-"+time.strftime("20%y-%m-%d-%H:%M:%S")
-    cond = threading.Condition()
-    def notlambda(this):
-      cond.acquire()
-      f=file(rfilename, "w")
-      f.write("slicenum="+str(slice_num)+"\n")
-      SQLSupport.RouterStats.write_bws(f, 0, 100,
-                            order_by=SQLSupport.RouterStats.sbw,
-                            recompute=False, disp_clause=stats_filter)
-      f.close()
-      cond.notify()
-      cond.release()
-    cond.acquire()
-    self.schedule_low_prio(notlambda)
-    cond.wait()
-    cond.release()
-
-  def set_pct_rstr(self, percent_skip, percent_fast):
-    def notlambda(sm):
-      sm.percent_fast=percent_fast
-      sm.percent_skip=percent_skip
-    self.schedule_selmgr(notlambda)
-
-  def reset_stats(self):
-    def notlambda(this): 
-      this.reset()
-    self.schedule_low_prio(notlambda)
-
-  def save_sql_file(self, sql_file, new_file):
-    cond = threading.Condition()
-    def notlambda(this):
-      cond.acquire()
-      SQLSupport.tc_session.close()
-      try:
-        shutil.copy(sql_file, new_file)
-      except Exception,e:
-        plog("WARN", "Error moving sql file: "+str(e))
-      SQLSupport.reset_all()
-      cond.notify()
-      cond.release()
-    cond.acquire()
-    self.schedule_low_prio(notlambda)
-    cond.wait()
-    cond.release()
-
-  def commit(self):
-    plog("INFO", "Scanner committing jobs...")
-    cond = threading.Condition()
-    def notlambda2(this):
-      cond.acquire()
-      this.run_all_jobs = False
-      plog("INFO", "Commit done.")
-      cond.notify()
-      cond.release()
-
-    def notlambda1(this):
-      plog("INFO", "Committing jobs...")
-      this.run_all_jobs = True
-      self.schedule_low_prio(notlambda2)
-
-    cond.acquire()
-    self.schedule_immediate(notlambda1)
-
-    cond.wait()
-    cond.release()
-    plog("INFO", "Scanner commit done.")
-
-  def close_circuits(self):
-    cond = threading.Condition()
-    def notlambda(this):
-      cond.acquire()
-      this.close_all_circuits()
-      cond.notify()
-      cond.release()
-    cond.acquire()
-    self.schedule_low_prio(notlambda)
-    cond.wait()
-    cond.release()
-
-  def close_streams(self, reason):
-    cond = threading.Condition()
-    plog("NOTICE", "Wedged Tor stream. Closing all streams")
-    def notlambda(this):
-      cond.acquire()
-      this.close_all_streams(reason)
-      cond.notify()
-      cond.release()
-    cond.acquire()
-    self.schedule_low_prio(notlambda)
-    cond.wait()
-    cond.release()
-
-  def new_exit(self):
-    cond = threading.Condition()
-    def notlambda(this):
-      cond.acquire()
-      this.new_nym = True
-      lines = this.c.sendAndRecv("SIGNAL CLEARDNSCACHE\r\n")
-      for _,msg,more in lines:
-        plog("DEBUG", msg)
-      cond.notify()
-      cond.release()
-    cond.acquire()
-    self.schedule_low_prio(notlambda)
-    cond.wait()
-    cond.release()
-
+class BwScanHandler(ScanSupport.ScanHandler):
   def is_count_met(self, count, position=0):
     cond = threading.Condition()
     cond._finished = True # lol python haxx. Could make subclass, but why?? :)
@@ -265,76 +152,6 @@ class BwScanHandler(PathSupport.PathBuilder):
     cond.wait()
     cond.release()
     return cond._finished
-
-  def rank_to_percent(self, rank):
-    cond = threading.Condition()
-    def notlambda(this):
-      cond.acquire()
-      cond._pct = (100.0*rank)/len(this.sorted_r) # lol moar haxx
-      cond.notify()
-      cond.release()
-    cond.acquire()
-    self.schedule_low_prio(notlambda)
-    cond.wait()
-    cond.release()
-    return cond._pct
-
-  def percent_to_rank(self, pct):
-    cond = threading.Condition()
-    def notlambda(this):
-      cond.acquire()
-      cond._rank = int(round((pct*len(this.sorted_r))/100.0,0)) # lol moar haxx
-      cond.notify()
-      cond.release()
-    cond.acquire()
-    self.schedule_low_prio(notlambda)
-    cond.wait()
-    cond.release()
-    return cond._rank
-
-  def wait_for_consensus(self):
-    cond = threading.Condition()
-    def notlambda(this):
-      if this.sql_consensus_listener.last_desc_at \
-                 != SQLSupport.ConsensusTrackerListener.CONSENSUS_DONE:
-        this.sql_consensus_listener.wait_for_signal = False
-        plog("INFO", "Waiting on consensus result: "+str(this.run_all_jobs))
-        this.schedule_low_prio(notlambda)
-      else:
-        cond.acquire()
-        this.sql_consensus_listener.wait_for_signal = True
-        cond.notify()
-        cond.release()
-    cond.acquire()
-    self.schedule_low_prio(notlambda)
-    cond.wait()
-    cond.release()
-    plog("INFO", "Consensus OK")
-
-def http_request(address):
-  ''' perform an http GET-request and return 1 for success or 0 for failure '''
-
-  request = urllib2.Request(address)
-  request.add_header('User-Agent', user_agent)
-
-  try:
-    reply = urllib2.urlopen(request)
-    decl_length = reply.info().get("Content-Length")
-    read_len = len(reply.read())
-    plog("DEBUG", "Read: "+str(read_len)+" of declared "+str(decl_length))
-    return 1
-  except (ValueError, urllib2.URLError):
-    plog('ERROR', 'The http-request address ' + address + ' is malformed')
-    return 0
-  except (IndexError, TypeError):
-    plog('ERROR', 'An error occured while negotiating socks5 with Tor')
-    return 0
-  except KeyboardInterrupt:
-    raise KeyboardInterrupt
-  except:
-    plog('ERROR', 'An unknown HTTP error occured')
-    traceback.print_exc()
-    return 0 
 
 def speedrace(hdlr, start_pct, stop_pct, circs_per_node, save_every, out_dir,
               max_fetch_time, sleep_start_tp, sleep_stop_tp, slice_num,
