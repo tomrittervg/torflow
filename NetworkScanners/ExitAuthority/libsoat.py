@@ -525,7 +525,7 @@ class POPTestResult(TestResult):
     self.proto = "pop"
 
 class DataHandler:
-  def __init__(self, my_data_dir=data_dir):
+  def __init__(self, my_data_dir=soat_dir):
     self.data_dir = my_data_dir
 
   ''' Class for saving and managing test result data '''

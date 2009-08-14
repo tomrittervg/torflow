@@ -52,7 +52,6 @@ sys.path.append("../../")
 from libsoat import *
 
 from TorCtl import TorUtil, TorCtl, PathSupport, ScanSupport
-from TorCtl.TorUtil import meta_port, meta_host, control_port, control_host, tor_port, tor_host
 from TorCtl.TorUtil import *
 from TorCtl.PathSupport import *
 from TorCtl.TorCtl import Connection, EventHandler, ConsensusTracker
@@ -125,8 +124,8 @@ class NoDNSHTTPHandler(urllib2.HTTPHandler):
     return self.do_open(NoDNSHTTPConnection, req)
 
 class ExitScanHandler(ScanSupport.ScanHandler):
-  def __init__(self, selmgr):
-    ScanSupport.ScanHandler.__init__(self, selmgr)
+  def __init__(self, c, selmgr):
+    ScanSupport.ScanHandler.__init__(self, c, selmgr)
     self.rlock = threading.Lock()
     self.new_nodes=True
 
@@ -191,7 +190,7 @@ class ExitScanHandler(ScanSupport.ScanHandler):
     '''
 
     # get the structure
-    routers = self.control.read_routers(self.control.get_network_status())
+    routers = self.c.read_routers(self.c.get_network_status())
     bad_exits = Set([])
     specific_bad_exits = [None]*len(ports_to_check)
     for i in range(len(ports_to_check)):
@@ -230,7 +229,7 @@ class ExitScanHandler(ScanSupport.ScanHandler):
     # establish a control port connection
     try:
       s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-      s.connect((control_host, control_port))
+      s.connect((TorUtil.control_host, TorUtil.control_port))
       c = Connection(s)
       c.authenticate()
     except socket.error, e:
@@ -238,7 +237,7 @@ class ExitScanHandler(ScanSupport.ScanHandler):
       plog('ERROR', e)
       exit()
     except AttributeError, e:
-      plog('ERROR', 'A service other that the Tor control port is listening on ' + control_host + ':' + control_port)
+      plog('ERROR', 'A service other that the Tor control port is listening on ' + TorUtil.control_host + ':' + TorUtil.control_port)
       plog('ERROR', e)
       exit()
 
@@ -982,7 +981,8 @@ class HTTPTest(SearchBasedTest):
       return TEST_INCONCLUSIVE
 
     defaultsocket = socket.socket
-    socks.setdefaultproxy(socks.PROXY_TYPE_SOCKS5, tor_host, tor_port)
+    socks.setdefaultproxy(socks.PROXY_TYPE_SOCKS5, TorUtil.tor_host,
+                          TorUtil.tor_port)
     socket.socket = socks.socksocket
 
     (pcode, presp_headers, pnew_cookies, pmime_type, pcontent) = http_request(address, self.tor_cookie_jar, self.headers)
@@ -1774,7 +1774,8 @@ class SSLTest(SearchBasedTest):
 
     # get the cert via tor
     defaultsocket = socket.socket
-    socks.setdefaultproxy(socks.PROXY_TYPE_SOCKS5, tor_host, tor_port)
+    socks.setdefaultproxy(socks.PROXY_TYPE_SOCKS5, TorUtil.tor_host,
+                          TorUtil.tor_port)
     socket.socket = socks.socksocket
 
     (code, cert, exc) = self.ssl_request(address)
@@ -1901,7 +1902,8 @@ class POP3STest(Test):
       port = 110
 
     defaultsocket = socket.socket
-    socks.setdefaultproxy(socks.PROXY_TYPE_SOCKS5, tor_host, tor_port)
+    socks.setdefaultproxy(socks.PROXY_TYPE_SOCKS5, TorUtil.tor_host,
+                          TorUtil.tor_port)
     socket.socket = socks.socksocket
 
     capabilities_ok = False
@@ -2085,7 +2087,8 @@ class SMTPSTest(Test):
     plog('INFO', 'Conducting an smtp test with destination ' + address)
 
     defaultsocket = socket.socket
-    socks.setdefaultproxy(socks.PROXY_TYPE_SOCKS5, tor_host, tor_port)
+    socks.setdefaultproxy(socks.PROXY_TYPE_SOCKS5,
+                          TorUtil.tor_host, TorUtil.tor_port)
     socket.socket = socks.socksocket
 
     ehlo1_reply = 0
@@ -2186,7 +2189,8 @@ class IMAPSTest(Test):
       port = 143
 
     defaultsocket = socket.socket
-    socks.setdefaultproxy(socks.PROXY_TYPE_SOCKS5, tor_host, tor_port)
+    socks.setdefaultproxy(socks.PROXY_TYPE_SOCKS5, TorUtil.tor_host,
+                          TorUtil.tor_port)
     socket.socket = socks.socksocket
     
     capabilities_ok = None
@@ -2608,14 +2612,18 @@ def main(argv):
       else:
         resume_run=-1
 
+  TorUtil.read_config(data_dir+"/torctl.cfg")
+
+  plog("DEBUG", "Read tor config. Got Socks proxy: "+str(TorUtil.tor_port))
+
   # Make logs go to disk so resumes are less painful
   #TorUtil.logfile = open(log_file_name, "a")
 
   # initiate the connection to tor
   try:
     global scanhdlr
-    # XXX: sync with tor somehow..
-    (c,scanhdlr) = setup_handler(out_dir, tor_dir+"/control_auth_cookie")
+    (c,scanhdlr) = setup_handler(data_dir,
+                                 data_dir+"tor-data/control_auth_cookie")
   except Exception, e:
     traceback.print_exc()
     plog("WARN", "Can't connect to Tor: "+str(e))
