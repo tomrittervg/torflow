@@ -67,6 +67,10 @@ import Pyssh.pyssh
 
 from soat_config import *
 
+# XXX: really need to standardize on $idhex or idhex :(
+# The convention in TorCtl is that nicks have no $, and ids have $.
+# We should be using that here too...
+
 search_cookies=None
 scanhdlr=None
 datahandler=None
@@ -445,7 +449,7 @@ class Test:
                      self.nodes))
 
   def mark_chosen(self, node, result):
-    exit_node = scanhdlr.get_exit_node()[1:]
+    exit_node = scanhdlr.get_exit_node().idhex
     if exit_node != node:
       plog("ERROR", "Asked to mark a node that is not current: "+node+" vs "+exit_node)
     plog("INFO", "Marking "+node+" with result "+str(result))
@@ -800,7 +804,7 @@ class HTTPTest(SearchBasedTest):
     for cookie in self.cookie_jar:
       plain_cookies += "\t"+cookie.name+":"+cookie.domain+cookie.path+" discard="+str(cookie.discard)+"\n"
     if tor_cookies != plain_cookies:
-      exit_node = scanhdlr.get_exit_node()
+      exit_node = "$"+scanhdlr.get_exit_node().idhex
       plog("ERROR", "Cookie mismatch at "+exit_node+":\nTor Cookies:"+tor_cookies+"\nPlain Cookies:\n"+plain_cookies)
       result = CookieTestResult(self.node_map[exit_node[1:]],
                           TEST_FAILURE, FAILURE_COOKIEMISMATCH, plain_cookies, 
@@ -991,7 +995,7 @@ class HTTPTest(SearchBasedTest):
     # reset the connection to direct
     socket.socket = defaultsocket
 
-    exit_node = scanhdlr.get_exit_node()
+    exit_node = "$"+scanhdlr.get_exit_node().idhex
     if exit_node == 0 or exit_node == '0' or not exit_node:
       plog('NOTICE', 'We had no exit node to test, skipping to the next test.')
       result = HttpTestResult(None, 
@@ -1783,7 +1787,7 @@ class SSLTest(SearchBasedTest):
     # reset the connection method back to direct
     socket.socket = defaultsocket
 
-    exit_node = scanhdlr.get_exit_node()
+    exit_node = "$"+scanhdlr.get_exit_node().idhex
     if not exit_node or exit_node == '0':
       plog('NOTICE', 'We had no exit node to test, skipping to the next test.')
       result = SSLTestResult(None, 
@@ -1980,7 +1984,7 @@ class POP3STest(Test):
     socket.socket = defaultsocket
 
     # check whether the test was valid at all
-    exit_node = scanhdlr.get_exit_node()
+    exit_node = "$"+scanhdlr.get_exit_node().idhex
     if exit_node == 0 or exit_node == '0':
       plog('INFO', 'We had no exit node to test, skipping to the next test.')
       return TEST_INCONCLUSIVE
@@ -2121,7 +2125,7 @@ class SMTPSTest(Test):
     socket.socket = defaultsocket 
 
     # check whether the test was valid at all
-    exit_node = scanhdlr.get_exit_node()
+    exit_node = "$"+scanhdlr.get_exit_node().idhex
     if exit_node == 0 or exit_node == '0':
       plog('INFO', 'We had no exit node to test, skipping to the next test.')
       return TEST_INCONCLUSIVE
@@ -2257,7 +2261,7 @@ class IMAPSTest(Test):
     socket.socket = defaultsocket 
 
     # check whether the test was valid at all
-    exit_node = scanhdlr.get_exit_node()
+    exit_node = "$"+scanhdlr.get_exit_node().idhex
     if exit_node == 0 or exit_node == '0':
       plog('NOTICE', 'We had no exit node to test, skipping to the next test.')
       return TEST_INCONCLUSIVE
@@ -2345,7 +2349,7 @@ class DNSTest(Test):
     ip = tor_resolve(address)
 
     # check whether the test was valid at all
-    exit_node = scanhdlr.get_exit_node()
+    exit_node = "$"+scanhdlr.get_exit_node().idhex
     if exit_node == 0 or exit_node == '0':
       plog('INFO', 'We had no exit node to test, skipping to the next test.')
       return TEST_SUCCESS
@@ -2419,7 +2423,7 @@ class DNSRebindScanner(EventHandler):
       for network in ipv4_nonpublic:
         if ipbin[:len(network)] == network:
           handler = DataHandler()
-          node = self.__mt.get_exit_node()
+          node = "$"+self.__mt.get_exit_node().idhex
           plog("ERROR", "DNS Rebeind failure via "+node)
 
           result = DNSRebindTestResult(self.__mt.node_manager.idhex_to_r(node), 
@@ -2737,7 +2741,7 @@ def main(argv):
       current_exit_idhex = random.choice(list(common_nodes))
       plog("DEBUG", "Chose to run "+str(n_tests)+" tests via "+current_exit_idhex+" (tests share "+str(len(common_nodes))+" exit nodes)")
 
-      scanhdlr.set_exit_node(current_exit_idhex)
+      scanhdlr.set_exit_node("$"+current_exit_idhex)
       scanhdlr.new_exit()
       for test in to_run:
         result = test.run_test()
@@ -2751,7 +2755,7 @@ def main(argv):
       for test in to_run:
         if test.finished(): continue
         current_exit = test.get_node()
-        scanhdlr.set_exit_node(current_exit.idhex)
+        scanhdlr.set_exit_node("$"+current_exit.idhex)
         scanhdlr.new_exit()
         result = test.run_test()
         if result != TEST_INCONCLUSIVE: 
