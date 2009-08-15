@@ -187,9 +187,6 @@ def main(argv):
       text = ""
       for r in by_proto[p]:
         try:
-          if r.proto not in by_proto:
-            by_proto[r.proto]=[]
-          by_proto[r.proto].append(r)
           text += str(r) + "\n-----------------------------\n"
         except Exception, e:
           text += traceback.format_exc()
