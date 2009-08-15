@@ -1,5 +1,12 @@
 #!/usr/bin/python
 
+import smtplib
+from email.MIMEMultipart import MIMEMultipart
+from email.MIMEBase import MIMEBase
+from email.MIMEText import MIMEText
+from email.Utils import COMMASPACE, formatdate
+from email import Encoders
+
 import dircache
 import operator
 import os
@@ -15,7 +22,7 @@ import getopt
 import libsoat
 from libsoat import *
 
-sys.path.append("../")
+sys.path.append("../../")
 
 import TorCtl.TorUtil
 from TorCtl.TorUtil import *
@@ -46,10 +53,10 @@ def usage(argv):
 
 def getargs(argv):
   try:
-    opts,args = getopt.getopt(argv[1:],"d:f:e:r:vt:p:s:o:n:a:b:F", 
+    opts,args = getopt.getopt(argv[1:],"d:f:e:r:vt:p:s:o:n:a:b:Fm", 
              ["dir=", "file=", "exit=", "reason=", "resultfilter=", "proto=", 
               "verbose", "statuscode=", "sortby=", "noreason=", "after=",
-              "before=", "falsepositives"])
+              "before=", "falsepositives", "email"])
   except getopt.GetoptError,err:
     print str(err)
     usage(argv)
@@ -67,9 +74,12 @@ def getargs(argv):
   after = 0
   sortby="proto"
   falsepositives=False
+  send_email = False
   for o,a in opts:
     if o == '-d' or o == '--dir':
       use_dir = a
+    elif o == '-e' or o == '--email':
+      send_email = True
     elif o == '-f' or o == '--file':
       use_file = a
     elif o == '-b' or o == '--before':
@@ -97,12 +107,37 @@ def getargs(argv):
         result = int(a)
       except ValueError:
         result = RESULT_CODES[a]
-  return use_dir,use_file,node,reasons,noreasons,result,verbose,resultfilter,proto,sortby,before,after,falsepositives
- 
+  return use_dir,use_file,node,reasons,noreasons,result,verbose,resultfilter,proto,sortby,before,after,falsepositives,send_email
+
+def send_mail(fro, to, subject, text, server, files=[]):
+  assert type(to)==list
+  assert type(files)==list
+
+  msg = MIMEMultipart()
+  msg['From'] = fro
+  msg['To'] = COMMASPACE.join(to)
+  msg['Date'] = formatdate(localtime=True)
+  msg['Subject'] = subject
+
+  msg.attach( MIMEText(text) )
+
+  for f in files:
+    part = MIMEBase('application', "octet-stream")
+    part.set_payload( open(f,"rb").read() )
+    Encoders.encode_base64(part)
+    part.add_header('Content-Disposition', 'attachment; filename="%s"'
+                   % os.path.basename(f))
+    msg.attach(part)
+
+  smtp = smtplib.SMTP(server)
+  smtp.sendmail(fro, to, msg.as_string() )
+  smtp.close()
+
+
 def main(argv):
-  use_dir,use_file,node,reasons,noreasons,result,verbose,resultfilter,proto,sortby,before,after,falsepositives=getargs(argv)
+  now = time.time()
+  use_dir,use_file,node,reasons,noreasons,result,verbose,resultfilter,proto,sortby,before,after,falsepositives,send_email=getargs(argv)
   dh = DataHandler(use_dir)
-  print dh.data_dir
 
   if use_file:
     results = [dh.getResult(use_file)]
@@ -118,6 +153,8 @@ def main(argv):
   elif sortby == "exit":
     results.sort(lambda x, y: cmp(x.exit_node, y.exit_node))
 
+  by_proto = {}
+
   for r in results:
     r.verbose = verbose
     if r.reason in noreasons: continue
@@ -127,6 +164,12 @@ def main(argv):
     if (not result or r.status == result) and \
        (not proto or r.proto == proto) and \
        (not resultfilter or r.__class__.__name__ == resultfilter):
+      if send_email:
+        if r.timestamp > now - mail_interval - 60:
+          if r.proto not in by_proto:
+            by_proto[r.proto]=[]
+          by_proto[r.proto].append(r)
+        continue
       try:
         print r
       except KeyboardInterrupt:
@@ -136,6 +179,23 @@ def main(argv):
       except Exception, e:
         traceback.print_exc()
       print "\n-----------------------------\n"
+
+  if send_email:
+    for p in by_proto.iterkeys():
+      print "Mailing "+str(len(by_proto[p]))+" "+p+" results..."
+      subject = p+" scan found "+str(len(by_proto[p]))+" snakes"
+      text = ""
+      for r in by_proto[p]:
+        try:
+          if r.proto not in by_proto:
+            by_proto[r.proto]=[]
+          by_proto[r.proto].append(r)
+          text += str(r) + "\n-----------------------------\n"
+        except Exception, e:
+          text += traceback.format_exc()
+      # TODO: Attach files? Or is that too much.. Maybe serve
+      # them via http and include links?
+      send_mail(from_email, to_email, subject, text, mail_server)
 
 if __name__ == "__main__":
   main(sys.argv)
