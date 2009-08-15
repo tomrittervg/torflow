@@ -452,7 +452,11 @@ class Test:
                      self.nodes))
 
   def mark_chosen(self, node, result):
-    exit_node = scanhdlr.get_exit_node().idhex
+    exit_node = scanhdlr.get_exit_node()
+    if not exit_node:
+      plog("WARN", "Exit node disappeared during scan: "+node)
+      return
+    exit_node = exit_node.idhex
     if exit_node != node:
       plog("ERROR", "Asked to mark a node that is not current: "+node+" vs "+exit_node)
     plog("INFO", "Marking "+node+" with result "+str(result))
@@ -998,8 +1002,8 @@ class HTTPTest(SearchBasedTest):
     # reset the connection to direct
     socket.socket = defaultsocket
 
-    exit_node = "$"+scanhdlr.get_exit_node().idhex
-    if exit_node == 0 or exit_node == '0' or not exit_node:
+    exit_node = scanhdlr.get_exit_node()
+    if not exit_node:
       plog('NOTICE', 'We had no exit node to test, skipping to the next test.')
       result = HttpTestResult(None, 
                               address, TEST_INCONCLUSIVE, INCONCLUSIVE_NOEXIT)
@@ -1012,6 +1016,7 @@ class HTTPTest(SearchBasedTest):
       self.tor_cookie_jar = orig_tor_cookie_jar
       return TEST_INCONCLUSIVE
 
+    exit_node = "$"+exit_node.idhex
     if pcode - (pcode % 100) != 200:
       plog("NOTICE", exit_node+" had error "+str(pcode)+" fetching content for "+address)
       # Restore cookie jars
@@ -1790,8 +1795,8 @@ class SSLTest(SearchBasedTest):
     # reset the connection method back to direct
     socket.socket = defaultsocket
 
-    exit_node = "$"+scanhdlr.get_exit_node().idhex
-    if not exit_node or exit_node == '0':
+    exit_node = scanhdlr.get_exit_node()
+    if not exit_node:
       plog('NOTICE', 'We had no exit node to test, skipping to the next test.')
       result = SSLTestResult(None, 
                               address, ssl_file_name, TEST_INCONCLUSIVE,
@@ -1800,6 +1805,8 @@ class SSLTest(SearchBasedTest):
       self.results.append(result)
       datahandler.saveResult(result)
       return TEST_INCONCLUSIVE
+
+    exit_node = "$"+exit_node.idhex
 
     if not cert:
       if code < 0 and type(code) == float:
@@ -1987,11 +1994,12 @@ class POP3STest(Test):
     socket.socket = defaultsocket
 
     # check whether the test was valid at all
-    exit_node = "$"+scanhdlr.get_exit_node().idhex
-    if exit_node == 0 or exit_node == '0':
+    exit_node = scanhdlr.get_exit_node()
+    if not exit_node:
       plog('INFO', 'We had no exit node to test, skipping to the next test.')
       return TEST_INCONCLUSIVE
 
+    exit_node = "$"+exit_node.idhex
     # do the same for the direct connection
 
     capabilities_ok_d = False
@@ -2128,11 +2136,12 @@ class SMTPSTest(Test):
     socket.socket = defaultsocket 
 
     # check whether the test was valid at all
-    exit_node = "$"+scanhdlr.get_exit_node().idhex
-    if exit_node == 0 or exit_node == '0':
+    exit_node = scanhdlr.get_exit_node()
+    if not exit_node:
       plog('INFO', 'We had no exit node to test, skipping to the next test.')
       return TEST_INCONCLUSIVE
 
+    exit_node = "$"+exit_node.idhex
     # now directly
 
     ehlo1_reply_d = 0
@@ -2264,11 +2273,12 @@ class IMAPSTest(Test):
     socket.socket = defaultsocket 
 
     # check whether the test was valid at all
-    exit_node = "$"+scanhdlr.get_exit_node().idhex
-    if exit_node == 0 or exit_node == '0':
+    exit_node = scanhdlr.get_exit_node()
+    if not exit_node:
       plog('NOTICE', 'We had no exit node to test, skipping to the next test.')
       return TEST_INCONCLUSIVE
 
+    exit_node = "$"+exit_node.idhex
     # do the same for the direct connection
     capabilities_ok_d = None
     starttls_present_d = None
@@ -2352,11 +2362,12 @@ class DNSTest(Test):
     ip = tor_resolve(address)
 
     # check whether the test was valid at all
-    exit_node = "$"+scanhdlr.get_exit_node().idhex
-    if exit_node == 0 or exit_node == '0':
+    exit_node = scanhdlr.get_exit_node()
+    if not exit_node:
       plog('INFO', 'We had no exit node to test, skipping to the next test.')
       return TEST_SUCCESS
 
+    exit_node = "$"+exit_node.idhex
     ips_d = Set([])
     try:
       results = socket.getaddrinfo(address,None)
