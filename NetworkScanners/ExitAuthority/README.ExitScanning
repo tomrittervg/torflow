@@ -30,9 +30,7 @@ III. Setup
 
 A. Compiling Tor
 
-To run SoaT you will need Tor 0.2.1.13. SVN r18516 contains a timeout
-fix that is essential to scanning the network in any reasonable amount
-of time.
+To run SoaT you will need Tor 0.2.1.x or later.
 
 It is also strongly recommended that you have a custom Tor instance that
 is devoted only to exit scanning, and is not performing any other
@@ -73,11 +71,11 @@ urls. This can be useful if you believe it likely for an adversary to
 target only certain keywords/concepts/sites in a particular context.
 
 You can edit the contents of the wordlist files while SoaT runs. It will
-pick up the changes after it completes a full network scan with the old 
+pick up the changes after it completes a full network scan with the old
 list.
 
 
-IV. Running Tor, The Metatroller, and SoaT
+IV. Running Tor and SoaT
 
 Once you have everything compiled and configured, you should be ready to
 run the pieces. You probably want to do this as a separate, unprivileged
@@ -86,21 +84,11 @@ user.
 First, start up your custom Tor with the sample torrc provided in the
 TorFlow svn root:
 
-# ~/src/tor-trunk/src/or/tor -f ~/src/torflow-trunk/torrc >& tor.log &
+# ~/src/tor-git/src/or/tor -f ./data/torrc &
 
-Then, start up the Metatroller:
+Then, start up SoaT:
 
-# ~/src/torflow-trunk/metatroller.py >& mt.log &
-
-Finally, start up SoaT:
-
-# ./soat.py --ssl --html --http --dnsrebind >& soat.log &
-
-
-If your machine is shared, you probably want to set a control port 
-password. The location for this for metatroller and SoaT is the 
-control_pass variable at the top of torflow-trunk/TorCtl/TorUtil.py.
-Of course you also have to set it in the custom torrc as well.
+# ./soat.py --ssl --html --http --dnsrebind >& ./data/soat.log &
 
 
 V. Monitoring and Results

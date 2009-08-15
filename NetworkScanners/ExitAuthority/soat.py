@@ -71,6 +71,8 @@ from soat_config import *
 # The convention in TorCtl is that nicks have no $, and ids have $.
 # We should be using that here too...
 
+# XXX: Handle connectivity failures more gracefully..
+
 search_cookies=None
 scanhdlr=None
 datahandler=None
@@ -225,9 +227,10 @@ class ExitScanHandler(ScanSupport.ScanHandler):
 
   # FIXME: Hrmm is this in the right place?
   def check_dns_rebind(self):
-    ''' 
-    A DNS-rebind attack test that runs in the background and monitors REMAP events
-    The test makes sure that external hosts are not resolved to private addresses  
+    '''
+    A DNS-rebind attack test that runs in the background and monitors REMAP
+    events The test makes sure that external hosts are not resolved to private
+    addresses
     '''
     plog('INFO', 'Monitoring REMAP events for weirdness')
     # establish a control port connection
