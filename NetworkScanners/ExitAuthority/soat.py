@@ -73,6 +73,8 @@ from soat_config import *
 
 # XXX: Handle connectivity failures more gracefully..
 
+# XXX: Handle wedged tor streams a-la bwauthority
+
 search_cookies=None
 scanhdlr=None
 datahandler=None
@@ -504,9 +506,9 @@ class Test:
                                      FALSEPOSITIVE_DEADSITE,
                                      max_connect_fail_pct)
     for r in self.results:
-      if not r.false_positive and r.status == TEST_FAILURE:
-        r.confirmed=True
-        datahandler.saveResult(r, confirmed=True)
+      if not r.confirmed and not r.false_positive and r.status == TEST_FAILURE:
+        r.confirmed=True # only save confirmed stuff once.
+        datahandler.saveResult(r)
 
   def _reset(self):
     self.results = []

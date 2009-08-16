@@ -634,7 +634,7 @@ class DataHandler:
     return str(safe_file[:200])
   safeFilename = Callable(safeFilename)
 
-  def __resultFilename(self, result, confirmed=False):
+  def __resultFilename(self, result):
     address = ''
     if result.__class__.__name__ == 'HtmlTestResult' or result.__class__.__name__ == 'HttpTestResult':
       address = DataHandler.safeFilename(result.site[7:])
@@ -646,7 +646,7 @@ class DataHandler:
       raise Exception, 'This doesn\'t seems to be a result instance.'
 
     rdir = self.data_dir+result.proto.lower()+'/'
-    if confirmed:
+    if result.confirmed:
       rdir += 'confirmed/'
     elif result.false_positive:
       rdir += 'falsepositive/'
@@ -661,9 +661,9 @@ class DataHandler:
 
     return DataHandler.uniqueFilename(str((rdir+address+'.'+result.exit_node[1:]+".result").decode('ascii', 'ignore')))
 
-  def saveResult(self, result, confirmed=False):
+  def saveResult(self, result):
     ''' generic method for saving test results '''
-    result.filename = self.__resultFilename(result, confirmed)
+    result.filename = self.__resultFilename(result)
     SnakePickler.dump(result, result.filename)
 
   def __testFilename(self, test, position=-1):
