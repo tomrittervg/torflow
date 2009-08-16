@@ -109,11 +109,12 @@ class TestResult(object):
     self.reason = reason
     self.extra_info = None
     self.false_positive=False
+    self.confirmed=False
     self.false_positive_reason="None"
     self.verbose=0
     self.from_rescan = False
     self.filename=None
-    self._pickle_revision = 5
+    self._pickle_revision = 6
 
   def depickle_upgrade(self):
     if not "_pickle_revision" in self.__dict__: # upgrade to v0
@@ -133,7 +134,9 @@ class TestResult(object):
     if self._pickle_revision < 5:
       self._pickle_revision = 5
       if type(self.exit_ip) == str or not self.exit_ip: self.exit_ip = 0
-
+    if self._pickle_revision < 6:
+      self._pickle_revision = 6
+      self.confirmed=False
 
   def _rebase(self, filename, new_data_root):
     if not filename: return filename
@@ -176,6 +179,8 @@ class TestResult(object):
       ret += "\n Removed as False Positive: "+self.false_positive_reason
     if self.from_rescan:
       ret += "\n From rescan: "+str(self.from_rescan)
+    if self.confirmed:
+      ret += "\n Confirmed. "
     ret += "\n"
     return ret
 
@@ -629,7 +634,7 @@ class DataHandler:
     return str(safe_file[:200])
   safeFilename = Callable(safeFilename)
 
-  def __resultFilename(self, result):
+  def __resultFilename(self, result, confirmed=False):
     address = ''
     if result.__class__.__name__ == 'HtmlTestResult' or result.__class__.__name__ == 'HttpTestResult':
       address = DataHandler.safeFilename(result.site[7:])
@@ -641,7 +646,9 @@ class DataHandler:
       raise Exception, 'This doesn\'t seems to be a result instance.'
 
     rdir = self.data_dir+result.proto.lower()+'/'
-    if result.false_positive:
+    if confirmed:
+      rdir += 'confirmed/'
+    elif result.false_positive:
       rdir += 'falsepositive/'
     elif result.from_rescan:
       rdir += 'rescan/'
@@ -654,9 +661,9 @@ class DataHandler:
 
     return DataHandler.uniqueFilename(str((rdir+address+'.'+result.exit_node[1:]+".result").decode('ascii', 'ignore')))
 
-  def saveResult(self, result):
+  def saveResult(self, result, confirmed=False):
     ''' generic method for saving test results '''
-    result.filename = self.__resultFilename(result)
+    result.filename = self.__resultFilename(result, confirmed)
     SnakePickler.dump(result, result.filename)
 
   def __testFilename(self, test, position=-1):

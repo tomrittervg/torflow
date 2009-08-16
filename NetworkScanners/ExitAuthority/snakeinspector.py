@@ -53,10 +53,10 @@ def usage(argv):
 
 def getargs(argv):
   try:
-    opts,args = getopt.getopt(argv[1:],"d:f:e:r:vt:p:s:o:n:a:b:Fm", 
-             ["dir=", "file=", "exit=", "reason=", "resultfilter=", "proto=", 
+    opts,args = getopt.getopt(argv[1:],"d:f:e:r:vt:p:s:o:n:a:b:Fmc",
+             ["dir=", "file=", "exit=", "reason=", "resultfilter=", "proto=",
               "verbose", "statuscode=", "sortby=", "noreason=", "after=",
-              "before=", "falsepositives", "email"])
+              "before=", "falsepositives", "email", "confirmed"])
   except getopt.GetoptError,err:
     print str(err)
     usage(argv)
@@ -75,6 +75,7 @@ def getargs(argv):
   sortby="proto"
   falsepositives=False
   send_email = False
+  confirmed = False
   for o,a in opts:
     if o == '-d' or o == '--dir':
       use_dir = a
@@ -98,6 +99,8 @@ def getargs(argv):
       proto = a
     elif o == '-F' or o == '--falsepositives':
       falsepositives = True
+    elif o == '-c' or o == '--confirmed':
+      confirmed = True
     elif o == '-s' or o == '--sortby': 
       if a not in ["proto", "site", "exit", "reason"]:
         usage(argv)
@@ -107,7 +110,7 @@ def getargs(argv):
         result = int(a)
       except ValueError:
         result = RESULT_CODES[a]
-  return use_dir,use_file,node,reasons,noreasons,result,verbose,resultfilter,proto,sortby,before,after,falsepositives,send_email
+  return use_dir,use_file,node,reasons,noreasons,result,verbose,resultfilter,proto,sortby,before,after,falsepositives,send_email,confirmed
 
 def send_mail(fro, to, subject, text, server, files=[]):
   assert type(to)==list
@@ -136,7 +139,7 @@ def send_mail(fro, to, subject, text, server, files=[]):
 
 def main(argv):
   now = time.time()
-  use_dir,use_file,node,reasons,noreasons,result,verbose,resultfilter,proto,sortby,before,after,falsepositives,send_email=getargs(argv)
+  use_dir,use_file,node,reasons,noreasons,result,verbose,resultfilter,proto,sortby,before,after,falsepositives,send_email,confirmed=getargs(argv)
   dh = DataHandler(use_dir)
 
   if use_file:
@@ -161,6 +164,7 @@ def main(argv):
     if reasons and r.reason not in reasons: continue
     if r.timestamp < after or before < r.timestamp: continue
     if (falsepositives) ^ r.false_positive: continue
+    if confirmed != r.confirmed: continue
     if (not result or r.status == result) and \
        (not proto or r.proto == proto) and \
        (not resultfilter or r.__class__.__name__ == resultfilter):

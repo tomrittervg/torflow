@@ -489,8 +489,9 @@ class Test:
         self.remove_target(address, failtype)
 
   def remove_false_positives(self):
-    if self.rescan_nodes: 
+    if self.rescan_nodes:
       plog("INFO", "Not removing false positives for rescan of "+self.__class__.__name__)
+      return
     else:
       plog("INFO", "Removing false positives for "+self.__class__.__name__)
     self._remove_false_positive_type(self.exit_fails,
@@ -502,6 +503,10 @@ class Test:
     self._remove_false_positive_type(self.connect_fails,
                                      FALSEPOSITIVE_DEADSITE,
                                      max_connect_fail_pct)
+    for r in self.results:
+      if not r.false_positive and r.status == TEST_FAILURE:
+        r.confirmed=True
+        datahandler.saveResult(r, confirmed=True)
 
   def _reset(self):
     self.results = []
