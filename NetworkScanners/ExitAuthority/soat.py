@@ -2604,7 +2604,7 @@ def main(argv):
     print ''
     return
 
-  opts = ['ssl','rescan', 'pernode=', 'resume', 'html','http','ssh','smtp','pop','imap','dns','dnsrebind','policies','exit=']
+  opts = ['ssl','rescan', 'pernode=', 'resume=', 'html','http','ssh','smtp','pop','imap','dns','dnsrebind','policies','exit=']
   flags, trailer = getopt.getopt(argv[1:], [], opts)
   
   # get specific test types
@@ -2679,7 +2679,7 @@ def main(argv):
   tests = {}
 
   if do_resume:
-    plog("NOTICE", "Resuming previous SoaT run")
+    plog("NOTICE", "Resuming previous SoaT run #"+str(resume_run))
     if do_ssl:
       tests["SSL"] = datahandler.loadTest("SSLTest", resume_run)
 
