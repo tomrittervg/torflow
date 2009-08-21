@@ -86,9 +86,9 @@ The new user should have write access to your bwscan dir from step 4.
 7. Spot-check ./run_scan.sh
 
 This is the script that will launch the scanners. By default, it
-launches four in parallel, and expects the git checkout of the
-rs-format-fix branch to be in ../../../tor.git/, and the SQLAlchemy
-extraction to be in ../../../SQLAlchemy-0.5.5
+launches four in parallel, and expects the git checkout to be in 
+../../../tor.git/, and the SQLAlchemy extraction to be in 
+../../../SQLAlchemy-0.5.5
 
 Again, note that this is the same directory that contains the
 torflow checkout directory.

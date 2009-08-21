@@ -11,11 +11,16 @@ PYTHONPATH=../../../SQLAlchemy-0.5.5/lib:../../../Elixir-0.6.1/
 
 killall bwauthority.py
 
+KILLED_TOR=false
+
 for i in data/scanner.*
 do
   if [ -f "$i/tor.pid" ]; then
     PID=`cat $i/tor.pid`
     kill $PID
+    if [ $? -eq 0 ]; then
+      KILLED_TOR=true
+    fi
   fi
 done
 
@@ -36,7 +41,14 @@ $TOR_EXE -f ./data/scanner.4/torrc &
 
 # If this is a fresh start, we should allow the tors time to download
 # new descriptors.
-sleep 60
+if [ $KILLED_TOR ]; then
+  echo "Waiting for 60 seconds to refresh tors..."
+  sleep 60
+else
+  echo "We did not kill any Tor processes from any previous runs.. Waiting for
+5 min to fetch full consensus.."
+  sleep 300
+fi
 
 export PYTHONPATH
 
