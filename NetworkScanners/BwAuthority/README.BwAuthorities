@@ -20,6 +20,9 @@ to be.  You will not need the 10Mbit continuously, but it should be
 available on demand, as some of the faster nodes actually do have this
 much slack capacity.
 
+You can test your capacity by hitting the current test server directly:
+# wget --no-check-certificate https://38.229.70.2/64M
+
 The machine will require around 4-5Gbytes/day.
 
 
