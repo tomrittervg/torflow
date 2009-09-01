@@ -75,6 +75,13 @@ from soat_config import *
 
 # XXX: Handle wedged tor streams a-la bwauthority
 
+# TODO:
+# < armadev> mikeperry: something to put on the badnode-detector todo
+#   list: make sure that each relay can extend to most other relays.
+#   e.g. if a relay can only extend to relays running on ports 80
+#   and 443, then it's a bad relay.
+
+
 search_cookies=None
 scanhdlr=None
 datahandler=None
@@ -2776,13 +2783,13 @@ def main(argv):
       for test in to_run:
         if test.finished(): continue
         current_exit = test.get_node()
-        scanhdlr.set_exit_node("$"+current_exit.idhex)
+        scanhdlr.set_exit_node("$"+current_exit_idhex)
         scanhdlr.new_exit()
         result = test.run_test()
         if result != TEST_INCONCLUSIVE: 
           test.mark_chosen(current_exit_idhex, result)
         datahandler.saveTest(test)
-        plog("INFO", test.proto+" test via "+current_exit.idhex+" has result "+str(result))
+        plog("INFO", test.proto+" test via "+current_exit_idhex+" has result "+str(result))
         plog("INFO", test.proto+" attempts: "+str(test.tests_run)+".  Completed: "+str(test.total_nodes - test.scan_nodes)+"/"+str(test.total_nodes)+" ("+str(test.percent_complete())+"%)")
      
     # Check each test for rewind 
