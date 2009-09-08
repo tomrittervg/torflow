@@ -118,6 +118,13 @@ def http_request(address):
     return 0
   except KeyboardInterrupt:
     raise KeyboardInterrupt
+  except socks.Socks5Error, e:
+    if e.value[0] == 6:
+      plog("NOTICE", "Tor timed out our SOCKS stream request.")
+    else:
+      plog('ERROR', 'An unknown HTTP error occured')
+      traceback.print_exc()
+    return 0
   except:
     plog('ERROR', 'An unknown HTTP error occured')
     traceback.print_exc()
@@ -264,8 +271,8 @@ def main(argv):
                 max_fetch_time, sleep_start, sleep_stop, slice_num,
                 min_streams, sql_file)
 
-      # XXX: Temporary for debugging memory leak..
-      TorUtil.dump_class_ref_counts(referrer_depth=1)
+      # For debugging memory leak..
+      #TorUtil.dump_class_ref_counts(referrer_depth=1)
 
       # TODO: Change pathlen to 3 and kill exit+ConserveExit restrictions
       # And record circ failure rates..
