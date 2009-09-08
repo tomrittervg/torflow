@@ -21,6 +21,7 @@ import shutil
 import threading
 import ConfigParser
 import sqlalchemy
+import sets
 
 sys.path.append("../../")
 
@@ -131,7 +132,7 @@ def http_request(address):
     return 0
 
 class BwScanHandler(ScanSupport.ScanHandler):
-  def is_count_met(self, count, position=0):
+  def is_count_met(self, count, num_streams, position=0):
     cond = threading.Condition()
     cond._finished = True # lol python haxx. Could make subclass, but why?? :)
     def notlambda(this):
@@ -152,6 +153,14 @@ class BwScanHandler(ScanSupport.ScanHandler):
             plog("DEBUG", "Exit router "+r.idhex+"="+r.nickname+" not done: "+str(r._generated[position])+", down: "+str(r.down)+", OK: "+str(this.selmgr.path_selector.exit_gen.rstr_list.r_is_ok(r))+", sorted_r: "+str(r in this.sorted_r))
             # XXX:
             #break
+        if cond._finished:
+           num_routers = len(
+                 sets.Set(this.selmgr.path_selector.entry_gen.rstr_routers
+                           + this.selmgr.path_selector.exit_gen.rstr_routers))
+           if cond._num_streams < (2*num_routers*count)/3:
+             plog("WARN", "Not enough streams yet. "+str(num_streams)+" < "+
+                        str(2*num_routers*count/3))
+             cond._finished = False
       cond.notify()
       cond.release()
     cond.acquire()
@@ -170,7 +179,7 @@ def speedrace(hdlr, start_pct, stop_pct, circs_per_node, save_every, out_dir,
   # XXX: Also run for at least 2*circs_per_node*nodes/3 successful fetches
   # to ensure we don't skip slices in the case of temporary network failure
   while True:
-    if hdlr.is_count_met(circs_per_node): break
+    if hdlr.is_count_met(circs_per_node, successful): break
     hdlr.wait_for_consensus()
 
     # Check local time. Do not scan between 01:30 and 05:30 local time
@@ -199,7 +208,7 @@ def speedrace(hdlr, start_pct, stop_pct, circs_per_node, save_every, out_dir,
       plog('WARN', 'Timer exceeded limit: ' + str(delta_build) + '\n')
 
     build_exit = hdlr.get_exit_node()
-    if ret == 1:
+    if ret == 1 and build_exit:
       successful += 1
       plog('DEBUG', str(start_pct) + '-' + str(stop_pct) + '% circuit build+fetch took ' + str(delta_build) + ' for ' + str(build_exit))
     else:

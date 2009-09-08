@@ -1,11 +1,7 @@
 #!/bin/bash
 
 # This tor must have the w status line fix as well as the stream bw fix
-# Ie: 
-#      git remote add mikeperry git://git.torproject.org/~mikeperry/git/tor
-#      git fetch mikeperry
-#      git branch --track rs-format-fix7 mikeperry/rs-format-fix7
-#      git checkout rs-format-fix7
+# Ie git master or 0.2.2.x
 TOR_EXE=../../../tor.git/src/or/tor
 PYTHONPATH=../../../SQLAlchemy-0.5.5/lib:../../../Elixir-0.6.1/
 
