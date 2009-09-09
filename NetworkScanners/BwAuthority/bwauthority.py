@@ -192,6 +192,7 @@ def speedrace(hdlr, start_pct, stop_pct, circs_per_node, save_every, out_dir,
     if sleep_start <= t0 and t0 <= sleep_stop:
       plog("NOTICE", "It's bedtime. Sleeping for "+str(round((sleep_stop-t0)/3600.0,1))+"h")
       time.sleep(sleep_stop - t0)
+      t0 = time.time()
 
     hdlr.new_exit()
     attempt += 1
