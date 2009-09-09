@@ -84,7 +84,7 @@ user.
 First, start up your custom Tor with the sample torrc provided in the
 TorFlow svn root:
 
-# ~/src/tor-git/src/or/tor -f ./data/torrc &
+# ~/src/tor-git/src/or/tor -f ./data/tor/torrc &
 
 Then, start up SoaT:
 

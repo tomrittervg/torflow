@@ -2624,7 +2624,7 @@ def main(argv):
 
   opts = ['ssl','rescan', 'pernode=', 'resume=', 'html','http','ssh','smtp','pop','imap','dns','dnsrebind','policies','exit=']
   flags, trailer = getopt.getopt(argv[1:], [], opts)
-  
+
   # get specific test types
   do_resume = False
   do_rescan = ('--rescan','') in flags
@@ -2732,7 +2732,7 @@ def main(argv):
     plog("WARN", "Cannot bind to "+refetch_ip+". Ignoring refetch_ip setting.")
     refetch_ip = None
   BindingSocket.bind_to = None
- 
+
   if do_rescan:
     plog("NOTICE", "Loading rescan.")
     for test in tests.itervalues():
@@ -2741,7 +2741,7 @@ def main(argv):
   if not do_resume:
     for test in tests.itervalues():
       test.rewind()
- 
+
   if scan_exit:
     plog("NOTICE", "Scanning only "+scan_exit)
     scanhdlr.set_exit_node(scan_exit)
@@ -2764,7 +2764,7 @@ def main(argv):
     # Get as much milage out of each exit as we safely can:
     # Run a random subset of our tests in random order
     n_tests = random.choice(xrange(1,len(avail_tests)+1))
-    
+
     to_run = random.sample(avail_tests, n_tests)
 
     common_nodes = None
@@ -2797,13 +2797,13 @@ def main(argv):
         scanhdlr.set_exit_node("$"+current_exit_idhex)
         scanhdlr.new_exit()
         result = test.run_test()
-        if result != TEST_INCONCLUSIVE: 
+        if result != TEST_INCONCLUSIVE:
           test.mark_chosen(current_exit_idhex, result)
         datahandler.saveTest(test)
         plog("INFO", test.proto+" test via "+current_exit_idhex+" has result "+str(result))
         plog("INFO", test.proto+" attempts: "+str(test.tests_run)+".  Completed: "+str(test.total_nodes - test.scan_nodes)+"/"+str(test.total_nodes)+" ("+str(test.percent_complete())+"%)")
-     
-    # Check each test for rewind 
+
+    # Check each test for rewind
     for test in tests.itervalues():
       if test.finished():
         plog("NOTICE", test.proto+" test has finished all nodes.")
