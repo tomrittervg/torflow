@@ -1,6 +1,7 @@
 #!/usr/bin/python
 #
 # 2008 Aleksei Gorny, mentored by Mike Perry
+# 2009 Mike Perry
 
 '''
 Snakes on a Tor exit node scanner
@@ -47,6 +48,7 @@ import Queue
 import threading
 import atexit
 
+
 sys.path.append("../../")
 
 from libsoat import *
@@ -59,13 +61,20 @@ from TorCtl.TorCtl import Connection, EventHandler, ConsensusTracker
 import OpenSSL
 from OpenSSL import *
 
+from soat_config import *
+
 
 sys.path.append("../libs/")
-from BeautifulSoup.BeautifulSoup import SoupStrainer, Tag
+
+# Make our SocksiPy use our socket
+__origsocket = socket.socket
+socket.socket = PathSupport.SmartSocket
 from SocksiPy import socks
+socket.socket = __origsocket
+
+from BeautifulSoup.BeautifulSoup import SoupStrainer, Tag
 import Pyssh.pyssh
 
-from soat_config import *
 
 # XXX: really need to standardize on $idhex or idhex :(
 # The convention in TorCtl is that nicks have no $, and ids have $.
@@ -112,7 +121,8 @@ class BindingSocket(_origsocket):
     if BindingSocket.bind_to:
       plog("DEBUG", "Binding socket to "+BindingSocket.bind_to)
       self.bind((BindingSocket.bind_to, 0))
-socket.socket = BindingSocket 
+socket.socket = BindingSocket
+
 
 # Nice.. HTTPConnection.connect is doing DNS for us! Fix that:
 # Hrmm.. suppose we could also bind here.. but BindingSocket is 
@@ -139,8 +149,9 @@ class NoDNSHTTPHandler(urllib2.HTTPHandler):
     return self.do_open(NoDNSHTTPConnection, req)
 
 class ExitScanHandler(ScanSupport.ScanHandler):
-  def __init__(self, c, selmgr):
-    ScanSupport.ScanHandler.__init__(self, c, selmgr)
+  def __init__(self, c, selmgr, strm_selector):
+    ScanSupport.ScanHandler.__init__(self, c, selmgr,
+                                     strm_selector=strm_selector)
     self.rlock = threading.Lock()
     self.new_nodes=True
 
@@ -1014,6 +1025,7 @@ class HTTPTest(SearchBasedTest):
     psha1sum = sha.sha(pcontent)
 
     # reset the connection to direct
+    PathSupport.SmartSocket.clear_port_table()
     socket.socket = defaultsocket
 
     exit_node = scanhdlr.get_exit_node()
@@ -1807,6 +1819,7 @@ class SSLTest(SearchBasedTest):
     (code, cert, exc) = self.ssl_request(address)
 
     # reset the connection method back to direct
+    PathSupport.SmartSocket.clear_port_table()
     socket.socket = defaultsocket
 
     exit_node = scanhdlr.get_exit_node()
@@ -2554,10 +2567,10 @@ class NoURLsFound(Exception):
   pass
 
 
-def cleanup(c, f):
+def cleanup(c, l, f):
   plog("INFO", "Resetting __LeaveStreamsUnattached=0 and FetchUselessDescriptors="+f)
   try:
-    c.set_option("__LeaveStreamsUnattached", "0")
+    c.set_option("__LeaveStreamsUnattached", l)
     c.set_option("FetchUselessDescriptors", f)
   except TorCtl.TorCtlClosed:
     pass
@@ -2569,8 +2582,8 @@ def setup_handler(out_dir, cookie_file):
   c = PathSupport.Connection(s)
   c.debug(file(out_dir+"/control.log", "w", buffering=0))
   c.authenticate_cookie(file(cookie_file, "r"))
-  #f = c.get_option("__LeaveStreamsUnattached")[0]
-  h = ExitScanHandler(c, __selmgr)
+  l = c.get_option("__LeaveStreamsUnattached")[0]
+  h = ExitScanHandler(c, __selmgr, PathSupport.SmartSocket.StreamSelector)
 
   c.set_event_handler(h)
   #c.set_periodic_timer(2.0, "PULSE")
@@ -2585,7 +2598,7 @@ def setup_handler(out_dir, cookie_file):
   c.set_option("__LeaveStreamsUnattached", "1")
   f = c.get_option("FetchUselessDescriptors")[0][1]
   c.set_option("FetchUselessDescriptors", "1")
-  atexit.register(cleanup, *(c, f))
+  atexit.register(cleanup, *(c, l, f))
   return (c,h)
 
 
