@@ -82,8 +82,6 @@ import Pyssh.pyssh
 
 # XXX: Handle connectivity failures more gracefully..
 
-# XXX: Handle wedged tor streams a-la bwauthority
-
 # TODO:
 # < armadev> mikeperry: something to put on the badnode-detector todo
 #   list: make sure that each relay can extend to most other relays.
@@ -1636,7 +1634,7 @@ class HTMLTest(HTTPTest):
     exit_content_file = open(DataHandler.uniqueFilename(failed_prefix+'.'+exit_node[1:]+'.dyn-content'),'w')
     exit_content_file.write(tor_html)
     exit_content_file.close()
- 
+
     if os.path.exists(content_prefix+".jsdiff"):
       jsdiff_file = content_prefix+".jsdiff"
     else: jsdiff_file = None
@@ -1651,7 +1649,7 @@ class HTMLTest(HTTPTest):
                             soupdiff_file, jsdiff_file)
     self.register_dynamic_failure(result)
     return TEST_FAILURE
-    
+
 
 class SSLTest(SearchBasedTest):
   def __init__(self, wordlist):
@@ -1663,12 +1661,12 @@ class SSLTest(SearchBasedTest):
     return self.check_openssl(random.choice(self.targets))
 
   def get_targets(self):
-    return self.get_search_urls('https', self.test_hosts, True, search_mode=google_search_mode) 
+    return self.get_search_urls('https', self.test_hosts, True, search_mode=google_search_mode)
 
   def ssl_request(self, address):
     ''' initiate an ssl connection and return the server certificate '''
     address=str(address) # Unicode hostnames not supported..
-     
+
     # specify the context
     ctx = SSL.Context(SSL.TLSv1_METHOD)
     ctx.set_timeout(int(read_timeout))
@@ -1702,7 +1700,7 @@ class SSLTest(SearchBasedTest):
       raise KeyboardInterrupt
     except OpenSSL.crypto.Error, e:
       traceback.print_exc()
-      return (-23.0, None, e.__class__.__name__+str(e)) 
+      return (-23.0, None, e.__class__.__name__+str(e))
     except Exception, e:
       plog('WARN', 'An unknown SSL error occured for '+address+': '+str(e))
       traceback.print_exc()
@@ -1764,7 +1762,7 @@ class SSLTest(SearchBasedTest):
         break
       except socket.gaierror:
         plog("NOTICE", "Local resolution failure #"+str(attempt)+" for "+address)
-       
+
     for res in resolved:
       if res[0] == socket.AF_INET and res[2] == socket.IPPROTO_TCP:
         check_ips.append(res[4][0])
@@ -1825,7 +1823,7 @@ class SSLTest(SearchBasedTest):
     exit_node = scanhdlr.get_exit_node()
     if not exit_node:
       plog('NOTICE', 'We had no exit node to test, skipping to the next test.')
-      result = SSLTestResult(None, 
+      result = SSLTestResult(None,
                               address, ssl_file_name, TEST_INCONCLUSIVE,
                               INCONCLUSIVE_NOEXIT)
       if self.rescan_nodes: result.from_rescan = True
@@ -1867,7 +1865,7 @@ class SSLTest(SearchBasedTest):
           self.extra_info=exc
           self.register_exit_failure(result)
           return TEST_FAILURE
-        elif code == -23: 
+        elif code == -23:
           fail_reason = FAILURE_CRYPTOERROR
           result = SSLTestResult(self.node_map[exit_node[1:]],
                        address, ssl_file_name, TEST_FAILURE, fail_reason)
@@ -1879,8 +1877,8 @@ class SSLTest(SearchBasedTest):
       else:
           fail_reason = FAILURE_MISCEXCEPTION
 
-      result = SSLTestResult(self.node_map[exit_node[1:]], 
-                             address, ssl_file_name, TEST_FAILURE, fail_reason) 
+      result = SSLTestResult(self.node_map[exit_node[1:]],
+                             address, ssl_file_name, TEST_FAILURE, fail_reason)
       result.extra_info = exc
       self.register_connect_failure(result)
       return TEST_FAILURE
