@@ -2,8 +2,9 @@
 SocksPort 9110 # what port to advertise for application connections
 ControlPort 9111
 SafeLogging 0
-Log notice file ./data/scanner.1/tor.log
-DataDirectory ./data/scanner.1/tor-data
-PidFile ./data/scanner.1/tor.pid
+Log notice file ./data/tor/tor.log
+DataDirectory ./data/tor
+PidFile ./data/tor/tor.pid
 CookieAuthentication 1
 FetchUselessDescriptors 1
+__LeaveStreamsUnattached 1

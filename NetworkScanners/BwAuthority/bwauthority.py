@@ -34,7 +34,11 @@ from TorCtl.TorUtil import plog
 from TorCtl import ScanSupport,PathSupport,SQLSupport,TorCtl,TorUtil
 
 sys.path.append("../libs")
+# Make our SocksiPy use our socket
+__origsocket = socket.socket
+socket.socket = PathSupport.SmartSocket
 from SocksiPy import socks
+socket.socket = __origsocket
 
 user_agent = "Mozilla/4.0 (compatible; MSIE 6.0; Windows NT 5.1; .NET CLR 1.0.3705; .NET CLR 1.1.4322)"
 
@@ -153,6 +157,8 @@ class BwScanHandler(ScanSupport.ScanHandler):
             plog("DEBUG", "Exit router "+r.idhex+"="+r.nickname+" not done: "+str(r._generated[position])+", down: "+str(r.down)+", OK: "+str(this.selmgr.path_selector.exit_gen.rstr_list.r_is_ok(r))+", sorted_r: "+str(r in this.sorted_r))
             # XXX:
             #break
+        # Also run for at least 2*circs_per_node*nodes/3 successful fetches to
+        # ensure we don't skip slices in the case of temporary network failure
         if cond._finished:
            num_routers = len(
                  sets.Set(this.selmgr.path_selector.entry_gen.rstr_routers
@@ -178,8 +184,6 @@ def speedrace(hdlr, start_pct, stop_pct, circs_per_node, save_every, out_dir,
 
   attempt = 0
   successful = 0
-  # XXX: Also run for at least 2*circs_per_node*nodes/3 successful fetches
-  # to ensure we don't skip slices in the case of temporary network failure
   while True:
     if hdlr.is_count_met(circs_per_node, successful): break
     hdlr.wait_for_consensus()
@@ -196,7 +200,7 @@ def speedrace(hdlr, start_pct, stop_pct, circs_per_node, save_every, out_dir,
 
     hdlr.new_exit()
     attempt += 1
-    
+
     # FIXME: This noise is due to a difficult to find Tor bug that
     # causes some exits to hang forever on streams :(
     timer = threading.Timer(max_fetch_time, lambda: hdlr.close_streams(7))
@@ -205,6 +209,7 @@ def speedrace(hdlr, start_pct, stop_pct, circs_per_node, save_every, out_dir,
     plog("DEBUG", "Launching stream request for url "+url+" in "+str(start_pct)+'-'+str(stop_pct) + '%')
     ret = http_request(url)
     timer.cancel()
+    PathSupport.SmartSocket.clear_port_table()
 
     delta_build = time.time() - t0
     if delta_build >= max_fetch_time:
@@ -298,6 +303,7 @@ def main(argv):
 def cleanup(c, f):
   plog("INFO", "Resetting __LeaveStreamsUnattached=0 and FetchUselessDescriptors="+f)
   try:
+    # XXX: Remember __LeaveStreamsUnattached and use saved value!
     c.set_option("__LeaveStreamsUnattached", "0")
     c.set_option("FetchUselessDescriptors", f)
   except TorCtl.TorCtlClosed:
@@ -311,7 +317,8 @@ def setup_handler(out_dir, cookie_file):
   c.debug(file(out_dir+"/control.log", "w", buffering=0))
   c.authenticate_cookie(file(cookie_file, "r"))
   #f = c.get_option("__LeaveStreamsUnattached")[0]
-  h = BwScanHandler(c, __selmgr)
+  h = BwScanHandler(c, __selmgr,
+                    strm_selector=PathSupport.SmartSocket.StreamSelector)
 
   c.set_event_handler(h)
   #c.set_periodic_timer(2.0, "PULSE")

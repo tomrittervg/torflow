@@ -9,16 +9,13 @@ killall bwauthority.py
 
 KILLED_TOR=false
 
-for i in data/scanner.*
-do
-  if [ -f "$i/tor.pid" ]; then
-    PID=`cat $i/tor.pid`
-    kill $PID
-    if [ $? -eq 0 ]; then
-      KILLED_TOR=true
-    fi
+if [ -f "./data/tor/tor.pid" ]; then
+  PID=`cat ./data/tor/tor.pid`
+  kill $PID
+  if [ $? -eq 0 ]; then
+    KILLED_TOR=true
   fi
-done
+fi
 
 sleep 5
 
@@ -30,10 +27,9 @@ do
   #rm $i/scan-data/*
 done
 
-$TOR_EXE -f ./data/scanner.1/torrc & 
-$TOR_EXE -f ./data/scanner.2/torrc & 
-$TOR_EXE -f ./data/scanner.3/torrc & 
-$TOR_EXE -f ./data/scanner.4/torrc & 
+rm -f ./data/tor/tor.log
+
+$TOR_EXE -f ./data/tor/torrc &
 
 # If this is a fresh start, we should allow the tors time to download
 # new descriptors.
