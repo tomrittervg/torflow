@@ -157,9 +157,11 @@ class BwScanHandler(ScanSupport.ScanHandler):
            num_routers = len(
                  sets.Set(this.selmgr.path_selector.entry_gen.rstr_routers
                            + this.selmgr.path_selector.exit_gen.rstr_routers))
-           if cond._num_streams < (2*num_routers*count)/3:
+           # If more than 35% of the 2-hop paths failed, keep going to get
+           # more measurements
+           if num_streams < 0.65*((num_routers*count)/2.0):
              plog("WARN", "Not enough streams yet. "+str(num_streams)+" < "+
-                        str(2*num_routers*count/3))
+                        str(0.65*(num_routers*count/2.0)))
              cond._finished = False
       cond.notify()
       cond.release()
