@@ -15,12 +15,30 @@ bw_files = []
 timestamps = {}
 nodes = {}
 prev_consensus = {}
-ALPHA = 0.3333 # Prev consensus values count for 1/3 of the avg 
+
+# ALPHA is the parameter that measures how much previous consensus 
+# values count for. With a high BETA value, this should be higher
+# to avoid quick changes. But with 0 BETA, it is probably best to
+# also leave it 0.
+ALPHA = 0 
+
+# BETA is the parameter that governs the proportion that we use previous 
+# consensus values in creating new bandwitdhs versus descriptor values.
+# 1.0 -> all consensus, 0 -> all descriptor
+# FIXME: We might want to consider basing this on the percentage of routers
+# that have upgraded to 0.2.1.19+ but intuition suggests this may not be
+# necessary since the descriptors values should rise as more traffic
+# is directed at nodes. Also, there are cases where our updates may
+# not cause node traffic to quickly relocate, such as Guard-only nodes.
+BETA = 0
+
+NODE_CAP = 0.05
+
 MIN_REPORT = 60 # Percent of the network we must measure before reporting
 # Keep most measurements in consideration. The code below chooses
 # the most recent one. 15 days is just to stop us from choking up 
 # all the CPU once these things run for a year or so.
-MAX_AGE = 60*60*24*15 
+MAX_AGE = 60*60*24*15
 
 def base10_round(bw_val):
   # This keeps the first 3 decimal digits of the bw value only
@@ -47,6 +65,7 @@ class NodeData:
     self.strm_bw = []
     self.filt_bw = []
     self.ns_bw = []
+    self.desc_bw = []
     self.timestamp = timestamp
 
 class Node:
@@ -65,6 +84,7 @@ class Node:
     self.strm_bw = []
     self.filt_bw = []
     self.ns_bw = []
+    self.desc_bw = []
     self.timestamps = []
 
   def add_line(self, line):
@@ -82,16 +102,19 @@ class Node:
     nd.strm_bw.append(line.strm_bw)
     nd.filt_bw.append(line.filt_bw)
     nd.ns_bw.append(line.ns_bw)
+    nd.desc_bw.append(line.desc_bw)
 
     self.strm_bw = []
     self.filt_bw = []
     self.ns_bw = []
+    self.desc_bw = []
     self.timestamps = []
 
     for nd in self.node_data.itervalues():
       self.strm_bw.extend(nd.strm_bw)
       self.filt_bw.extend(nd.filt_bw)
       self.ns_bw.extend(nd.ns_bw)
+      self.desc_bw.extend(nd.desc_bw)
       for i in xrange(len(nd.ns_bw)):
         self.timestamps.append(nd.timestamp)
 
@@ -103,6 +126,9 @@ class Node:
 
   def avg_ns_bw(self):
     return sum(self.ns_bw)/float(len(self.ns_bw))
+
+  def avg_desc_bw(self):
+    return sum(self.desc_bw)/float(len(self.desc_bw))
 
   # This can be bad for bootstrapping or highly bw-variant nodes... 
   # we will choose an old measurement in that case.. We need
@@ -119,7 +145,7 @@ class Node:
 
   # Simply return the most recent one instead of this
   # closest-to-one stuff
-  def choose_filt_bw(self, new_avg):
+  def choose_filt_bw(self, net_avg):
     max_idx = 0
     for i in xrange(len(self.timestamps)):
       if self.timestamps[i] > self.timestamps[max_idx]:
@@ -127,7 +153,7 @@ class Node:
     self.chosen_fbw = max_idx
     return self.chosen_fbw
 
-  def choose_strm_bw(self, new_avg):
+  def choose_strm_bw(self, net_avg):
     max_idx = 0
     for i in xrange(len(self.timestamps)):
       if self.timestamps[i] > self.timestamps[max_idx]:
@@ -142,6 +168,7 @@ class Line:
     self.strm_bw = int(re.search("[\s]*strm_bw=([\S]+)[\s]*", line).group(1))
     self.filt_bw = int(re.search("[\s]*filt_bw=([\S]+)[\s]*", line).group(1))
     self.ns_bw = int(re.search("[\s]*ns_bw=([\S]+)[\s]*", line).group(1))
+    self.desc_bw = int(re.search("[\s]*desc_bw=([\S]+)[\s]*", line).group(1))
     self.slice_file = slice_file
     self.timestamp = timestamp
 
@@ -197,7 +224,6 @@ def main(argv):
           for sr, sd, files in os.walk(da+"/"+ds+"/scan-data"):
             for f in files:
               if re.search("^bws-[\S]+-done-", f):
-                found_done = True
                 fp = file(sr+"/"+f, "r")
                 slicenum = sr+"/"+fp.readline()
                 timestamp = float(fp.readline())
@@ -263,26 +289,39 @@ def main(argv):
   plog("INFO", "Network true_strm_avg: "+str(true_strm_avg))
   plog("INFO", "Network true_filt_avg: "+str(true_filt_avg))
 
+  tot_net_bw = 0
   for n in nodes.itervalues():
     n.fbw_ratio = n.filt_bw[n.chosen_fbw]/true_filt_avg
     n.sbw_ratio = n.strm_bw[n.chosen_sbw]/true_strm_avg
+    chosen_bw_idx = 0
     if n.sbw_ratio > n.fbw_ratio:
       n.ratio = n.sbw_ratio
-      n.new_bw = n.ns_bw[n.chosen_sbw]*n.ratio
-      n.chosen_time = n.timestamps[n.chosen_sbw]
-      n.change = 0 - n.ns_bw[n.chosen_sbw]
+      chosen_bw_idx = n.chosen_sbw
     else:
       n.ratio = n.fbw_ratio
-      n.new_bw = n.ns_bw[n.chosen_fbw]*n.ratio
-      n.chosen_time = n.timestamps[n.chosen_fbw]
-      n.change = 0 - n.ns_bw[n.chosen_fbw]
+      chosen_bw_idx = n.chosen_fbw
+
+    n.chosen_time = n.timestamps[chosen_bw_idx]
+
+    # Use the consensus value at the time of measurement from the 
+    # Node class
+    use_bw = BETA*n.ns_bw[chosen_bw_idx]+(1.0-BETA)*n.desc_bw[chosen_bw_idx]
+    n.new_bw = use_bw*((ALPHA + n.ratio)/(ALPHA + 1.0))
+    n.change = n.new_bw - n.ns_bw[chosen_bw_idx]
+
     if n.idhex in prev_consensus and prev_consensus[n.idhex].bandwidth != None:
       prev_consensus[n.idhex].measured = True
-      # XXX: Maybe we should base this on the consensus value
-      # at the time of measurement from the Node class.
-      n.new_bw = ((prev_consensus[n.idhex].bandwidth*ALPHA + n.new_bw)/(ALPHA + 1))
-    n.change += n.new_bw
+      tot_net_bw += n.new_bw
+  
+  # Go through the list and cap them to NODE_CAP
+  for n in nodes.itervalues():
+    if n.new_bw > tot_net_bw*NODE_CAP:
+      plog("NOTICE", "Clipping extremely fast node "+n.idhex+"="+n.nick+
+           " at "+str(100*NODE_CAP)+"% of network capacity ("
+           +str(n.new_bw)+"->"+str(int(tot_net_bw*NODE_CAP))+")")
+      n.new_bw = int(tot_net_bw*NODE_CAP)
 
+  # WTF is going on here?
   oldest_timestamp = min(map(lambda n: n.chosen_time,
              filter(lambda n: n.idhex in prev_consensus,
                        nodes.itervalues())))

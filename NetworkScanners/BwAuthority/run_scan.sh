@@ -39,7 +39,7 @@ if [ $KILLED_TOR ]; then
 else
   echo "We did not kill any Tor processes from any previous runs.. Waiting for
 5 min to fetch full consensus.."
-  sleep 300
+  sleep 500
 fi
 
 export PYTHONPATH
