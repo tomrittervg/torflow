@@ -79,7 +79,7 @@ You will need to run the scanning scripts as a separate user. That's
 because the scripts run commands like 'killall tor' and expect it not
 to affect any other tor processes.
 
-The new user should have write access to your bwscan dir from step 4.
+The new user should have write access to your bwscan dir from step 5.
 
 # useradd bwscanner
 # chown toruser:bwscanner /var/lib/tor.scans/
