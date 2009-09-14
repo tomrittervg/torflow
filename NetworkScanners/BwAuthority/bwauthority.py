@@ -135,7 +135,7 @@ def http_request(address):
     traceback.print_exc()
     return 0
 
-class BwScanHandler(ScanSupport.ScanHandler):
+class BwScanHandler(ScanSupport.SQLScanHandler):
   def is_count_met(self, count, num_streams, position=0):
     cond = threading.Condition()
     cond._finished = True # lol python haxx. Could make subclass, but why?? :)
