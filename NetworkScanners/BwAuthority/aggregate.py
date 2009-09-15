@@ -180,7 +180,7 @@ def main(argv):
   s.connect((TorUtil.control_host,TorUtil.control_port))
   c = TorCtl.Connection(s)
   c.debug(file(argv[1]+"/aggregate-control.log", "w", buffering=0))
-  c.authenticate_cookie(file(argv[1]+"/scanner.1/tor-data/control_auth_cookie",
+  c.authenticate_cookie(file(argv[1]+"/tor/control_auth_cookie",
                          "r"))
 
   ns_list = c.get_network_status()
