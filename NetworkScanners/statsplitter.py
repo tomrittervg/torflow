@@ -113,8 +113,10 @@ def check_entropy(rlist, clipping_point):
   exits = 0
   nodes = 0
   bw = 0.0
+  desc_bw = 0.0
   exit_bw = 0.0
   pure_entropy = 0.0
+  desc_entropy = 0.0
   clipped_entropy = 0.0
   uniform_entropy = 0.0
 
@@ -136,6 +138,7 @@ def check_entropy(rlist, clipping_point):
       clipped_bw += r.bw
     nodes += 1
     bw += r.bw
+    desc_bw += r.desc_bw
     if exit_rst.r_is_ok(r):
       exits += 1
       exit_bw += r.bw
@@ -150,6 +153,7 @@ def check_entropy(rlist, clipping_point):
     if r.bw < 2:
       continue
     pure_entropy += (r.bw/bw)*math.log(r.bw/bw, 2)
+    desc_entropy += (r.desc_bw/desc_bw)*math.log(r.desc_bw/desc_bw, 2)
     uniform_entropy += (1.0/nodes)*math.log(1.0/nodes, 2)
     gbw = r.bw
     mbw = r.bw
@@ -168,19 +172,20 @@ def check_entropy(rlist, clipping_point):
     if ebw/tebw > 0: exit_entropy += (ebw/tebw)*math.log(ebw/tebw, 2)
   
     rbw = 0
-    if r.bw > clipping_point:
+    if r.desc_bw > clipping_point:
       rbw = clipping_point
     else:
-      rbw = r.bw
+      rbw = r.desc_bw
     clipped_entropy += (rbw/clipped_bw)*math.log(rbw/clipped_bw, 2)
   
   print "Uniform entropy: " + str(-uniform_entropy)
-  print "Raw entropy: " + str(-pure_entropy)
-  print "Clipped entropy: " + str(-clipped_entropy)
+  print "Consensus entropy: " + str(-pure_entropy)
+  print "Raw Descriptor entropy: " + str(-desc_entropy)
+  print "Clipped Descriptor entropy: " + str(-clipped_entropy)
 
-  print "Guard entropy: " + str(-guard_entropy)
-  print "Middle entropy: " + str(-mid_entropy)
-  print "Exit entropy: " + str(-exit_entropy)
+  print "Consensus Guard entropy: " + str(-guard_entropy)
+  print "Consensus Middle entropy: " + str(-mid_entropy)
+  print "Consensus Exit entropy: " + str(-exit_entropy)
 
   print "Nodes: "+str(nodes)+", Exits: "+str(exits)+" Total bw: "+str(round(bw/(1024.0*1024),2))+", Exit Bw: "+str(round(exit_bw/(1024.0*1024),2))
   print "Clipped: "+str(clipped)+", bw: "+str(round(clipped_bw/(1024.0*1024),2))
