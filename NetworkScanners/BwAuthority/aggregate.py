@@ -71,6 +71,7 @@ class NodeData:
 class Node:
   def __init__(self):
     self.node_data = {}
+    self.ignore = False
     self.idhex = None
     self.nick = None
     self.chosen_time = None
@@ -309,10 +310,14 @@ def main(argv):
     n.new_bw = use_bw*((ALPHA + n.ratio)/(ALPHA + 1.0))
     n.change = n.new_bw - n.ns_bw[chosen_bw_idx]
 
-    if n.idhex in prev_consensus and prev_consensus[n.idhex].bandwidth != None:
-      prev_consensus[n.idhex].measured = True
-      tot_net_bw += n.new_bw
-  
+    if n.idhex in prev_consensus:
+      if prev_consensus[n.idhex].bandwidth != None:
+        prev_consensus[n.idhex].measured = True
+        tot_net_bw += n.new_bw
+      if "Authority" in prev_consensus[n.idhex].flags:
+        plog("INFO", "Skipping voting for authority "+n.nick)
+        n.ignore = True
+ 
   # Go through the list and cap them to NODE_CAP
   for n in nodes.itervalues():
     if n.new_bw > tot_net_bw*NODE_CAP:
@@ -356,7 +361,8 @@ def main(argv):
   out = file(argv[-1], "w")
   out.write(str(int(round(min(scanner_timestamps),0)))+"\n")
   for n in n_print:
-    out.write("node_id="+n.idhex+" bw="+str(base10_round(n.new_bw))+" diff="+str(int(round(n.change/1000.0,0)))+ " nick="+n.nick+ " measured_at="+str(int(n.chosen_time))+"\n")
+    if not n.ignore:
+      out.write("node_id="+n.idhex+" bw="+str(base10_round(n.new_bw))+" diff="+str(int(round(n.change/1000.0,0)))+ " nick="+n.nick+ " measured_at="+str(int(n.chosen_time))+"\n")
   out.close()
  
 if __name__ == "__main__":
