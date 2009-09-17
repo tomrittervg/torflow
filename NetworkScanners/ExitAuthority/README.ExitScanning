@@ -16,7 +16,6 @@ II. Prerequisites
 
 Python 2.4+
 Tor 0.2.1.13 (r18556 or later)
-Super Secret SoaT Sauce
 py-openssl/pyOpenSSL
 Bonus: Secondary external IP address
 
@@ -39,15 +38,10 @@ function (including serving as a relay or a directory authority).
 
 B. Configuring SoaT
 
-To configure SoaT (and even to get it to run), you will need to obtain
-Super Secret SoaT Sauce from Mike Perry's Super Secret SoaT Sauce Stash.
-It contains the necessary pheromones you will need to enable you to
-properly hunt some motherfuckin snakes.
+To configure SoaT you will need to edit soat_config.py.
 
-Once you have the Sauce, you should copy it to soat_config.py and have a
-look at its contents. In particular, you'll want to change 'refetch_ip'
-to be set to your secondary IP address. If you don't have a secondary
-IP, set it to None.
+In particular, you'll want to change 'refetch_ip' to be set to your 
+secondary IP address. If you don't have a secondary IP, set it to None.
 
 If you're feeling ambitious, you can edit soat_config.py to change the
 set of 'scan_filetypes' and increase 'max_content_size' to something
