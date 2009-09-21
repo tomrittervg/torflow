@@ -308,7 +308,7 @@ def main(argv):
     # Node class
     use_bw = BETA*n.ns_bw[chosen_bw_idx]+(1.0-BETA)*n.desc_bw[chosen_bw_idx]
     n.new_bw = use_bw*((ALPHA + n.ratio)/(ALPHA + 1.0))
-    n.change = n.new_bw - n.ns_bw[chosen_bw_idx]
+    n.change = n.new_bw - n.desc_bw[chosen_bw_idx]
 
     if n.idhex in prev_consensus:
       if prev_consensus[n.idhex].bandwidth != None:
