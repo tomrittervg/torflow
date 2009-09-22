@@ -1,8 +1,8 @@
 #!/usr/bin/python
 #
 # Uses the binomial distribution to estimate the expected number of
-# circuit circuits before a false positive that discards all of our
-# circuits for a few different parameters.
+# circuit 20-circ groups before a false positive that discards all of our
+# 20-circ groups for a few different parameters.
 
 
 import math
@@ -27,12 +27,12 @@ sixty_pct = BinomialF(.6, 20, 15)
 seventy_pct = BinomialF(.7, 20, 15)
 
 print "15 out of 20:"
-print "20% circ timeout rate expects "+str(1.0/twenty_pct)+" circuits"
-print "30% circ timeout rate expects "+str(1.0/thirty_pct) +" circuits"
-print "40% circ timeout rate expects "+str(1.0/fourty_pct) +" circuits"
-print "50% circ timeout rate expects "+str(1.0/fifty_pct)+" circuits"
-print "60% circ timeout rate expects "+str(1.0/sixty_pct)+" circuits"
-print "70% circ timeout rate expects "+str(1.0/seventy_pct)+" circuits"
+print "20% circ timeout rate expects "+str(1.0/twenty_pct)+" 20-circ groups"
+print "30% circ timeout rate expects "+str(1.0/thirty_pct) +" 20-circ groups"
+print "40% circ timeout rate expects "+str(1.0/fourty_pct) +" 20-circ groups"
+print "50% circ timeout rate expects "+str(1.0/fifty_pct)+" 20-circ groups"
+print "60% circ timeout rate expects "+str(1.0/sixty_pct)+" 20-circ groups"
+print "70% circ timeout rate expects "+str(1.0/seventy_pct)+" 20-circ groups"
 print
 
 twenty_pct = BinomialF(.2, 20, 16)
@@ -43,12 +43,12 @@ sixty_pct = BinomialF(.6, 20, 16)
 seventy_pct = BinomialF(.7, 20, 16)
 
 print "16 out of 20:"
-print "20% circ timeout rate expects "+str(1.0/twenty_pct) +" circuits"
-print "30% circ timeout rate expects "+str(1.0/thirty_pct) +" circuits"
-print "40% circ timeout rate expects "+str(1.0/fourty_pct) +" circuits"
-print "50% circ timeout rate expects "+str(1.0/fifty_pct)+" circuits"
-print "60% circ timeout rate expects "+str(1.0/sixty_pct)+" circuits"
-print "70% circ timeout rate expects "+str(1.0/seventy_pct)+" circuits"
+print "20% circ timeout rate expects "+str(1.0/twenty_pct) +" 20-circ groups"
+print "30% circ timeout rate expects "+str(1.0/thirty_pct) +" 20-circ groups"
+print "40% circ timeout rate expects "+str(1.0/fourty_pct) +" 20-circ groups"
+print "50% circ timeout rate expects "+str(1.0/fifty_pct)+" 20-circ groups"
+print "60% circ timeout rate expects "+str(1.0/sixty_pct)+" 20-circ groups"
+print "70% circ timeout rate expects "+str(1.0/seventy_pct)+" 20-circ groups"
 print
 
 twenty_pct = BinomialF(.2, 20, 18)
@@ -59,10 +59,10 @@ sixty_pct = BinomialF(.6, 20, 18)
 seventy_pct = BinomialF(.7, 20, 18)
 
 print "18 out of 20:"
-print "20% circ timeout rate expects "+str(1.0/twenty_pct)+" circuits"
-print "30% circ timeout rate expects "+str(1.0/thirty_pct) +" circuits"
-print "40% circ timeout rate expects "+str(1.0/fourty_pct) +" circuits"
-print "50% circ timeout rate expects "+str(1.0/fifty_pct)+" circuits"
-print "60% circ timeout rate expects "+str(1.0/sixty_pct)+" circuits"
-print "70% circ timeout rate expects "+str(1.0/seventy_pct)+" circuits"
+print "20% circ timeout rate expects "+str(1.0/twenty_pct)+" 20-circ groups"
+print "30% circ timeout rate expects "+str(1.0/thirty_pct) +" 20-circ groups"
+print "40% circ timeout rate expects "+str(1.0/fourty_pct) +" 20-circ groups"
+print "50% circ timeout rate expects "+str(1.0/fifty_pct)+" 20-circ groups"
+print "60% circ timeout rate expects "+str(1.0/sixty_pct)+" 20-circ groups"
+print "70% circ timeout rate expects "+str(1.0/seventy_pct)+" 20-circ groups"
 print
