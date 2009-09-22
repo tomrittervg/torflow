@@ -23,34 +23,46 @@ twenty_pct = BinomialF(.2, 20, 15)
 thirty_pct = BinomialF(.35, 20, 15)
 fourty_pct = BinomialF(.4, 20, 15)
 fifty_pct = BinomialF(.5, 20, 15)
+sixty_pct = BinomialF(.6, 20, 15)
+seventy_pct = BinomialF(.7, 20, 15)
 
 print "15 out of 20:"
 print "20% circ timeout rate expects "+str(1.0/twenty_pct)+" circuits"
 print "30% circ timeout rate expects "+str(1.0/thirty_pct) +" circuits"
 print "40% circ timeout rate expects "+str(1.0/fourty_pct) +" circuits"
 print "50% circ timeout rate expects "+str(1.0/fifty_pct)+" circuits"
+print "60% circ timeout rate expects "+str(1.0/sixty_pct)+" circuits"
+print "70% circ timeout rate expects "+str(1.0/seventy_pct)+" circuits"
 print
 
 twenty_pct = BinomialF(.2, 20, 16)
 thirty_pct = BinomialF(.3, 20, 16)
 fourty_pct = BinomialF(.4, 20, 16)
 fifty_pct = BinomialF(.5, 20, 16)
+sixty_pct = BinomialF(.6, 20, 16)
+seventy_pct = BinomialF(.7, 20, 16)
 
 print "16 out of 20:"
 print "20% circ timeout rate expects "+str(1.0/twenty_pct) +" circuits"
 print "30% circ timeout rate expects "+str(1.0/thirty_pct) +" circuits"
-print "40% circ timeout rate expects "+str(1.0/thirty_pct) +" circuits"
+print "40% circ timeout rate expects "+str(1.0/fourty_pct) +" circuits"
 print "50% circ timeout rate expects "+str(1.0/fifty_pct)+" circuits"
+print "60% circ timeout rate expects "+str(1.0/sixty_pct)+" circuits"
+print "70% circ timeout rate expects "+str(1.0/seventy_pct)+" circuits"
 print
 
 twenty_pct = BinomialF(.2, 20, 18)
-thirty_pct = BinomialF(.30, 20, 17)
-fourty_pct = BinomialF(.40, 20, 17)
+thirty_pct = BinomialF(.30, 20, 18)
+fourty_pct = BinomialF(.40, 20, 18)
 fifty_pct = BinomialF(.5, 20, 18)
+sixty_pct = BinomialF(.6, 20, 18)
+seventy_pct = BinomialF(.7, 20, 18)
 
 print "18 out of 20:"
 print "20% circ timeout rate expects "+str(1.0/twenty_pct)+" circuits"
 print "30% circ timeout rate expects "+str(1.0/thirty_pct) +" circuits"
 print "40% circ timeout rate expects "+str(1.0/fourty_pct) +" circuits"
 print "50% circ timeout rate expects "+str(1.0/fifty_pct)+" circuits"
+print "60% circ timeout rate expects "+str(1.0/sixty_pct)+" circuits"
+print "70% circ timeout rate expects "+str(1.0/seventy_pct)+" circuits"
 print
