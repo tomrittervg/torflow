@@ -22,8 +22,8 @@ def dump_table(Xm, alpha):
     print "\t -2*sigma: "+str(CalculateTimeout(Xm, alpha-2*sigma, .8))
     print "\t -1*sigma: "+str(CalculateTimeout(Xm, alpha-sigma, .8))
     print "\t  0*sigma: "+str(CalculateTimeout(Xm, alpha, .8))
-    print "\t +1*sigma: "+str(CalculateTimeout(Xm, alpha-1*sigma, .8))
-    print "\t +2*sigma: "+str(CalculateTimeout(Xm, alpha-2*sigma, .8))
+    print "\t +1*sigma: "+str(CalculateTimeout(Xm, alpha+1*sigma, .8))
+    print "\t +2*sigma: "+str(CalculateTimeout(Xm, alpha+2*sigma, .8))
 
 dump_table(1950, 1.4)
 print
