@@ -17,6 +17,8 @@ II. Prerequisites
 Python 2.4+
 Tor 0.2.1.13 (r18556 or later)
 py-openssl/pyOpenSSL
+python-sqlalchemy
+python-elixir
 Bonus: Secondary external IP address
 
 Having a second external IP address will allow your scanner to filter

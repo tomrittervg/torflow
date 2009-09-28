@@ -56,7 +56,7 @@ invalid exit policies and perform tests to see whether nodes are changing
 the requested content for several protocols. See the soat README for
 details:
 
-# cd NetworkScanners ; cat README.ExitScanning
+# cd NetworkScanners ; cat ExitAuthority/README.ExitScanning
 
 Important note: soat requires the pyopenssl python module to run.
 You can check if pyopenssl package is available for your distribution

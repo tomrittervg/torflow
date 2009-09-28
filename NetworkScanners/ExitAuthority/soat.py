@@ -61,7 +61,7 @@ from TorCtl.TorCtl import Connection, EventHandler, ConsensusTracker
 import OpenSSL
 from OpenSSL import *
 
-from soat_config import *
+from soat_config_real import *
 
 
 sys.path.append("../libs/")
@@ -2666,7 +2666,7 @@ def main(argv):
   try:
     global scanhdlr
     (c,scanhdlr) = setup_handler(data_dir,
-                                 data_dir+"tor-data/control_auth_cookie")
+                                 data_dir+"tor/control_auth_cookie")
   except Exception, e:
     traceback.print_exc()
     plog("WARN", "Can't connect to Tor: "+str(e))

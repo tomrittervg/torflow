@@ -19,7 +19,7 @@ from BeautifulSoup.BeautifulSoup import Tag, SoupStrainer
 
 import sets
 from sets import Set
-from soat_config import *
+from soat_config_real import *
 
 sys.path.append("../../")
 from TorCtl.TorUtil import *
