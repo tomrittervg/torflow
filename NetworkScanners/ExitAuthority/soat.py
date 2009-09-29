@@ -2580,7 +2580,7 @@ def setup_handler(out_dir, cookie_file):
   c = PathSupport.Connection(s)
   c.debug(file(out_dir+"/control.log", "w", buffering=0))
   c.authenticate_cookie(file(cookie_file, "r"))
-  l = c.get_option("__LeaveStreamsUnattached")[0]
+  l = c.get_option("__LeaveStreamsUnattached")[0][1]
   h = ExitScanHandler(c, __selmgr, PathSupport.SmartSocket.StreamSelector)
 
   c.set_event_handler(h)
