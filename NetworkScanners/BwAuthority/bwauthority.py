@@ -92,9 +92,11 @@ def read_config(filename):
   sleep_start = tuple(map(int, sleep_start.split(":")))
   sleep_stop = tuple(map(int, sleep_stop.split(":")))
 
+  pid_file = config.get('BwAuthority', 'pid_file')
+
   return (start_pct,stop_pct,nodes_per_slice,save_every,
             circs_per_node,out_dir,max_fetch_time,tor_dir,
-            sleep_start,sleep_stop,min_streams)
+            sleep_start,sleep_stop,min_streams,pid_file)
 
 def choose_url(percentile):
   for (pct, url) in urls:
@@ -258,8 +260,13 @@ def main(argv):
   TorUtil.read_config(argv[1])
   (start_pct,stop_pct,nodes_per_slice,save_every,circs_per_node,out_dir,
       max_fetch_time,tor_dir,sleep_start,sleep_stop,
-             min_streams) = read_config(argv[1])
+             min_streams,pid_file_name) = read_config(argv[1])
  
+  if pid_file_name:
+    pidfd = file(pid_file_name, 'w')
+    pidfd.write('%d\n' % os.getpid())
+    pidfd.close()
+
   try:
     (c,hdlr) = setup_handler(out_dir, tor_dir+"/control_auth_cookie")
   except Exception, e:
