@@ -35,10 +35,15 @@ BETA = 0
 NODE_CAP = 0.05
 
 MIN_REPORT = 60 # Percent of the network we must measure before reporting
+
 # Keep most measurements in consideration. The code below chooses
 # the most recent one. 15 days is just to stop us from choking up 
 # all the CPU once these things run for a year or so.
 MAX_AGE = 60*60*24*15
+
+# If the resultant scan file is older than 1.5 days, something is wrong
+MAX_SCAN_AGE = 60*60*24*1.5
+
 
 def base10_round(bw_val):
   # This keeps the first 3 decimal digits of the bw value only
@@ -234,7 +239,7 @@ def main(argv):
                 # measure hibernating routers for days.
                 # This filter is just to remove REALLY old files
                 if time.time() - timestamp > MAX_AGE:
-                  plog("INFO", "Skipping old file "+f)
+                  plog("DEBUG", "Skipping old file "+f)
                   continue
                 if timestamp > newest_timestamp:
                   newest_timestamp = timestamp
@@ -272,8 +277,8 @@ def main(argv):
   pre_filt_avg = sum(map(lambda n: n.avg_filt_bw(), nodes.itervalues()))/ \
                   float(len(nodes))
 
-  plog("INFO", "Network pre_strm_avg: "+str(pre_strm_avg))
-  plog("INFO", "Network pre_filt_avg: "+str(pre_filt_avg))
+  plog("DEBUG", "Network pre_strm_avg: "+str(pre_strm_avg))
+  plog("DEBUG", "Network pre_filt_avg: "+str(pre_filt_avg))
 
   for n in nodes.itervalues():
     n.choose_strm_bw(pre_strm_avg)
@@ -287,8 +292,8 @@ def main(argv):
   true_filt_avg = sum(map(lambda n: n.filt_bw[n.chosen_fbw],
                        nodes.itervalues()))/float(len(nodes))
 
-  plog("INFO", "Network true_strm_avg: "+str(true_strm_avg))
-  plog("INFO", "Network true_filt_avg: "+str(true_filt_avg))
+  plog("DEBUG", "Network true_strm_avg: "+str(true_strm_avg))
+  plog("DEBUG", "Network true_filt_avg: "+str(true_filt_avg))
 
   tot_net_bw = 0
   for n in nodes.itervalues():
@@ -346,20 +351,27 @@ def main(argv):
           missed_nodes += 1.0
           # We still tend to miss about 80 nodes even with these
           # checks.. Possibly going in and out of hibernation?
-          plog("INFO", "Didn't measure "+n.idhex+"="+n.nickname+" at "+str(round((100.0*n.list_rank)/max_rank,1))+" "+str(n.bandwidth))
+          plog("DEBUG", "Didn't measure "+n.idhex+"="+n.nickname+" at "+str(round((100.0*n.list_rank)/max_rank,1))+" "+str(n.bandwidth))
 
   measured_pct = round(100.0*len(nodes)/(len(nodes)+missed_nodes),1)
   if measured_pct < MIN_REPORT:
     plog("NOTICE", "Did not measure "+str(MIN_REPORT)+"% of nodes yet ("+str(measured_pct)+"%)")
     sys.exit(1)
 
-  plog("NOTICE", "Measured "+str(measured_pct)+"% of all tor nodes.")
+  plog("INFO", "Measured "+str(measured_pct)+"% of all tor nodes.")
 
   n_print = nodes.values()
   n_print.sort(lambda x,y: int(y.change) - int(x.change))
 
+  scan_age = int(round(min(scanner_timestamps),0))
+  
+  if scan_age < time.time() - MAX_SCAN_AGE:
+    plog("WARN", "Bandwidth scan stale. Possible dead bwauthority.py. Timestamp: "+time.ctime(scan_age))
+
   out = file(argv[-1], "w")
-  out.write(str(int(round(min(scanner_timestamps),0)))+"\n")
+  out.write(str(scan_age)+"\n")
+
+
   for n in n_print:
     if not n.ignore:
       out.write("node_id="+n.idhex+" bw="+str(base10_round(n.new_bw))+" diff="+str(int(round(n.change/1000.0,0)))+ " nick="+n.nick+ " measured_at="+str(int(n.chosen_time))+"\n")
