@@ -326,7 +326,7 @@ def main(argv):
   # Go through the list and cap them to NODE_CAP
   for n in nodes.itervalues():
     if n.new_bw > tot_net_bw*NODE_CAP:
-      plog("NOTICE", "Clipping extremely fast node "+n.idhex+"="+n.nick+
+      plog("INFO", "Clipping extremely fast node "+n.idhex+"="+n.nick+
            " at "+str(100*NODE_CAP)+"% of network capacity ("
            +str(n.new_bw)+"->"+str(int(tot_net_bw*NODE_CAP))+")")
       n.new_bw = int(tot_net_bw*NODE_CAP)
