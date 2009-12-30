@@ -1,0 +1,8 @@
+ControlPort 9551
+SocksPort 9550
+
+FetchUselessDescriptors 1
+DataDirectory ./tor-data/
+CookieAuthentication 1
+NewCircuitPeriod 1
+Log info file ./tor-data/tor.log
