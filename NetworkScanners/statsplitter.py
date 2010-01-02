@@ -24,6 +24,7 @@ s.connect((control_host,control_port))
 c = Connection(s)
 c.debug(file("control.log", "w"))
 c.authenticate(control_pass)
+#c.authenticate_cookie(file("/home/torperf/tor-data1/control_auth_cookie", "r"))
 FUDValue = c.get_option("FetchUselessDescriptors")[0][1]
 c.set_option("FetchUselessDescriptors", "1") 
 atexit.register(cleanup, *(c, FUDValue))
@@ -65,8 +66,14 @@ nwin_nltd = NodeRestrictionList([nbw_limit_rst, nwin_rst])
 
 super_bad = OrNodeRestriction([win_rst, nbw_limit_rst])
 
+# >= 0.2.2.2-alpha and >= 0.2.1.20
+cwind_yes = NodeRestrictionList([VersionRangeRestriction("0.2.1.20"),
+             NotNodeRestriction(VersionRangeRestriction("0.2.2.0", "0.2.2.1"))])
+       
+cwind_no = NotNodeRestriction(cwind_yes)
 
 fast_rst = FlagsRestriction(["Fast"], [])
+#exit_rst = NodeRestrictionList([cwind_yes, FlagsRestriction(["Exit"], [])])
 exit_rst = FlagsRestriction(["Exit"], [])
 dir_rst = FlagsRestriction(["V2Dir"], [])
 heavy_exits = OrNodeRestriction(
