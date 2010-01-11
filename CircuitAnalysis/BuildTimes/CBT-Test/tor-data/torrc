@@ -6,3 +6,4 @@ DataDirectory ./tor-data/
 CookieAuthentication 1
 NewCircuitPeriod 1
 Log info file ./tor-data/tor.log
+PidFile ./tor-data/tor.pid
