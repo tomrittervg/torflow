@@ -154,6 +154,7 @@ class BuildTimeoutTracker(PreEventListener):
     self.cond = cond
     self.reset()
     self.reset_total = 0
+    self.timeouts_file = file(output_dir+"/timeouts", "w")
 
   def reset(self):
     self.last_timeout = 0
@@ -165,12 +166,16 @@ class BuildTimeoutTracker(PreEventListener):
     self.strict_streak_count = 0
     self.total_times = 0
     self.cond.min_circs = 0
+    self.cond.min_timeout = 0
     self.cond.num_circs = 0
+    self.cond.num_timeout = 0
 
   def buildtimeout_set_event(self, bt_event):
     plog("INFO", "Got buildtimeout event: "+bt_event.set_type+" TOTAL_TIMES="
                  +str(bt_event.total_times)+" TIMEOUT_MS="
                  +str(bt_event.timeout_ms))
+    self.timeouts_file.write(bt_event.set_type+" "
+               +str(bt_event.total_times)+" "+str(bt_event.timeout_ms)+"\n")
 
     # Need to handle RESET events..
     # Should these count towards our totals, or should we just start
@@ -215,6 +220,7 @@ class BuildTimeoutTracker(PreEventListener):
              +" and reset count of "+str(self.reset_total))
         self.cond.min_circs = self.reset_total+self.total_times \
                                 - self.fuzzy_streak_count
+        self.cond.min_timeout = bt_event.timeout_ms
         shutil.copyfile('./tor-data/state', output_dir+"/state.min")
 
     strict_last = int(self.buildtimeout_strict.timeout_ms)
@@ -243,6 +249,7 @@ class BuildTimeoutTracker(PreEventListener):
         self.cond.acquire()
         self.cond.num_circs = self.reset_total+self.total_times-\
                                   self.strict_streak_count
+        self.cond.num_timeout = bt_event.timeout_ms
         self.cond.notify()
         self.cond.release()
 
@@ -325,8 +332,10 @@ def open_controller(filename):
   # 2. Guards used
   # 3. Failure quantile (in rerun only)
   out = file(output_dir+"/result", "w")
-  out.write("NUM_CIRCS: "+str(cond.min_circs)+"\n")
-  out.write("MIN_CIRCS: "+str(cond.num_circs)+"\n")
+  out.write("MIN_CIRCS: "+str(cond.min_circs)+"\n")
+  out.write("MIN_TIMEOUT: "+str(cond.min_timeout)+"\n")
+  out.write("NUM_CIRCS: "+str(cond.num_circs)+"\n")
+  out.write("NUM_TIMEOUT: "+str(cond.num_timeout)+"\n")
   timeout_cnt = len(h.timeout_circs)
   built_cnt = len(h.built_circs)
   build_rate = float(built_cnt)/(built_cnt+timeout_cnt)

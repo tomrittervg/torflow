@@ -58,7 +58,7 @@ do
     $TOR_DIR/tor -f $TOR_DATA/torrc &
     sleep 10
     mkdir -p results/$p/$N
-    ./cbttest.py -p $p -o results/$p/$N || exit
+    ./cbttest.py -p $p -o results/$p/$N |& tee results/$p/$N/cbt.log || exit
     N=`expr $N + 1`
   done
 done
@@ -78,7 +78,7 @@ do
       $TOR_DIR/tor -f $TOR_DATA/torrc &
       sleep 10
       mkdir -p results/$p/$n/redo.$M
-      ./cbttest.py -p $p -o results/$p/$n/redo.$M || exit
+      ./cbttest.py -p $p -o results/$p/$n/redo.$M |& tee results/$p/$n/redo.$M/cbt.log || exit
       M=`expr $N + 1`
     done
   done
