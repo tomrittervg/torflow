@@ -45,10 +45,10 @@ if [ -f $TOR_DATA/tor.pid ]; then
   fi
 fi
 
-for p in 0 10 20 30 40 50 60 70 80 90
+for p in 0 10 # 20 30 40 50 60 70 80 90
 do
   N=0
-  while [ $N -lt 10 ]
+  while [ $N -lt 2 ] #10 ]
   do
     if [ -f $TOR_DATA/tor.pid ]; then
       kill `cat $TOR_DATA/tor.pid`
@@ -63,28 +63,23 @@ do
   done
 done
 
-exit
-
 for p in `ls -1 results`
 do
   for n in `ls -1 results/$p`
   do
-    for state in `ls -1 results/$p/$n/state.*`
+    M=0
+    while [ $M -lt 2 ] # 3 ]
     do
-      M=0
-      while [ $M -lt 3 ]
-      do
-        if [ -f $TOR_DATA/tor.pid ]; then
-          kill `cat $TOR_DATA/tor.pid`
-          wait `cat $TOR_DATA/tor.pid`
-        fi
-        cp $state $TOR_DATA/state
-        $TOR_DIR/tor -f $TOR_DATA/torrc &
-        sleep 10
-        # XXX: M times?? need diff result files..
-        ./cbt-test.py -r -o results/$p/$n || exit
-        M=`expr $N + 1`
-      done
+      if [ -f $TOR_DATA/tor.pid ]; then
+        kill `cat $TOR_DATA/tor.pid`
+        wait `cat $TOR_DATA/tor.pid`
+      fi
+      cp results/$p/$n/state.full $TOR_DATA/state
+      $TOR_DIR/tor -f $TOR_DATA/torrc &
+      sleep 10
+      mkdir -p results/$p/$n/redo.$M
+      ./cbttest.py -p $p -o results/$p/$n/redo.$M || exit
+      M=`expr $N + 1`
     done
   done
 done

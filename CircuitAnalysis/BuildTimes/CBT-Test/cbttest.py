@@ -26,16 +26,17 @@ MAX_CIRCUITS = 10
 PCT_SKIP     = 10
 # XXX: Are these two the right way to go?
 # Should we maybe have MIN_STREAK and MIN_FUZZY too?
-STREAK_RATIO = 0.5
+STRICT_DEV = 0.1
+STRICT_RATIO = 0.5
+FUZZY_DEV = 0.2
 FUZZY_RATIO  = 0.5
-MIN_STREAK = 50
-MIN_FUZZY = 50
 
 # CLI Options variables.
 # Yes, a hack.
 full_run = False
 output_dir = None
 pct_start = None
+redo_run = False
 
 # Original value of FetchUselessDescriptors
 FUDValue = None
@@ -69,7 +70,7 @@ class CircHandler(EventHandler):
   def guard_event(self, event):
     changed = False
     plog("NOTICE", "Guard $"+event.idhex+" is "+event.status)
-    # XXX: remove from our list of guards and get a new one
+    # remove from our list of guards and get a new one
     if event.status == "DOWN":
       if event.idhex in self.up_guards:
         self.down_guards[event.idhex] = self.up_guards[event.idhex]
@@ -77,7 +78,7 @@ class CircHandler(EventHandler):
       # If more than 2 are down, add one
       if len(self.up_guards) < 2:
         changed = True
-        guards = get_guards(2-len(self.up_guards))
+        guards = get_guards(self.c, 2-len(self.up_guards))
         for g in guards:
           plog("NOTICE", "Adding guard $"+g.idhex)
           self.up_guards[g.idhex] = g
@@ -86,7 +87,7 @@ class CircHandler(EventHandler):
         del self.up_guards[event.idhex]
       if event.idhex in self.down_guards:
         del self.down_guards[event.idhex]
-      guards = get_guards(1)
+      guards = get_guards(self.c, 1)
       changed = True
       for g in guards:
         plog("NOTICE", "Adding guard $"+g.idhex)
@@ -101,8 +102,8 @@ class CircHandler(EventHandler):
       if self.down_guards:
         guard_str += ","+",".join(map(lambda r:
                       "$"+r.idhex, self.down_guards.values()))
-      plog("NOTICE", "Setting guards: "+guard_str)
-      self.c.setcont("EntryNodes", guard_str)
+      plog("NOTICE", "Setting new guards: "+guard_str)
+      self.c.set_option("EntryNodes", guard_str)
 
   def close_all_circs(self):
     lines = self.c.sendAndRecv("GETINFO circuit-status\r\n")[0][2]
@@ -116,30 +117,36 @@ class CircHandler(EventHandler):
         self.circs[int(line_parts[0])] = True
         self.c.close_circuit(int(line_parts[0]))
 
-  # XXX: Log built and timeout circs to buildtimes_file for post-analysis
+  # Log built and timeout circs to buildtimes_file for post-analysis
   def circ_status_event(self, circ_event):
     if circ_event.status == 'LAUNCHED':
       self.circs[circ_event.circ_id] = circ_event.status
       self.circ_times[circ_event.circ_id] = CircTime(circ_event.arrived_at)
       self.live_circs[circ_event.circ_id] = True
     elif circ_event.status == 'BUILT':
-      self.circs[circ_event.circ_id] = circ_event.status
-      self.built_circs[circ_event.circ_id] = True
-      self.c.close_circuit(circ_event.circ_id)
       if circ_event.circ_id in self.circ_times:
+        self.circs[circ_event.circ_id] = circ_event.status
+        self.built_circs[circ_event.circ_id] = True
+        self.c.close_circuit(circ_event.circ_id)
         self.circ_times[circ_event.circ_id].end_time = circ_event.arrived_at
-        plog("INFO", "Closing circuit "+str(circ_event.circ_id)+" with build time of "+str(self.circ_times[circ_event.circ_id].end_time-self.circ_times[circ_event.circ_id].start_time))
+        buildtime = self.circ_times[circ_event.circ_id].end_time-self.circ_times[circ_event.circ_id].start_time
+        plog("INFO", "Closing circuit "+str(circ_event.circ_id)+" with build time of "+str(buildtime))
+        self.buildtimes_file.write("BUILT "+str(circ_event.circ_id)
+                                    +" "+str(buildtime)+"\n")
     elif circ_event.status == 'FAILED' or circ_event.status == 'CLOSED':
-      self.circs[circ_event.circ_id] = circ_event.status
-      if circ_event.circ_id in self.live_circs:
-        del self.live_circs[circ_event.circ_id]
-      if circ_event.reason == 'TIMEOUT':
-        self.timeout_circs[circ_event.circ_id] = True
-        if circ_event.circ_id in self.circ_times:
+      if circ_event.circ_id in self.circ_times:
+        self.circs[circ_event.circ_id] = circ_event.status
+        if circ_event.circ_id in self.live_circs:
+          del self.live_circs[circ_event.circ_id]
+        if circ_event.reason == 'TIMEOUT':
+          self.timeout_circs[circ_event.circ_id] = True
           self.circ_times[circ_event.circ_id].end_time = circ_event.arrived_at
-          plog("INFO", circ_event.status+" timeout circuit "+str(circ_event.circ_id)+" with build time of "+str(self.circ_times[circ_event.circ_id].end_time-self.circ_times[circ_event.circ_id].start_time))
-      else:
-        self.closed_circs[circ_event.circ_id] = True
+          buildtime = self.circ_times[circ_event.circ_id].end_time-self.circ_times[circ_event.circ_id].start_time
+          plog("INFO", circ_event.status+" timeout circuit "+str(circ_event.circ_id)+" with build time of "+str(buildtime))
+          self.buildtimes_file.write("TIMEOUT "+str(circ_event.circ_id)
+                                      +" "+str(buildtime)+"\n")
+        else:
+          self.closed_circs[circ_event.circ_id] = True
 
 class BuildTimeoutTracker(PreEventListener):
   def __init__(self, cond):
@@ -157,6 +164,8 @@ class BuildTimeoutTracker(PreEventListener):
     self.fuzzy_streak_count = 0
     self.strict_streak_count = 0
     self.total_times = 0
+    self.cond.min_circs = 0
+    self.cond.num_circs = 0
 
   def buildtimeout_set_event(self, bt_event):
     plog("INFO", "Got buildtimeout event: "+bt_event.set_type+" TOTAL_TIMES="
@@ -164,7 +173,7 @@ class BuildTimeoutTracker(PreEventListener):
                  +str(bt_event.timeout_ms))
 
     # Need to handle RESET events..
-    # XXX: Should these count towards our totals, or should we just start
+    # Should these count towards our totals, or should we just start
     # over? Probably, but then that breaks a lot of our asserts
     # below...
     if bt_event.set_type == "RESET":
@@ -184,10 +193,11 @@ class BuildTimeoutTracker(PreEventListener):
     if not self.buildtimeout_fuzzy:
       self.buildtimeout_fuzzy = bt_event
 
-    fuzzy_last = int(round(self.buildtimeout_fuzzy.timeout_ms, -3))
-    fuzzy_curr = int(round(bt_event.timeout_ms, -3))
+    fuzzy_last = int(self.buildtimeout_fuzzy.timeout_ms)
+    fuzzy_curr = int(bt_event.timeout_ms)
     fuzzy_diff = abs(fuzzy_last-fuzzy_curr)
-    if fuzzy_diff > 1000:
+    # this should be a %age of the current timeout value
+    if fuzzy_diff > self.buildtimeout_fuzzy.timeout_ms*FUZZY_DEV:
       self.buildtimeout_fuzzy = None
       self.fuzzy_streak_count = 0
       self.cond.min_circs = 0
@@ -207,10 +217,10 @@ class BuildTimeoutTracker(PreEventListener):
                                 - self.fuzzy_streak_count
         shutil.copyfile('./tor-data/state', output_dir+"/state.min")
 
-    strict_last = int(round(self.buildtimeout_strict.timeout_ms, -3))
-    strict_curr = int(round(bt_event.timeout_ms, -3))
+    strict_last = int(self.buildtimeout_strict.timeout_ms)
+    strict_curr = int(bt_event.timeout_ms)
     strict_diff = abs(strict_last-strict_curr)
-    if strict_diff > 0:
+    if strict_diff > self.buildtimeout_strict.timeout_ms*STRICT_DEV:
       self.buildtimeout_strict = None
       self.strict_streak_count = 0
     else:
@@ -223,7 +233,7 @@ class BuildTimeoutTracker(PreEventListener):
         assert(self.strict_streak_count ==
               (bt_event.total_times - self.buildtimeout_strict.total_times))
       self.strict_streak_count += 1
-      if (self.cond.min_circs and self.strict_streak_count >= self.total_times*STREAK_RATIO):
+      if (self.cond.min_circs and self.strict_streak_count >= self.total_times*STRICT_RATIO):
         plog("NOTICE",
              "Strict termination condition reached at "
              +str(self.total_times-self.strict_streak_count)
@@ -275,7 +285,6 @@ def open_controller(filename):
   s = socket.socket(socket.AF_INET,socket.SOCK_STREAM)
   s.connect((TorUtil.control_host,TorUtil.control_port))
   c = TorCtl.Connection(s)
-  t = c.launch_thread()
   c.authenticate_cookie(file("./tor-data/control_auth_cookie", "r"))
   c.debug(file(filename+".log", "w", buffering=0))
 
@@ -315,10 +324,15 @@ def open_controller(filename):
   # 1. Num circs
   # 2. Guards used
   # 3. Failure quantile (in rerun only)
-  out = file(output_dir+"/result", "a")
-  out.write("NUM_CIRCS: "+str(cond.min_circs))
-  out.write("MIN_CIRCS: "+str(cond.num_circs))
-
+  out = file(output_dir+"/result", "w")
+  out.write("NUM_CIRCS: "+str(cond.min_circs)+"\n")
+  out.write("MIN_CIRCS: "+str(cond.num_circs)+"\n")
+  timeout_cnt = len(h.timeout_circs)
+  built_cnt = len(h.built_circs)
+  build_rate = float(built_cnt)/(built_cnt+timeout_cnt)
+  out.write("BUILD_RATE: "+str(built_cnt)+"/"+str(built_cnt+timeout_cnt)
+                         +" "+str(round(build_rate, 3))+"\n")
+  out.close()
   return 0
 
 def getargs():
@@ -333,17 +347,19 @@ def getargs():
 
   global pct_start
   global output_dir
+  global redo_run
 
   for o,a in opts:
     if o == '-p':
       pct_start = int(a)
     elif o == '-o':
       output_dir = a
-    # XXX: -r retest
+    elif o == '-r':
+      redo_run = True
     else:
       assert False, "Bad option"
 
-  return (output_dir, pct_start)
+  return (output_dir, pct_start, redo_run)
 
 def usage():
     print 'usage: FOAD'
