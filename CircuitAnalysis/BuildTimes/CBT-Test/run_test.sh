@@ -1,5 +1,5 @@
 #!/bin/sh
-# TODO:
+# OUTLINE:
 # 1. Fire up a Tor
 # 2. For every 5% percentile, loop N times:
 # 3.   Remove state file + hup tor.
@@ -45,10 +45,10 @@ if [ -f $TOR_DATA/tor.pid ]; then
   fi
 fi
 
-for p in 0 10 # 20 30 40 50 60 70 80 90
+for p in 0 10 20 30 40 50 60 70 80 90
 do
   N=0
-  while [ $N -lt 2 ] #10 ]
+  while [ $N -lt 10 ]
   do
     if [ -f $TOR_DATA/tor.pid ]; then
       kill `cat $TOR_DATA/tor.pid`
@@ -68,7 +68,7 @@ do
   for n in `ls -1 results/$p`
   do
     M=0
-    while [ $M -lt 2 ] # 3 ]
+    while [ $M -lt 10 ]
     do
       if [ -f $TOR_DATA/tor.pid ]; then
         kill `cat $TOR_DATA/tor.pid`
@@ -78,8 +78,8 @@ do
       $TOR_DIR/tor -f $TOR_DATA/torrc &
       sleep 10
       mkdir -p results/$p/$n/redo.$M
-      ./cbttest.py -p $p -o results/$p/$n/redo.$M |& tee results/$p/$n/redo.$M/cbt.log || exit
-      M=`expr $N + 1`
+      ./cbttest.py -r -p $p -o results/$p/$n/redo.$M |& tee results/$p/$n/redo.$M/cbt.log || exit
+      M=`expr $M + 1`
     done
   done
 done

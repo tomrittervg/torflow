@@ -154,6 +154,7 @@ class BuildTimeoutTracker(PreEventListener):
     self.cond = cond
     self.reset()
     self.reset_total = 0
+    self.redo_cnt = 0
     self.timeouts_file = file(output_dir+"/timeouts", "w")
 
   def reset(self):
@@ -182,6 +183,14 @@ class BuildTimeoutTracker(PreEventListener):
     # over? Probably, but then that breaks a lot of our asserts
     # below...
     if bt_event.set_type == "RESET":
+      if redo_run:
+        plog("WARN", "Got reset during redo")
+        self.cond.acquire()
+        self.cond.num_circs = -1
+        self.cond.num_timeout = -1
+        self.cond.notify()
+        self.cond.release()
+        return
       plog("NOTICE", "Got RESET event. Resetting counts")
       self.reset_total += self.total_times
       self.reset()
@@ -197,6 +206,19 @@ class BuildTimeoutTracker(PreEventListener):
       self.buildtimeout_strict = bt_event
     if not self.buildtimeout_fuzzy:
       self.buildtimeout_fuzzy = bt_event
+
+    if redo_run:
+      if not self.redo_cnt:
+        self.redo_cnt = bt_event.total_times*2
+      elif bt_event.total_times >= self.redo_cnt:
+        plog("NOTICE", "Redo count reached at "+str(bt_event.total_times/2))
+        shutil.copyfile('./tor-data/state', output_dir+"/state.full")
+        self.cond.acquire()
+        self.cond.num_circs = self.redo_cnt/2
+        self.cond.num_timeout = bt_event.timeout_ms
+        self.cond.notify()
+        self.cond.release()
+        return
 
     fuzzy_last = int(self.buildtimeout_fuzzy.timeout_ms)
     fuzzy_curr = int(bt_event.timeout_ms)
@@ -229,7 +251,8 @@ class BuildTimeoutTracker(PreEventListener):
     if strict_diff > self.buildtimeout_strict.timeout_ms*STRICT_DEV:
       self.buildtimeout_strict = None
       self.strict_streak_count = 0
-    else:
+      self.cond.num_circs = 0
+    elif not self.cond.num_circs:
       if (self.strict_streak_count != (bt_event.total_times -
                  self.buildtimeout_strict.total_times)):
         plog("WARN",
@@ -245,13 +268,14 @@ class BuildTimeoutTracker(PreEventListener):
              +str(self.total_times-self.strict_streak_count)
              +" with streak of "+str(self.strict_streak_count)
              +" and reset count of "+str(self.reset_total))
-        shutil.copyfile('./tor-data/state', output_dir+"/state.full")
-        self.cond.acquire()
-        self.cond.num_circs = self.reset_total+self.total_times-\
-                                  self.strict_streak_count
-        self.cond.num_timeout = bt_event.timeout_ms
-        self.cond.notify()
-        self.cond.release()
+        if not redo_run:
+          shutil.copyfile('./tor-data/state', output_dir+"/state.full")
+          self.cond.acquire()
+          self.cond.num_circs = self.reset_total+self.total_times-\
+                                    self.strict_streak_count
+          self.cond.num_timeout = bt_event.timeout_ms
+          self.cond.notify()
+          self.cond.release()
 
 def get_guards(c, n):
   # Get list of live routers
@@ -332,8 +356,9 @@ def open_controller(filename):
   # 2. Guards used
   # 3. Failure quantile (in rerun only)
   out = file(output_dir+"/result", "w")
-  out.write("MIN_CIRCS: "+str(cond.min_circs)+"\n")
-  out.write("MIN_TIMEOUT: "+str(cond.min_timeout)+"\n")
+  if not redo_run:
+    out.write("MIN_CIRCS: "+str(cond.min_circs)+"\n")
+    out.write("MIN_TIMEOUT: "+str(cond.min_timeout)+"\n")
   out.write("NUM_CIRCS: "+str(cond.num_circs)+"\n")
   out.write("NUM_TIMEOUT: "+str(cond.num_timeout)+"\n")
   timeout_cnt = len(h.timeout_circs)
