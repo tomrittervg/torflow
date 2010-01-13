@@ -24,11 +24,10 @@ import traceback
 # XXX: Add to config
 MAX_CIRCUITS = 10
 PCT_SKIP     = 10
-# XXX: Are these two the right way to go?
-# Should we maybe have MIN_STREAK and MIN_FUZZY too?
-STRICT_DEV = 0.1
+# we terminate once the timeout stops changing # +/- 5% of the quantile
+STRICT_DEV = 0.05
 STRICT_RATIO = 0.5
-FUZZY_DEV = 0.2
+FUZZY_DEV = 0.15
 FUZZY_RATIO  = 0.5
 
 # CLI Options variables.
@@ -40,6 +39,17 @@ redo_run = False
 
 # Original value of FetchUselessDescriptors
 FUDValue = None
+
+# /** Pareto CDF */
+def cbt_cdf(bt_event, x):
+  assert(bt_event.xm > 0)
+  if x < bt_event.xm:
+    x = bt_event.xm
+  ret = 1.0-pow(float(bt_event.xm)/x, bt_event.alpha)
+  if ret < 0 or ret > 1.0:
+    plog("WARN", "Ret: "+str(ret)+" XM: "+str(bt_event.xm)+" alpha: "+str(bt_event.alpha))
+    assert(0 <= ret and ret <= 1.0)
+  return ret
 
 class CircTime:
   def __init__(self, start_time):
@@ -87,13 +97,14 @@ class CircHandler(EventHandler):
         del self.up_guards[event.idhex]
       if event.idhex in self.down_guards:
         del self.down_guards[event.idhex]
-      guards = get_guards(self.c, 1)
-      changed = True
-      for g in guards:
-        plog("NOTICE", "Adding guard $"+g.idhex)
-        self.up_guards[g.idhex] = g
+      if len(self.up_guards) < 3:
+        guards = get_guards(self.c, 3-len(self.up_guards))
+        changed = True
+        for g in guards:
+          plog("NOTICE", "Adding guard $"+g.idhex)
+          self.up_guards[g.idhex] = g
     elif event.status == "UP":
-      plog("NOTICE", "Adding guard $"+g.idhex)
+      plog("NOTICE", "Adding guard $"+event.idhex)
       if event.idhex in self.down_guards:
         self.up_guards[event.idhex] = self.down_guards[event.idhex]
         del self.down_guards[event.idhex]
@@ -127,7 +138,9 @@ class CircHandler(EventHandler):
       if circ_event.circ_id in self.circ_times:
         self.circs[circ_event.circ_id] = circ_event.status
         self.built_circs[circ_event.circ_id] = True
-        self.c.close_circuit(circ_event.circ_id)
+        try: self.c.close_circuit(circ_event.circ_id)
+        except TorCtl.ErrorReply, e:
+          plog("WARN", "Error on circ close: "+str(e))
         self.circ_times[circ_event.circ_id].end_time = circ_event.arrived_at
         buildtime = self.circ_times[circ_event.circ_id].end_time-self.circ_times[circ_event.circ_id].start_time
         plog("INFO", "Closing circuit "+str(circ_event.circ_id)+" with build time of "+str(buildtime))
@@ -207,6 +220,7 @@ class BuildTimeoutTracker(PreEventListener):
     if not self.buildtimeout_fuzzy:
       self.buildtimeout_fuzzy = bt_event
 
+    redo_str = " "
     if redo_run:
       if not self.redo_cnt:
         self.redo_cnt = bt_event.total_times*2
@@ -219,12 +233,24 @@ class BuildTimeoutTracker(PreEventListener):
         self.cond.notify()
         self.cond.release()
         return
+      redo_str = " redo "
+
 
     fuzzy_last = int(self.buildtimeout_fuzzy.timeout_ms)
     fuzzy_curr = int(bt_event.timeout_ms)
-    fuzzy_diff = abs(fuzzy_last-fuzzy_curr)
+    fuzzy_diff = max(abs(cbt_cdf(self.buildtimeout_fuzzy, fuzzy_curr)-
+                          cbt_cdf(self.buildtimeout_fuzzy, fuzzy_last)),
+                      abs(cbt_cdf(bt_event, fuzzy_curr)-
+                          cbt_cdf(bt_event, fuzzy_last)))
     # this should be a %age of the current timeout value
-    if fuzzy_diff > self.buildtimeout_fuzzy.timeout_ms*FUZZY_DEV:
+    if fuzzy_diff > FUZZY_DEV:
+      level="INFO"
+      if self.cond.min_circs: level = "NOTICE"
+      plog(level, "Diverged from fuzzy timeout threshhold at "
+           +str(bt_event.total_times)+" with: "
+           +str(fuzzy_diff)+" > "
+           +str(FUZZY_DEV)+" for "
+           +str(fuzzy_curr)+" vs "+str(fuzzy_last))
       self.buildtimeout_fuzzy = None
       self.fuzzy_streak_count = 0
       self.cond.min_circs = 0
@@ -236,10 +262,14 @@ class BuildTimeoutTracker(PreEventListener):
       self.fuzzy_streak_count += 1
       if (self.fuzzy_streak_count >= self.total_times*FUZZY_RATIO):
         plog("NOTICE",
-             "Fuzzy termination condition reached at "
+             "Fuzzy"+str(redo_str)+"termination condition reached at "
              +str(self.total_times-self.fuzzy_streak_count)
              +" with streak of "+str(self.fuzzy_streak_count)
-             +" and reset count of "+str(self.reset_total))
+             +" and reset count of "+str(self.reset_total)
+             +" with dev: "
+             +str(fuzzy_diff)+" < "
+             +str(FUZZY_DEV)+" for "
+             +str(fuzzy_curr)+" vs "+str(fuzzy_last))
         self.cond.min_circs = self.reset_total+self.total_times \
                                 - self.fuzzy_streak_count
         self.cond.min_timeout = bt_event.timeout_ms
@@ -247,8 +277,18 @@ class BuildTimeoutTracker(PreEventListener):
 
     strict_last = int(self.buildtimeout_strict.timeout_ms)
     strict_curr = int(bt_event.timeout_ms)
-    strict_diff = abs(strict_last-strict_curr)
-    if strict_diff > self.buildtimeout_strict.timeout_ms*STRICT_DEV:
+    strict_diff = max(abs(cbt_cdf(self.buildtimeout_strict, strict_curr)-
+                          cbt_cdf(self.buildtimeout_strict, strict_last)),
+                      abs(cbt_cdf(bt_event, strict_curr)-
+                          cbt_cdf(bt_event, strict_last)))
+    if strict_diff > STRICT_DEV:
+      level="INFO"
+      if self.cond.num_circs: level = "NOTICE"
+      plog(level, "Diverged from strict timeout threshhold at "
+           +str(bt_event.total_times)+" with: "
+           +str(strict_diff)+" > "
+           +str(STRICT_DEV)+" for "
+           +str(strict_curr)+" vs "+str(strict_last))
       self.buildtimeout_strict = None
       self.strict_streak_count = 0
       self.cond.num_circs = 0
@@ -264,10 +304,14 @@ class BuildTimeoutTracker(PreEventListener):
       self.strict_streak_count += 1
       if (self.cond.min_circs and self.strict_streak_count >= self.total_times*STRICT_RATIO):
         plog("NOTICE",
-             "Strict termination condition reached at "
+             "Strict"+str(redo_str)+"termination condition reached at "
              +str(self.total_times-self.strict_streak_count)
              +" with streak of "+str(self.strict_streak_count)
-             +" and reset count of "+str(self.reset_total))
+             +" and reset count of "+str(self.reset_total)
+             +" with dev: "
+             +str(fuzzy_diff)+" < "
+             +str(FUZZY_DEV)+" for "
+             +str(fuzzy_curr)+" vs "+str(fuzzy_last))
         if not redo_run:
           shutil.copyfile('./tor-data/state', output_dir+"/state.full")
           self.cond.acquire()
