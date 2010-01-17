@@ -124,7 +124,7 @@ def check(start, stop):
 
   print str(start)+"-"+str(stop)+": N: "+str(nodes)+", Bw: "+str(round(bw/(1024*1024.0), 2))+", X: "+str(exits)+", XBw: "+str(round(exit_bw/(1024*1024.0),2))+", BT: "+str(heavy)+", Dirs:"+str(dirs)+", Up: "+str(round(up/nodes_up/60/60/24, 2))
 
-  #check_ratios(pct_list)
+  check_ratios(pct_list)
 
 
 def check_entropy(rlist, clipping_point):
