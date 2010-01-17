@@ -79,7 +79,7 @@ class CircHandler(EventHandler):
 
   def guard_event(self, event):
     changed = False
-    plog("NOTICE", "Guard $"+event.idhex+" is "+event.status)
+    plog("NOTICE", str(pct_start)+"%: Guard $"+event.idhex+" is "+event.status)
     # remove from our list of guards and get a new one
     if event.status == "DOWN":
       if event.idhex in self.up_guards:
@@ -90,7 +90,7 @@ class CircHandler(EventHandler):
         changed = True
         guards = get_guards(self.c, 2-len(self.up_guards))
         for g in guards:
-          plog("NOTICE", "Adding guard $"+g.idhex)
+          plog("NOTICE", str(pct_start)+"%: Adding guard $"+g.idhex)
           self.up_guards[g.idhex] = g
     elif event.status == "DROPPED":
       if event.idhex in self.up_guards:
@@ -101,10 +101,10 @@ class CircHandler(EventHandler):
         guards = get_guards(self.c, 3-len(self.up_guards))
         changed = True
         for g in guards:
-          plog("NOTICE", "Adding guard $"+g.idhex)
+          plog("NOTICE", str(pct_start)+"%: Adding guard $"+g.idhex)
           self.up_guards[g.idhex] = g
     elif event.status == "UP":
-      plog("NOTICE", "Adding guard $"+event.idhex)
+      plog("NOTICE", str(pct_start)+"%: Adding guard $"+event.idhex)
       if event.idhex in self.down_guards:
         self.up_guards[event.idhex] = self.down_guards[event.idhex]
         del self.down_guards[event.idhex]
@@ -113,7 +113,7 @@ class CircHandler(EventHandler):
       if self.down_guards:
         guard_str += ","+",".join(map(lambda r:
                       "$"+r.idhex, self.down_guards.values()))
-      plog("NOTICE", "Setting new guards: "+guard_str)
+      plog("NOTICE", str(pct_start)+"%: Setting new guards: "+guard_str)
       self.c.set_option("EntryNodes", guard_str)
 
   def close_all_circs(self):
@@ -167,6 +167,7 @@ class BuildTimeoutTracker(PreEventListener):
     self.cond = cond
     self.reset()
     self.reset_total = 0
+    self.reset_cnt = 0
     self.redo_cnt = 0
     self.timeouts_file = file(output_dir+"/timeouts", "w")
 
@@ -196,15 +197,18 @@ class BuildTimeoutTracker(PreEventListener):
     # over? Probably, but then that breaks a lot of our asserts
     # below...
     if bt_event.set_type == "RESET":
+      self.reset_cnt += 1
       if redo_run:
         plog("WARN", "Got reset during redo")
         self.cond.acquire()
         self.cond.num_circs = -1
         self.cond.num_timeout = -1
+        self.cond.reset_cnt = self.reset_cnt
+        self.cond.reset_total = self.total_times
         self.cond.notify()
         self.cond.release()
         return
-      plog("NOTICE", "Got RESET event. Resetting counts")
+      plog("NOTICE", str(pct_start)+"%: Got RESET event. Resetting counts")
       self.reset_total += self.total_times
       self.reset()
       return
@@ -225,11 +229,13 @@ class BuildTimeoutTracker(PreEventListener):
       if not self.redo_cnt:
         self.redo_cnt = bt_event.total_times*2
       elif bt_event.total_times >= self.redo_cnt:
-        plog("NOTICE", "Redo count reached at "+str(bt_event.total_times/2))
+        plog("NOTICE", str(pct_start)+"%: Redo count reached at "+str(bt_event.total_times/2))
         shutil.copyfile('./tor-data/state', output_dir+"/state.full")
         self.cond.acquire()
         self.cond.num_circs = self.redo_cnt/2
         self.cond.num_timeout = bt_event.timeout_ms
+        self.cond.reset_cnt = self.reset_cnt
+        self.cond.reset_total = self.reset_total
         self.cond.notify()
         self.cond.release()
         return
@@ -246,7 +252,7 @@ class BuildTimeoutTracker(PreEventListener):
     if fuzzy_diff > FUZZY_DEV:
       level="INFO"
       if self.cond.min_circs: level = "NOTICE"
-      plog(level, "Diverged from fuzzy timeout threshhold at "
+      plog(level, str(pct_start)+"%: Diverged from fuzzy timeout threshhold at "
            +str(bt_event.total_times)+" with: "
            +str(fuzzy_diff)+" > "
            +str(FUZZY_DEV)+" for "
@@ -262,7 +268,7 @@ class BuildTimeoutTracker(PreEventListener):
       self.fuzzy_streak_count += 1
       if (self.fuzzy_streak_count >= self.total_times*FUZZY_RATIO):
         plog("NOTICE",
-             "Fuzzy"+str(redo_str)+"termination condition reached at "
+             str(pct_start)+"%: Fuzzy"+str(redo_str)+"termination condition reached at "
              +str(self.total_times-self.fuzzy_streak_count)
              +" with streak of "+str(self.fuzzy_streak_count)
              +" and reset count of "+str(self.reset_total)
@@ -284,7 +290,7 @@ class BuildTimeoutTracker(PreEventListener):
     if strict_diff > STRICT_DEV:
       level="INFO"
       if self.cond.num_circs: level = "NOTICE"
-      plog(level, "Diverged from strict timeout threshhold at "
+      plog(level, str(pct_start)+"%: Diverged from strict timeout threshhold at "
            +str(bt_event.total_times)+" with: "
            +str(strict_diff)+" > "
            +str(STRICT_DEV)+" for "
@@ -304,7 +310,7 @@ class BuildTimeoutTracker(PreEventListener):
       self.strict_streak_count += 1
       if (self.cond.min_circs and self.strict_streak_count >= self.total_times*STRICT_RATIO):
         plog("NOTICE",
-             "Strict"+str(redo_str)+"termination condition reached at "
+             str(pct_start)+"%: Strict"+str(redo_str)+"termination condition reached at "
              +str(self.total_times-self.strict_streak_count)
              +" with streak of "+str(self.strict_streak_count)
              +" and reset count of "+str(self.reset_total)
@@ -318,6 +324,8 @@ class BuildTimeoutTracker(PreEventListener):
           self.cond.num_circs = self.reset_total+self.total_times-\
                                     self.strict_streak_count
           self.cond.num_timeout = bt_event.timeout_ms
+          self.cond.reset_cnt = self.reset_cnt
+          self.cond.reset_total = self.reset_total
           self.cond.notify()
           self.cond.release()
 
@@ -329,9 +337,14 @@ def get_guards(c, n):
   for i in xrange(len(sorted_rlist)): sorted_rlist[i].list_rank = i
 
   guard_rst = PathSupport.FlagsRestriction(["Guard"], [])
-  pct_rst = PathSupport.PercentileRestriction(pct_start, pct_start+PCT_SKIP, sorted_rlist)
 
-  guard_gen = PathSupport.UniformGenerator(sorted_rlist,
+  if pct_start == 100:
+    pct_rst = PathSupport.PercentileRestriction(0, pct_start, sorted_rlist)
+  else:
+    pct_rst = PathSupport.PercentileRestriction(pct_start, pct_start+PCT_SKIP,
+sorted_rlist)
+
+  guard_gen = PathSupport.ExactUniformGenerator(sorted_rlist,
                 PathSupport.NodeRestrictionList([guard_rst, pct_rst]))
   guard_gen.rewind()
 
@@ -366,7 +379,7 @@ def open_controller(filename):
   guards = get_guards(c, 3)
   guard_str = ",".join(map(lambda r: "$"+r.idhex, guards))
 
-  plog("NOTICE", "Choosing guards: "+guard_str)
+  plog("NOTICE", str(pct_start)+"%: Choosing guards: "+guard_str)
   # Setconf guards for percentile range
   c.set_option("EntryNodes", guard_str)
   c.set_option("StrictNodes", "1")
@@ -405,6 +418,8 @@ def open_controller(filename):
     out.write("MIN_TIMEOUT: "+str(cond.min_timeout)+"\n")
   out.write("NUM_CIRCS: "+str(cond.num_circs)+"\n")
   out.write("NUM_TIMEOUT: "+str(cond.num_timeout)+"\n")
+  out.write("RESET_CNT: "+str(cond.reset_cnt)+"\n")
+  out.write("RESET_TOTAL: "+str(cond.reset_total)+"\n")
   timeout_cnt = len(h.timeout_circs)
   built_cnt = len(h.built_circs)
   build_rate = float(built_cnt)/(built_cnt+timeout_cnt)
@@ -426,6 +441,8 @@ def getargs():
   global pct_start
   global output_dir
   global redo_run
+
+  pct_start = 100
 
   for o,a in opts:
     if o == '-p':
