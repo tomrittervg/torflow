@@ -283,92 +283,87 @@ def check_ratios(sorted_rlist):
       mid_ratio.cnt_gt1 += rc_gt1
 
   if not all_ratio.cnt:     all_ratio.cnt = -1
-  if not all_ratio.cnt_lt1: all_ratio.cnt_lt1 = -1
-  if not all_ratio.cnt_gt1: all_ratio.cnt_gt1 = -1
-
-  all_ratio.avg     /= all_ratio.cnt
-  all_ratio.avg_lt1 /= all_ratio.cnt_lt1
-  all_ratio.avg_gt1 /= all_ratio.cnt_gt1
   all_ratio.pct_lt1 = round((100.0*all_ratio.cnt_lt1)/all_ratio.cnt,1)
   all_ratio.pct_gt1 = round((100.0*all_ratio.cnt_gt1)/all_ratio.cnt,1)
+  all_ratio.avg     /= all_ratio.cnt
+  if not all_ratio.cnt_lt1: all_ratio.cnt_lt1 = -1
+  if not all_ratio.cnt_gt1: all_ratio.cnt_gt1 = -1
+  all_ratio.avg_lt1 /= all_ratio.cnt_lt1
+  all_ratio.avg_gt1 /= all_ratio.cnt_gt1
 
   if not guard_ratio.cnt:     guard_ratio.cnt = -1
-  if not guard_ratio.cnt_lt1: guard_ratio.cnt_lt1 = -1
-  if not guard_ratio.cnt_gt1: guard_ratio.cnt_gt1 = -1
-
-  guard_ratio.avg     /= guard_ratio.cnt
-  guard_ratio.avg_lt1 /= guard_ratio.cnt_lt1
-  guard_ratio.avg_gt1 /= guard_ratio.cnt_gt1
   guard_ratio.pct_lt1 = round((100.0*guard_ratio.cnt_lt1)/guard_ratio.cnt,1)
   guard_ratio.pct_gt1 = round((100.0*guard_ratio.cnt_gt1)/guard_ratio.cnt,1)
+  guard_ratio.avg     /= guard_ratio.cnt
+  if not guard_ratio.cnt_lt1: guard_ratio.cnt_lt1 = -1
+  if not guard_ratio.cnt_gt1: guard_ratio.cnt_gt1 = -1
+  guard_ratio.avg_lt1 /= guard_ratio.cnt_lt1
+  guard_ratio.avg_gt1 /= guard_ratio.cnt_gt1
 
   if not mid_ratio.cnt:     mid_ratio.cnt = -1
-  if not mid_ratio.cnt_lt1: mid_ratio.cnt_lt1 = -1
-  if not mid_ratio.cnt_gt1: mid_ratio.cnt_gt1 = -1
-
-  mid_ratio.avg     /= mid_ratio.cnt
-  mid_ratio.avg_lt1 /= mid_ratio.cnt_lt1
-  mid_ratio.avg_gt1 /= mid_ratio.cnt_gt1
   mid_ratio.pct_lt1 = round((100.0*mid_ratio.cnt_lt1)/mid_ratio.cnt,1)
   mid_ratio.pct_gt1 = round((100.0*mid_ratio.cnt_gt1)/mid_ratio.cnt,1)
+  mid_ratio.avg     /= mid_ratio.cnt
+  if not mid_ratio.cnt_lt1: mid_ratio.cnt_lt1 = -1
+  if not mid_ratio.cnt_gt1: mid_ratio.cnt_gt1 = -1
+  mid_ratio.avg_lt1 /= mid_ratio.cnt_lt1
+  mid_ratio.avg_gt1 /= mid_ratio.cnt_gt1
 
   if not exit_ratio.cnt:     exit_ratio.cnt = -1
-  if not exit_ratio.cnt_lt1: exit_ratio.cnt_lt1 = -1
-  if not exit_ratio.cnt_gt1: exit_ratio.cnt_gt1 = -1
-
-  exit_ratio.avg     /= exit_ratio.cnt
-  exit_ratio.avg_lt1 /= exit_ratio.cnt_lt1
-  exit_ratio.avg_gt1 /= exit_ratio.cnt_gt1
   exit_ratio.pct_lt1 = round((100.0*exit_ratio.cnt_lt1)/exit_ratio.cnt,1)
   exit_ratio.pct_gt1 = round((100.0*exit_ratio.cnt_gt1)/exit_ratio.cnt,1)
+  exit_ratio.avg     /= exit_ratio.cnt
+  if not exit_ratio.cnt_lt1: exit_ratio.cnt_lt1 = -1
+  if not exit_ratio.cnt_gt1: exit_ratio.cnt_gt1 = -1
+  exit_ratio.avg_lt1 /= exit_ratio.cnt_lt1
+  exit_ratio.avg_gt1 /= exit_ratio.cnt_gt1
 
   if not guardexit_ratio.cnt:     guardexit_ratio.cnt = -1
-  if not guardexit_ratio.cnt_lt1: guardexit_ratio.cnt_lt1 = -1
-  if not guardexit_ratio.cnt_gt1: guardexit_ratio.cnt_gt1 = -1
-
   guardexit_ratio.avg     /= guardexit_ratio.cnt
-  guardexit_ratio.avg_lt1 /= guardexit_ratio.cnt_lt1
-  guardexit_ratio.avg_gt1 /= guardexit_ratio.cnt_gt1
   guardexit_ratio.pct_lt1 = \
        round((100.0*guardexit_ratio.cnt_lt1)/guardexit_ratio.cnt,1)
   guardexit_ratio.pct_gt1 = \
        round((100.0*guardexit_ratio.cnt_gt1)/guardexit_ratio.cnt,1)
+  if not guardexit_ratio.cnt_lt1: guardexit_ratio.cnt_lt1 = -1
+  if not guardexit_ratio.cnt_gt1: guardexit_ratio.cnt_gt1 = -1
+  guardexit_ratio.avg_lt1 /= guardexit_ratio.cnt_lt1
+  guardexit_ratio.avg_gt1 /= guardexit_ratio.cnt_gt1
 
   #  Print ratios of All, Guard, Mid, Exit and Guard+Exit nodes
   #    - Print Num < 1, Num >= 1, avg < 1, avg >= 1, and avg for each
   print "Overall Cnt: "       +str(all_ratio.cnt)
   print "Overall Avg Ratio: "     +str(all_ratio.avg)
-  print "Overall Ratios < 1 Pct: "+str(all_ratio.pct_lt1)
+  print "Overall Ratios < 1: "+str(all_ratio.pct_lt1)+"%"
   print "Overall Ratios < 1 Avg: "+str(all_ratio.avg_lt1)
-  print "Overall Ratios > 1 Pct: "+str(all_ratio.pct_gt1)
+  print "Overall Ratios > 1: "+str(all_ratio.pct_gt1)+"%"
   print "Overall Ratios > 1 Avg: "+str(all_ratio.avg_gt1)
   print ""
   print "Guard Cnt: "       +str(guard_ratio.cnt)
   print "Guard Avg Ratio: "     +str(guard_ratio.avg)
-  print "Guard Ratios < 1 Pct: "+str(guard_ratio.pct_lt1)
+  print "Guard Ratios < 1: "+str(guard_ratio.pct_lt1)+"%"
   print "Guard Ratios < 1 Avg: "+str(guard_ratio.avg_lt1)
-  print "Guard Ratios > 1 Pct: "+str(guard_ratio.pct_gt1)
+  print "Guard Ratios > 1: "+str(guard_ratio.pct_gt1)+"%"
   print "Guard Ratios > 1 Avg: "+str(guard_ratio.avg_gt1)
   print ""
   print "Mid Cnt: "       +str(mid_ratio.cnt)
   print "Mid Avg Ratio: "     +str(mid_ratio.avg)
-  print "Mid Ratios < 1 Pct: "+str(mid_ratio.pct_lt1)
+  print "Mid Ratios < 1: "+str(mid_ratio.pct_lt1)+"%"
   print "Mid Ratios < 1 Avg: "+str(mid_ratio.avg_lt1)
-  print "Mid Ratios > 1 Pct: "+str(mid_ratio.pct_gt1)
+  print "Mid Ratios > 1: "+str(mid_ratio.pct_gt1)+"%"
   print "Mid Ratios > 1 Avg: "+str(mid_ratio.avg_gt1)
   print ""
   print "Exit Cnt: "       +str(exit_ratio.cnt)
   print "Exit Avg Ratio: "     +str(exit_ratio.avg)
-  print "Exit Ratios < 1 Pct: "+str(exit_ratio.pct_lt1)
+  print "Exit Ratios < 1: "+str(exit_ratio.pct_lt1)+"%"
   print "Exit Ratios < 1 Avg: "+str(exit_ratio.avg_lt1)
-  print "Exit Ratios > 1 Pct: "+str(exit_ratio.pct_gt1)
+  print "Exit Ratios > 1: "+str(exit_ratio.pct_gt1)+"%"
   print "Exit Ratios > 1 Avg: "+str(exit_ratio.avg_gt1)
   print ""
   print "Guard+Exit Cnt: "       +str(guardexit_ratio.cnt)
   print "Guard+Exit Avg Ratio: "     +str(guardexit_ratio.avg)
-  print "Guard+Exit Ratios < 1 Pct: "+str(guardexit_ratio.pct_lt1)
+  print "Guard+Exit Ratios < 1: "+str(guardexit_ratio.pct_lt1)+"%"
   print "Guard+Exit Ratios < 1 Avg: "+str(guardexit_ratio.avg_lt1)
-  print "Guard+Exit Ratios > 1 Pct: "+str(guardexit_ratio.pct_gt1)
+  print "Guard+Exit Ratios > 1: "+str(guardexit_ratio.pct_gt1)+"%"
   print "Guard+Exit Ratios > 1 Avg: "+str(guardexit_ratio.avg_gt1)
   print ""
 
