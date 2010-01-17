@@ -105,6 +105,7 @@ def check(start, stop):
   pct_list = []
 
   for r in sorted_rlist:
+    if r.down or r.desc_bw <= 0: continue
     if pct_rst.r_is_ok(r) and fast_rst.r_is_ok(r):
       nodes += 1
       bw += r.bw
@@ -122,7 +123,7 @@ def check(start, stop):
         dirs += 1
 
 
-  print str(start)+"-"+str(stop)+": N: "+str(nodes)+", Bw: "+str(round(bw/(1024*1024.0), 2))+", X: "+str(exits)+", XBw: "+str(round(exit_bw/(1024*1024.0),2))+", BT: "+str(heavy)+", Dirs:"+str(dirs)+", Up: "+str(round(up/nodes_up/60/60/24, 2))
+  print str(start)+"-"+str(stop)+"%: N: "+str(nodes)+", Bw: "+str(round(bw/(1024*1024.0), 2))+", X: "+str(exits)+", XBw: "+str(round(exit_bw/(1024*1024.0),2))+", BT: "+str(heavy)+", Dirs:"+str(dirs)+", Up: "+str(round(up/nodes_up/60/60/24, 2))
 
   check_ratios(pct_list)
 
@@ -149,8 +150,8 @@ def check_entropy(rlist, clipping_point):
   egen = BwWeightedGenerator(rlist, FlagsRestriction(["Exit", "Fast", "Valid", "Running"]), 3, exit=True)
 
   for r in rlist:
-    if not fast_rst.r_is_ok(r):
-      continue
+    if r.down or r.desc_bw <= 0: continue
+    if not fast_rst.r_is_ok(r): continue
     if r.bw > clipping_point:
       clipped += 1
       clipped_bw += clipping_point
@@ -168,6 +169,7 @@ def check_entropy(rlist, clipping_point):
   tebw = egen.total_weighted_bw
   
   for r in rlist:
+    if r.down or r.desc_bw <= 0: continue
     if not fast_rst.r_is_ok(r):
       continue
     if r.bw < 2:
@@ -367,9 +369,17 @@ def check_ratios(sorted_rlist):
   print "Guard+Exit Ratios > 1 Avg: "+str(guardexit_ratio.avg_gt1)
   print ""
 
+def check_slices():
+  print "Key:"
+  print "   N: Number of Nodes               Bw: Slice Bandwidth (Mbytes/sec)"
+  print "   X: Number of Exits               XBw: Exit Bandwidth (Mbytes/sec)"
+  print "  BT: BitTorrent-permitting exits   Dirs: V2Dir nodes"
+  print "  Up: Avg Uptime (days)"
+  print "\n"
+  for i in xrange(0,100,10):
+    check(i,i+10)
 
-for i in xrange(0,100,10):
-  check(i,i+10)
+check_slices()
 
 check_entropy(sorted_rlist, 1500000)
 
