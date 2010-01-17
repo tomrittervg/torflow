@@ -45,7 +45,7 @@ if [ -f $TOR_DATA/tor.pid ]; then
   fi
 fi
 
-for p in 0 10 20 30 40 50 60 70 80 90
+for p in 0 10 20 30 40 50 60 70 80 90 100
 do
   N=0
   while [ $N -lt 5 ]
@@ -59,7 +59,6 @@ do
     sleep 10
     mkdir -p results/$p/$N
     ./cbttest.py -p $p -o results/$p/$N 2>&1 | tee results/$p/$N/cbt.log || exit
-    N=`expr $N + 1`
 
     # Redo this run M=3 times
     M=0
@@ -76,6 +75,7 @@ do
       ./cbttest.py -r -p $p -o results/$p/$N/redo.$M 2>&1 | tee results/$p/$N/redo.$M/cbt.log || exit
       M=`expr $M + 1`
     done
+    N=`expr $N + 1`
   done
 done
 
