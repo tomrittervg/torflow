@@ -127,6 +127,7 @@ def check(start, stop):
 
   check_ratios(pct_list)
 
+  return bw
 
 def check_entropy(rlist, clipping_point):
   clipped = 0
@@ -167,7 +168,7 @@ def check_entropy(rlist, clipping_point):
   tgbw = ggen.total_weighted_bw
   tmbw = mgen.total_weighted_bw
   tebw = egen.total_weighted_bw
-  
+
   for r in rlist:
     if r.down or r.desc_bw <= 0: continue
     if not fast_rst.r_is_ok(r):
@@ -192,28 +193,35 @@ def check_entropy(rlist, clipping_point):
     if gbw/tgbw > 0: guard_entropy += (gbw/tgbw)*math.log(gbw/tgbw, 2)
     if mbw/tmbw > 0: mid_entropy += (mbw/tmbw)*math.log(mbw/tmbw, 2)
     if ebw/tebw > 0: exit_entropy += (ebw/tebw)*math.log(ebw/tebw, 2)
-  
+
     rbw = 0
-    if r.desc_bw > clipping_point:
+    if r.bw > clipping_point:
       rbw = clipping_point
     else:
-      rbw = r.desc_bw
+      rbw = r.bw
     clipped_entropy += (rbw/clipped_bw)*math.log(rbw/clipped_bw, 2)
 
   print ""
   print "Uniform entropy: " + str(-uniform_entropy)
   print "Consensus entropy: " + str(-pure_entropy)
   print "Raw Descriptor entropy: " + str(-desc_entropy)
-  print "Clipped Descriptor entropy: " + str(-clipped_entropy)
+  print "Clipped Consensus entropy: " + str(-clipped_entropy)
 
   print "Consensus Guard entropy: " + str(-guard_entropy)
   print "Consensus Middle entropy: " + str(-mid_entropy)
   print "Consensus Exit entropy: " + str(-exit_entropy)
 
-  print "Nodes: "+str(nodes)+", Exits: "+str(exits)+" Total bw: "+str(round(bw/(1024.0*1024),2))+", Exit Bw: "+str(round(exit_bw/(1024.0*1024),2))
-  print "Clipped: "+str(clipped)+", bw: "+str(round(clipped_bw/(1024.0*1024),2))
+  print ""
+  print "Guard Weights: E: "+str(ggen.guard_weight)+" M: "+str(mgen.guard_weight)+" X: "+str(egen.guard_weight)
+  print "Exit Weights: E: "+str(ggen.exit_weight)+" M: "+str(mgen.exit_weight)+" X: "+str(egen.exit_weight)
+  print "Guard+Exit Weights: E: "+str(ggen.guard_weight*ggen.exit_weight)+" M: "+str(mgen.guard_weight*mgen.exit_weight)+" X: "+str(egen.guard_weight*egen.exit_weight)
+
   print ""
 
+  print "Nodes: "+str(nodes)+", Exits: "+str(exits)+" Total bw: "+str(round(bw/(1024.0*1024),2))+", Exit Bw: "+str(round(exit_bw/(1024.0*1024),2))
+  print "Clipped: "+str(clipped)+", bw: "+str(round(clipped_bw/(1024.0*1024),2))
+
+  print ""
 
 class RatioStats:
   def __init__(self):
@@ -381,6 +389,7 @@ def check_slices():
 
 check_slices()
 
-check_entropy(sorted_rlist, 1500000)
-
+tot_bw = check(0, 100)
 check_ratios(sorted_rlist)
+
+check_entropy(sorted_rlist, 0.05*tot_bw)
