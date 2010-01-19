@@ -10,27 +10,48 @@ import traceback
 sys.path.append("../../")
 from TorCtl.TorUtil import plog
 from TorCtl import TorCtl,TorUtil
+from TorCtl.PathSupport import VersionRangeRestriction, NodeRestrictionList, NotNodeRestriction
 
 bw_files = []
 timestamps = {}
 nodes = {}
 prev_consensus = {}
 
-# ALPHA is the parameter that measures how much previous consensus 
-# values count for. With a high BETA value, this should be higher
-# to avoid quick changes. But with 0 BETA, it is probably best to
-# also leave it 0.
-ALPHA = 0 
+# Hack to kill voting on guards while the network rebalances
+IGNORE_GUARDS = 1
 
-# BETA is the parameter that governs the proportion that we use previous 
+# BETA is the parameter that governs the proportion that we use previous
 # consensus values in creating new bandwitdhs versus descriptor values.
-# 1.0 -> all consensus, 0 -> all descriptor
-# FIXME: We might want to consider basing this on the percentage of routers
-# that have upgraded to 0.2.1.19+ but intuition suggests this may not be
-# necessary since the descriptors values should rise as more traffic
-# is directed at nodes. Also, there are cases where our updates may
-# not cause node traffic to quickly relocate, such as Guard-only nodes.
+#    1.0 -> all consensus
+#      0 -> all descriptor,
+#     -1 -> compute from %age of nodes upgraded to 0.2.1.17+
+# Note that guard nodes may not quickly change load in the presence of
+# changes to their advertised bandwidths. To address this and other
+# divergent behaviors, we only apply this value to nodes with ratios < 1.0
+#BETA = -1
 BETA = 0
+
+# GUARD_BETA is the version of BETA used for guard nodes. It needs
+# to be computed similarly to BETA, but using 0.2.1.22+ and 0.2.2.7+
+# because guard nodes were weighted uniformly by clients up until then.
+#GUARD_BETA = -1
+GUARD_BETA = 0
+
+# ALPHA is the parameter that controls the amount measurement
+# values count for. It is used to dampen feedback loops to prevent
+# values from changing too rapidly. Thus it only makes sense to
+# have a value below 1.0 if BETA is nonzero.
+# ALPHA is only applied for nodes with ratio < 1 if BETA is nonzero.
+#ALPHA = 0.25
+ALPHA = 0
+
+# There are cases where our updates may not cause node
+# traffic to quickly relocate, such as Guard-only nodes. These nodes
+# get a special ALPHA when BETA is being used:
+# GUARD_ALPHA is only applied for Guard-only nodes with ratio < 1 if BETA is
+# nonzero.
+#GUARD_ALPHA = 0.1
+GUARD_ALPHA = 0
 
 NODE_CAP = 0.05
 
@@ -198,6 +219,39 @@ def main(argv):
   got_ns_bw = False
   max_rank = len(ns_list)
 
+  global BETA
+  sorted_rlist = None
+  if BETA == -1:
+    # Compute beta based on the upgrade rate for nsbw obeying routers
+    # (karsten's data show this slightly underestimates client upgrade rate)
+    nsbw_yes = VersionRangeRestriction("0.2.1.17")
+    sorted_rlist = c.read_routers(ns_list)
+
+    nsbw_cnt = 0
+    non_nsbw_cnt = 0
+    for r in sorted_rlist:
+      if nsbw_yes.r_is_ok(r): nsbw_cnt += 1
+      else: non_nsbw_cnt += 1
+    BETA = float(nsbw_cnt)/(nsbw_cnt+non_nsbw_cnt)
+
+  global GUARD_BETA
+  if GUARD_BETA == -1:
+    # Compute GUARD_BETA based on the upgrade rate for nsbw obeying routers
+    # (karsten's data show this slightly underestimates client upgrade rate)
+    guardbw_yes = NodeRestrictionList([VersionRangeRestriction("0.2.1.22"),
+       NotNodeRestriction(VersionRangeRestriction("0.2.2.0", "0.2.2.6"))])
+
+    if not sorted_rlist:
+      sorted_rlist = c.read_routers(ns_list)
+
+    guardbw_cnt = 0
+    non_guardbw_cnt = 0
+    for r in sorted_rlist:
+      if guardbw_yes.r_is_ok(r): guardbw_cnt += 1
+      else: non_guardbw_cnt += 1
+    GUARD_BETA = float(guardbw_cnt)/(guardbw_cnt+non_guardbw_cnt)
+
+
   # FIXME: This is poor form.. We should subclass the Networkstatus class
   # instead of just adding members
   for i in xrange(max_rank):
@@ -309,20 +363,39 @@ def main(argv):
 
     n.chosen_time = n.timestamps[chosen_bw_idx]
 
-    # Use the consensus value at the time of measurement from the 
-    # Node class
-    use_bw = BETA*n.ns_bw[chosen_bw_idx]+(1.0-BETA)*n.desc_bw[chosen_bw_idx]
-    n.new_bw = use_bw*((ALPHA + n.ratio)/(ALPHA + 1.0))
+    if n.ratio < 1.0:
+      # XXX: Blend together BETA and GUARD_BETA for Guard+Exit nodes?
+      if GUARD_BETA > 0 and n.idhex in prev_consensus \
+         and ("Guard" in prev_consensus[n.idhex].flags and not "Exit" in \
+                prev_consensus[n.idhex].flags):
+        use_bw = GUARD_BETA*n.ns_bw[chosen_bw_idx] \
+                       + (1.0-GUARD_BETA)*n.desc_bw[chosen_bw_idx]
+        n.new_bw = use_bw*((1.0-GUARD_ALPHA) + GUARD_ALPHA*n.ratio)
+      elif BETA > 0:
+        use_bw = BETA*n.ns_bw[chosen_bw_idx] \
+                    + (1.0-BETA)*n.desc_bw[chosen_bw_idx]
+        n.new_bw = use_bw*((1.0-ALPHA) + ALPHA*n.ratio)
+      else:
+        use_bw = n.desc_bw[chosen_bw_idx]
+        n.new_bw = use_bw*n.ratio
+    else: # Use ALPHA=0, BETA=0 for faster nodes.
+      use_bw = n.desc_bw[chosen_bw_idx]
+      n.new_bw = use_bw*n.ratio
     n.change = n.new_bw - n.desc_bw[chosen_bw_idx]
 
     if n.idhex in prev_consensus:
       if prev_consensus[n.idhex].bandwidth != None:
         prev_consensus[n.idhex].measured = True
         tot_net_bw += n.new_bw
-      if "Authority" in prev_consensus[n.idhex].flags:
+      if IGNORE_GUARDS \
+           and ("Guard" in prev_consensus[n.idhex].flags and not "Exit" in \
+                  prev_consensus[n.idhex].flags):
+        plog("INFO", "Skipping voting for guard "+n.nick)
+        n.ignore = True
+      elif "Authority" in prev_consensus[n.idhex].flags:
         plog("INFO", "Skipping voting for authority "+n.nick)
         n.ignore = True
- 
+
   # Go through the list and cap them to NODE_CAP
   for n in nodes.itervalues():
     if n.new_bw > tot_net_bw*NODE_CAP:
@@ -364,7 +437,7 @@ def main(argv):
   n_print.sort(lambda x,y: int(y.change) - int(x.change))
 
   scan_age = int(round(min(scanner_timestamps),0))
-  
+
   if scan_age < time.time() - MAX_SCAN_AGE:
     plog("WARN", "Bandwidth scan stale. Possible dead bwauthority.py. Timestamp: "+time.ctime(scan_age))
 
