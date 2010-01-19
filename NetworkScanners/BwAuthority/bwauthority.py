@@ -321,7 +321,7 @@ def setup_handler(out_dir, cookie_file):
   s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
   s.connect((TorUtil.control_host,TorUtil.control_port))
   c = PathSupport.Connection(s)
-  c.debug(file(out_dir+"/control.log", "w", buffering=0))
+  #c.debug(file(out_dir+"/control.log", "w", buffering=0))
   c.authenticate_cookie(file(cookie_file, "r"))
   #f = c.get_option("__LeaveStreamsUnattached")[0]
   h = BwScanHandler(c, __selmgr,
