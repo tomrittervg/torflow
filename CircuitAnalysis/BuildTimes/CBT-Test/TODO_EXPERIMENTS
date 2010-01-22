@@ -1,0 +1,23 @@
+
+- regular broadband run
+- 250ms +/- 20%
+- 500ms +/- 20%
+- 1s  +/- 20%
+- 2s  +/- 20%
+
+- broadband + 5% loss
+- 250ms +/- 20% + 5% loss
+- 500ms +/- 20% + 5% loss
+- 1s  +/- 20% + 5% loss
+- 2s  +/- 20% + 5% loss
+
+- broadband + 10% loss
+- 250ms +/- 20% + 10% loss
+- 500ms +/- 20% + 10% loss
+- 1s  +/- 20% + 10% loss
+- 2s  +/- 20% + 10% loss
+
+
+
+
+

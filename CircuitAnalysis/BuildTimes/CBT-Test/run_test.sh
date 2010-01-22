@@ -45,10 +45,12 @@ if [ -f $TOR_DATA/tor.pid ]; then
   fi
 fi
 
-for p in 0 10 20 30 40 50 60 70 80 90 100
-do
+do_run() {
+  p=$1
+  num=$2
+  redo=$3
   N=0
-  while [ $N -lt 5 ]
+  while [ $N -lt $num ]
   do
     if [ -f $TOR_DATA/tor.pid ]; then
       kill `cat $TOR_DATA/tor.pid`
@@ -62,7 +64,7 @@ do
 
     # Redo this run M=3 times
     M=0
-    while [ $M -lt 3 ]
+    while [ $M -lt $redo ]
     do
       if [ -f $TOR_DATA/tor.pid ]; then
         kill `cat $TOR_DATA/tor.pid`
@@ -77,5 +79,12 @@ do
     done
     N=`expr $N + 1`
   done
+}
+
+do_run 100 10 5
+
+for p in 0 10 20 30 40 50 60 70 80 90
+do
+  do_run $p 5 3
 done
 

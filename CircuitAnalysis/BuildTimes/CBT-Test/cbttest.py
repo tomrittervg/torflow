@@ -165,6 +165,10 @@ class BuildTimeoutTracker(PreEventListener):
   def __init__(self, cond):
     PreEventListener.__init__(self)
     self.cond = cond
+    self.cond.min_reset_cnt = 0
+    self.cond.min_reset_total = 0
+    self.cond.num_reset_cnt = 0
+    self.cond.num_reset_total = 0
     self.reset()
     self.reset_total = 0
     self.reset_cnt = 0
@@ -203,8 +207,8 @@ class BuildTimeoutTracker(PreEventListener):
         self.cond.acquire()
         self.cond.num_circs = -1
         self.cond.num_timeout = -1
-        self.cond.reset_cnt = self.reset_cnt
-        self.cond.reset_total = self.total_times
+        self.cond.num_reset_cnt = self.reset_cnt
+        self.cond.num_reset_total = self.total_times
         self.cond.notify()
         self.cond.release()
         return
@@ -234,8 +238,8 @@ class BuildTimeoutTracker(PreEventListener):
         self.cond.acquire()
         self.cond.num_circs = self.redo_cnt/2
         self.cond.num_timeout = bt_event.timeout_ms
-        self.cond.reset_cnt = self.reset_cnt
-        self.cond.reset_total = self.reset_total
+        self.cond.num_reset_cnt = self.reset_cnt
+        self.cond.num_reset_total = self.reset_total
         self.cond.notify()
         self.cond.release()
         return
@@ -279,6 +283,8 @@ class BuildTimeoutTracker(PreEventListener):
         self.cond.min_circs = self.reset_total+self.total_times \
                                 - self.fuzzy_streak_count
         self.cond.min_timeout = bt_event.timeout_ms
+        self.cond.min_reset_cnt = self.reset_cnt
+        self.cond.min_reset_total = self.reset_total
         shutil.copyfile('./tor-data/state', output_dir+"/state.min")
 
     strict_last = int(self.buildtimeout_strict.timeout_ms)
@@ -324,8 +330,8 @@ class BuildTimeoutTracker(PreEventListener):
           self.cond.num_circs = self.reset_total+self.total_times-\
                                     self.strict_streak_count
           self.cond.num_timeout = bt_event.timeout_ms
-          self.cond.reset_cnt = self.reset_cnt
-          self.cond.reset_total = self.reset_total
+          self.cond.num_reset_cnt = self.reset_cnt
+          self.cond.num_reset_total = self.reset_total
           self.cond.notify()
           self.cond.release()
 
@@ -334,7 +340,8 @@ def get_guards(c, n):
   sorted_rlist = filter(lambda r: not r.down,
                     c.read_routers(c.get_network_status()))
   sorted_rlist.sort(lambda x, y: cmp(y.bw, x.bw))
-  for i in xrange(len(sorted_rlist)): sorted_rlist[i].list_rank = i
+  list_len = len(sorted_rlist)
+  for i in xrange(list_len): sorted_rlist[i].list_rank = i
 
   guard_rst = PathSupport.FlagsRestriction(["Guard"], [])
 
@@ -344,6 +351,7 @@ def get_guards(c, n):
     pct_rst = PathSupport.PercentileRestriction(pct_start, pct_start+PCT_SKIP,
 sorted_rlist)
 
+  # XXX: Hrmm. UniformGenerator was broken?
   guard_gen = PathSupport.ExactUniformGenerator(sorted_rlist,
                 PathSupport.NodeRestrictionList([guard_rst, pct_rst]))
   guard_gen.rewind()
@@ -353,7 +361,9 @@ sorted_rlist)
   # Generate 3 guards
   guards = []
   for i in xrange(n):
-    guards.append(ggen.next())
+    g = ggen.next()
+    plog("NOTICE", str(pct_start)+"%: Generated guard $"+g.idhex+" with rank "+str(g.list_rank)+"/"+str(list_len)+" "+str(round((100.0*g.list_rank)/list_len, 1))+"% with flags "+str(g.flags))
+    guards.append(g)
 
   return guards
 
@@ -416,10 +426,12 @@ def open_controller(filename):
   if not redo_run:
     out.write("MIN_CIRCS: "+str(cond.min_circs)+"\n")
     out.write("MIN_TIMEOUT: "+str(cond.min_timeout)+"\n")
+    out.write("MIN_RESET_CNT: "+str(cond.min_reset_cnt)+"\n")
+    out.write("MIN_RESET_TOTAL: "+str(cond.min_reset_total)+"\n")
   out.write("NUM_CIRCS: "+str(cond.num_circs)+"\n")
   out.write("NUM_TIMEOUT: "+str(cond.num_timeout)+"\n")
-  out.write("RESET_CNT: "+str(cond.reset_cnt)+"\n")
-  out.write("RESET_TOTAL: "+str(cond.reset_total)+"\n")
+  out.write("NUM_RESET_CNT: "+str(cond.num_reset_cnt)+"\n")
+  out.write("NUM_RESET_TOTAL: "+str(cond.num_reset_total)+"\n")
   timeout_cnt = len(h.timeout_circs)
   built_cnt = len(h.built_circs)
   build_rate = float(built_cnt)/(built_cnt+timeout_cnt)
