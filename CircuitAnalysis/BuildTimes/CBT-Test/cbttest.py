@@ -74,8 +74,12 @@ class CircHandler(EventHandler):
 
   def heartbeat_event(self, event):
     if len(self.live_circs) < MAX_CIRCUITS:
-       circ_id = self.c.extend_circuit()
-       plog("INFO", "Launched circuit: "+str(circ_id))
+       try:
+         circ_id = self.c.extend_circuit()
+         plog("INFO", "Launched circuit: "+str(circ_id))
+       except TorCtl.ErrorReply, e:
+         plog("WARN", "Can't extend circuit: "+str(e))
+         #traceback.print_exc()
 
   def guard_event(self, event):
     changed = False
@@ -196,6 +200,12 @@ class BuildTimeoutTracker(PreEventListener):
     self.timeouts_file.write(bt_event.set_type+" "
                +str(bt_event.total_times)+" "+str(bt_event.timeout_ms)+"\n")
 
+    if bt_event.set_type == "RESUME":
+      plog("NOTICE",
+           "Got resume event. Resetting total count to: "+str(self.total_times))
+      self.total_times = bt_event.total_times
+      return
+
     # Need to handle RESET events..
     # Should these count towards our totals, or should we just start
     # over? Probably, but then that breaks a lot of our asserts
@@ -215,6 +225,9 @@ class BuildTimeoutTracker(PreEventListener):
       plog("NOTICE", str(pct_start)+"%: Got RESET event. Resetting counts")
       self.reset_total += self.total_times
       self.reset()
+      return
+
+    if bt_event.set_type != "COMPUTED":
       return
 
     if not self.total_times:
@@ -267,8 +280,14 @@ class BuildTimeoutTracker(PreEventListener):
       try: os.unlink(output_dir+"/state.min")
       except: pass
     elif not self.cond.min_circs:
-      assert(self.fuzzy_streak_count ==
-              (bt_event.total_times - self.buildtimeout_fuzzy.total_times))
+      if (self.fuzzy_streak_count != (bt_event.total_times -
+                 self.buildtimeout_fuzzy.total_times)):
+        plog("WARN",
+             "Fuzzy count doesn't match: "+str(self.fuzzy_streak_count)+
+             " != "+str(bt_event.total_times)
+                     +"-"+str(self.buildtimeout_fuzzy.total_times))
+        #assert(self.fuzzy_streak_count ==
+        #      (bt_event.total_times - self.buildtimeout_fuzzy.total_times))
       self.fuzzy_streak_count += 1
       if (self.fuzzy_streak_count >= self.total_times*FUZZY_RATIO):
         plog("NOTICE",
@@ -311,8 +330,8 @@ class BuildTimeoutTracker(PreEventListener):
              "Streak count doesn't match: "+str(self.strict_streak_count)+
              " != "+str(bt_event.total_times)
                      +"-"+str(self.buildtimeout_strict.total_times))
-        assert(self.strict_streak_count ==
-              (bt_event.total_times - self.buildtimeout_strict.total_times))
+        #assert(self.strict_streak_count ==
+        #      (bt_event.total_times - self.buildtimeout_strict.total_times))
       self.strict_streak_count += 1
       if (self.cond.min_circs and self.strict_streak_count >= self.total_times*STRICT_RATIO):
         plog("NOTICE",

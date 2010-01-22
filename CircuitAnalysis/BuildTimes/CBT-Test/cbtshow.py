@@ -51,6 +51,7 @@ def walk_single_pct(pct_dir):
         for ds in dirs:
           if re.match("^redo.[\d+]$", ds):
             for sr, sd, sf in os.walk(pct_dir+"/"+pct_run+"/"+ds):
+              built = num_circ = num_timeout = 0
               for f in sf:
                 if f == "result":
                   r = open(pct_dir+"/"+pct_run+"/"+ds+"/"+f)
@@ -73,7 +74,7 @@ def walk_single_pct(pct_dir):
                   built_succeed_tot += built
                   built_tot += total
                   redo_built_rates.append(float(built)/total)
-              if built <= 0 or num_circs <= 0 or num_timeout <= 0:
+              if built <= 0 or num_circ <= 0 or num_timeout <= 0:
                 continue
 
 

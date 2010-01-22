@@ -1,4 +1,3 @@
-
 - regular broadband run
 - 250ms +/- 20%
 - 500ms +/- 20%
@@ -17,7 +16,8 @@
 - 1s  +/- 20% + 10% loss
 - 2s  +/- 20% + 10% loss
 
-
+Plan: Only break down broadband results by percentile.
+Gather stats on ping times too
 
 
 
