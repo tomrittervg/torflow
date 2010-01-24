@@ -277,8 +277,13 @@ class BuildTimeoutTracker(PreEventListener):
       self.buildtimeout_fuzzy = None
       self.fuzzy_streak_count = 0
       self.cond.min_circs = 0
+      # Kill strict too...
+      self.buildtimeout_strict = None
+      self.strict_streak_count = 0
+      self.cond.num_circs = 0
       try: os.unlink(output_dir+"/state.min")
       except: pass
+      return
     elif not self.cond.min_circs:
       if (self.fuzzy_streak_count != (bt_event.total_times -
                  self.buildtimeout_fuzzy.total_times)):
