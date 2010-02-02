@@ -18,7 +18,7 @@ nodes = {}
 prev_consensus = {}
 
 # Hack to kill voting on guards while the network rebalances
-IGNORE_GUARDS = 1
+IGNORE_GUARDS = 0
 
 # BETA is the parameter that governs the proportion that we use previous
 # consensus values in creating new bandwitdhs versus descriptor values.
