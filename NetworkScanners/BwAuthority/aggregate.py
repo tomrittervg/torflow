@@ -71,11 +71,18 @@ def base10_round(bw_val):
   # to minimize changes for consensus diffs.
   # Resulting error is +/-0.5%
   if bw_val == 0:
-    plog("NOTICE", "Zero bandwidth!")
-    return 0
-  return int(max((1000,
+    plog("INFO", "Zero input bandwidth.. Upping to 1")
+    return 1
+  else:
+    ret = int(max((1000,
                    round(round(bw_val,-(int(math.log10(bw_val))-2)),
                                                        -3)))/1000)
+    if ret == 0:
+      plog("INFO", "Zero output bandwidth.. Upping to 1")
+      return 1
+    return ret
+
+
 
 def closest_to_one(ratio_list):
   min_dist = 0x7fffffff
@@ -238,7 +245,7 @@ def main(argv):
   if GUARD_BETA == -1:
     # Compute GUARD_BETA based on the upgrade rate for nsbw obeying routers
     # (karsten's data show this slightly underestimates client upgrade rate)
-    guardbw_yes = NodeRestrictionList([VersionRangeRestriction("0.2.1.22"),
+    guardbw_yes = NodeRestrictionList([VersionRangeRestriction("0.2.1.23"),
        NotNodeRestriction(VersionRangeRestriction("0.2.2.0", "0.2.2.6"))])
 
     if not sorted_rlist:
