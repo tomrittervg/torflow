@@ -254,7 +254,7 @@ def speedrace(hdlr, start_pct, stop_pct, circs_per_node, save_every, out_dir,
   # param in write_strm_bws to True
   hdlr.write_strm_bws(os.getcwd()+'/'+out_dir+'/bws-'+lo+':'+hi+"-done-"+time.strftime("20%y-%m-%d-%H:%M:%S"), slice_num, stats_filter=sqlalchemy.and_(SQLSupport.RouterStats.strm_closed >= min_streams, SQLSupport.RouterStats.filt_sbw >= 0, SQLSupport.RouterStats.sbw >=0 ))
   plog('DEBUG', 'Wrote stats')
-  hdlr.save_sql_file(sql_file, os.getcwd()+"/"+out_dir+"/bw-db-"+str(lo)+":"+str(hi)+"-"+time.strftime("20%y-%m-%d-%H:%M:%S")+".sqlite")
+  #hdlr.save_sql_file(sql_file, os.getcwd()+"/"+out_dir+"/bw-db-"+str(lo)+":"+str(hi)+"-"+time.strftime("20%y-%m-%d-%H:%M:%S")+".sqlite")
 
 def main(argv):
   TorUtil.read_config(argv[1])
