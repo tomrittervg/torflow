@@ -280,7 +280,7 @@ def main(argv):
   # Take the most recent timestamp from each scanner 
   # and use the oldest for the timestamp of the result.
   # That way we can ensure all the scanners continue running.
-  scanner_timestamps = []
+  scanner_timestamps = {}
   for da in argv[1:-1]:
     # First, create a list of the most recent files in the
     # scan dirs that are recent enough
@@ -309,7 +309,7 @@ def main(argv):
                 if slicenum not in timestamps or \
                      timestamps[slicenum] < timestamp:
                   timestamps[slicenum] = timestamp
-          scanner_timestamps.append(newest_timestamp)
+          scanner_timestamps[ds] = newest_timestamp
 
   # Need to only use most recent slice-file for each node..
   for (s,t,f) in bw_files:
@@ -443,10 +443,10 @@ def main(argv):
   n_print = nodes.values()
   n_print.sort(lambda x,y: int(y.change) - int(x.change))
 
-  scan_age = int(round(min(scanner_timestamps),0))
-
-  if scan_age < time.time() - MAX_SCAN_AGE:
-    plog("WARN", "Bandwidth scan stale. Possible dead bwauthority.py. Timestamp: "+time.ctime(scan_age))
+  for scanner in scanner_timestamps.iterkeys():
+    scan_age = int(round(scanner_timestamps[scanner],0))
+    if scan_age < time.time() - MAX_SCAN_AGE:
+      plog("WARN", "Bandwidth scanner "+scanner+" stale. Possible dead bwauthority.py. Timestamp: "+time.ctime(scan_age))
 
   out = file(argv[-1], "w")
   out.write(str(scan_age)+"\n")
