@@ -2685,6 +2685,7 @@ def main(argv):
   except Exception, e:
     traceback.print_exc()
     plog("WARN", "Can't connect to Tor: "+str(e))
+    return
 
   global datahandler
   datahandler = DataHandler()
