@@ -411,16 +411,21 @@ class Test:
       self.targets.extend(self.get_targets())
 
   def _remove_target_addr(self, target):
-    if target in self.targets: self.targets.remove(target)
+    if target in self.targets:
+      self.targets.remove(target)
 
   def remove_target(self, target, reason="None"):
     self.banned_targets.add(target)
     self.refill_targets()
     self._remove_target_addr(target)
-    if target in self.dynamic_fails: del self.dynamic_fails[target]
-    if target in self.successes: del self.successes[target]
-    if target in self.exit_fails: del self.exit_fails[target]
-    if target in self.connect_fails: del self.connect_fails[target]
+    if target in self.dynamic_fails:
+      del self.dynamic_fails[target]
+    if target in self.successes:
+      del self.successes[target]
+    if target in self.exit_fails:
+      del self.exit_fails[target]
+    if target in self.connect_fails:
+      del self.connect_fails[target]
     kill_results = []
     for r in self.results: 
       if r.site == target:
@@ -476,7 +481,8 @@ class Test:
     marked_nodes = sets.Set(self.node_results.keys())
     self.nodes -= marked_nodes # Remove marked nodes
     # Only scan the stuff loaded from the rescan
-    if self.rescan_nodes: self.nodes &= self.rescan_nodes
+    if self.rescan_nodes:
+      self.nodes &= self.rescan_nodes
     if not self.nodes:
       plog("ERROR", "No nodes remain after rescan load!")
     self.scan_nodes = len(self.nodes)
@@ -494,7 +500,8 @@ class Test:
       plog("ERROR", "Asked to mark a node that is not current: "+node+" vs "+exit_node)
     plog("INFO", "Marking "+node+" with result "+str(result))
     self.nodes_marked += 1
-    if not node in self.node_results: self.node_results[node] = []
+    if not node in self.node_results:
+      self.node_results[node] = []
     self.node_results[node].append(result)
     if len(self.node_results[node]) >= self.tests_per_node:
       self.nodes.remove(node)
@@ -512,7 +519,8 @@ class Test:
     return round(100.0 - (100.0*self.scan_nodes)/self.total_nodes, 1)
 
   def _remove_false_positive_type(self, failset, failtype, max_rate):
-    if self.rescan_nodes: return
+    if self.rescan_nodes:
+      return
     to_remove = copy.copy(failset)
     for address in to_remove:
       fails = len(failset[address])
@@ -586,18 +594,21 @@ class Test:
     return tot_cnt
 
   def register_success(self, result):
-    if self.rescan_nodes: result.from_rescan = True
+    if self.rescan_nodes:
+      result.from_rescan = True
     #datahandler.saveResult(result)
     if result.site in self.successes: 
       self.successes[result.site].add(result.exit_node)
-    else: self.successes[result.site]=sets.Set([result.exit_node])
+    else:
+      self.successes[result.site]=sets.Set([result.exit_node])
 
     win_cnt = len(self.successes[result.site])
     
     plog("INFO", self.proto+" success at "+result.exit_node+". This makes "+str(win_cnt)+"/"+str(self.site_tests(result.site))+" node successes for "+result.site)
 
   def _register_site_connect_failure(self, result): 
-    if self.rescan_nodes: result.from_rescan = True
+    if self.rescan_nodes:
+      result.from_rescan = True
     self.results.append(result)
     datahandler.saveResult(result)
     if result.site in self.connect_fails:
@@ -610,7 +621,8 @@ class Test:
     plog("ERROR", self.proto+" connection fail of "+result.reason+" at "+result.exit_node+". This makes "+str(err_cnt)+"/"+str(self.site_tests(result.site))+" node failures for "+result.site)
 
   def register_connect_failure(self, result):
-    if self.rescan_nodes: result.from_rescan = True
+    if self.rescan_nodes:
+      result.from_rescan = True
     if result.exit_node not in self.connect_fails_per_exit:
       self.connect_fails_per_exit[result.exit_node] = 0
     self.connect_fails_per_exit[result.exit_node] += 1
@@ -630,7 +642,8 @@ class Test:
       return TEST_INCONCLUSIVE
 
   def register_dns_failure(self, result):
-    if self.rescan_nodes: result.from_rescan = True
+    if self.rescan_nodes:
+      result.from_rescan = True
     if result.exit_node not in self.dns_fails_per_exit:
       self.dns_fails_per_exit[result.exit_node] = 0
     self.dns_fails_per_exit[result.exit_node] += 1
@@ -650,7 +663,8 @@ class Test:
       return TEST_INCONCLUSIVE
 
   def register_timeout_failure(self, result):
-    if self.rescan_nodes: result.from_rescan = True
+    if self.rescan_nodes:
+      result.from_rescan = True
     if result.exit_node not in self.timeout_fails_per_exit:
       self.timeout_fails_per_exit[result.exit_node] = 0
     self.timeout_fails_per_exit[result.exit_node] += 1
@@ -670,20 +684,23 @@ class Test:
       return TEST_INCONCLUSIVE
 
   def register_exit_failure(self, result):
-    if self.rescan_nodes: result.from_rescan = True
+    if self.rescan_nodes:
+      result.from_rescan = True
     datahandler.saveResult(result)
     self.results.append(result)
 
     if result.site in self.exit_fails: 
       self.exit_fails[result.site].add(result.exit_node)
-    else: self.exit_fails[result.site] = sets.Set([result.exit_node])
+    else:
+      self.exit_fails[result.site] = sets.Set([result.exit_node])
 
     err_cnt = len(self.exit_fails[result.site])
 
     plog("ERROR", self.proto+" exit-only fail of "+result.reason+" at "+result.exit_node+". This makes "+str(err_cnt)+"/"+str(self.site_tests(result.site))+" node failures for "+result.site)
 
   def register_dynamic_failure(self, result):
-    if self.rescan_nodes: result.from_rescan = True
+    if self.rescan_nodes:
+      result.from_rescan = True
     self.results.append(result)
     datahandler.saveResult(result)
     if result.site in self.dynamic_fails:
@@ -790,15 +807,20 @@ class SearchBasedTest(Test):
             if a[0] == "class" and search_mode["class"] in a[1]:
               skip = False
               break
-          if skip: continue
+          if skip:
+            continue
           if link.has_key(search_mode['realtgt']):
             url = link[search_mode['realtgt']]
           else:
             url = link['href']
-          if protocol == 'any': prot_list = None
-          else: prot_list = [protocol]
-          if filetype == 'any': file_list = None
-          else: file_list = filetypes
+          if protocol == 'any':
+            prot_list = None
+          else:
+            prot_list = [protocol]
+          if filetype == 'any':
+            file_list = None
+          else:
+            file_list = filetypes
 
           if self._is_useable_url(url, prot_list, file_list):
             if host_only:
@@ -854,7 +876,8 @@ class HTTPTest(SearchBasedTest):
       result = CookieTestResult(self.node_map[exit_node[1:]],
                           TEST_FAILURE, FAILURE_COOKIEMISMATCH, plain_cookies, 
                           tor_cookies)
-      if self.rescan_nodes: result.from_rescan = True
+      if self.rescan_nodes:
+        result.from_rescan = True
       self.results.append(result)
       datahandler.saveResult(result)
       return TEST_FAILURE
@@ -879,15 +902,19 @@ class HTTPTest(SearchBasedTest):
       # FIXME: Set referrer to random or none for each of these
       address = random.choice(self.targets[ftype])
       result = self.check_http(address)
-      if result == TEST_INCONCLUSIVE: n_inconclusive += 1
-      if result == TEST_FAILURE: n_fail += 1
-      if result == TEST_SUCCESS: n_success += 1
+      if result == TEST_INCONCLUSIVE:
+        n_inconclusive += 1
+      if result == TEST_FAILURE:
+        n_fail += 1
+      if result == TEST_SUCCESS:
+        n_success += 1
 
     # Cookie jars contain locks and can't be pickled. Clear them away.
     self.tor_cookie_jar = None
     self.cookie_jar = None
   
-    if n_fail: return TEST_FAILURE
+    if n_fail:
+      return TEST_FAILURE
     elif n_inconclusive > 2*n_success: # > 66% inconclusive -> redo
       return TEST_INCONCLUSIVE
     else:
@@ -895,11 +922,13 @@ class HTTPTest(SearchBasedTest):
 
   def _remove_target_addr(self, target):
     for ftype in self.targets:
-      if target in self.targets[ftype]: self.targets[ftype].remove(target)
+      if target in self.targets[ftype]:
+        self.targets[ftype].remove(target)
 
   def remove_target(self, address, reason):
     SearchBasedTest.remove_target(self, address, reason)
-    if address in self.httpcode_fails: del self.httpcode_fails[address]
+    if address in self.httpcode_fails:
+      del self.httpcode_fails[address]
 
   def refill_targets(self):
     for ftype in self.targets:
@@ -934,7 +963,8 @@ class HTTPTest(SearchBasedTest):
     return tot_cnt
     
   def register_http_failure(self, result): # XXX: Currently deadcode
-    if self.rescan_nodes: result.from_rescan = True
+    if self.rescan_nodes:
+      result.from_rescan = True
     self.results.append(result)
     datahandler.saveResult(result)
     if result.site in self.httpcode_fails:
@@ -1046,7 +1076,8 @@ class HTTPTest(SearchBasedTest):
       plog('NOTICE', 'We had no exit node to test, skipping to the next test.')
       result = HttpTestResult(None, 
                               address, TEST_INCONCLUSIVE, INCONCLUSIVE_NOEXIT)
-      if self.rescan_nodes: result.from_rescan = True
+      if self.rescan_nodes:
+        result.from_rescan = True
       self.results.append(result)
       datahandler.saveResult(result)
 
@@ -1174,7 +1205,8 @@ class HTTPTest(SearchBasedTest):
       result = HttpTestResult(self.node_map[exit_node[1:]], 
                               address, TEST_INCONCLUSIVE, 
                               INCONCLUSIVE_NOLOCALCONTENT)
-      if self.rescan_nodes: result.from_rescan = True
+      if self.rescan_nodes:
+        result.from_rescan = True
       self.results.append(result)
       datahandler.saveResult(result)
       return TEST_INCONCLUSIVE
@@ -1238,7 +1270,8 @@ class HTTPTest(SearchBasedTest):
     
     if not ((mime_type == mime_type_new or not mime_type) \
                and mime_type_new == pmime_type):
-      if not mime_type: mime_type = "text/disk"
+      if not mime_type:
+        mime_type = "text/disk"
       plog("WARN", "Mime type change: 1st: "+mime_type+", 2nd: "+mime_type_new+", Tor: "+pmime_type)
       # TODO: If this actually happens, store a result.
 
@@ -1284,7 +1317,8 @@ class HTTPTest(SearchBasedTest):
                             content_prefix+".content", exit_content_file.name, 
                             content_prefix+'.content-old',
                             sha1sum.hexdigest())
-    if self.rescan_nodes: result.from_rescan = True
+    if self.rescan_nodes:
+      result.from_rescan = True
     self.results.append(result)
     datahandler.saveResult(result)
 
@@ -1345,8 +1379,10 @@ class HTMLTest(HTTPTest):
         self.headers.append(('Referer', referer))
       # Technically both html and js tests check and dispatch via mime types
       # but I want to know when link tags lie
-      if test == "html" or test == "http": result = self.check_html(url)
-      elif test == "js": result = self.check_js(url)
+      if test == "html" or test == "http":
+        result = self.check_html(url)
+      elif test == "js":
+        result = self.check_js(url)
       elif test == "image":
         accept_hdr = filter(lambda h: h[0] == "Accept", self.headers)[0]
         orig_accept = accept_hdr[1]
@@ -1356,15 +1392,19 @@ class HTMLTest(HTTPTest):
       else: 
         plog("WARN", "Unknown test type: "+test+" for "+url)
         result = TEST_SUCCESS
-      if result == TEST_INCONCLUSIVE: n_inconclusive += 1
-      if result == TEST_FAILURE: n_fail += 1
-      if result == TEST_SUCCESS: n_success += 1
+      if result == TEST_INCONCLUSIVE:
+        n_inconclusive += 1
+      if result == TEST_FAILURE:
+        n_fail += 1
+      if result == TEST_SUCCESS:
+        n_success += 1
 
     # Need to clear because the cookiejars use locks...
     self.tor_cookie_jar = None
     self.cookie_jar = None
 
-    if n_fail: return TEST_FAILURE
+    if n_fail:
+      return TEST_FAILURE
     elif 2*n_inconclusive > n_success: # > 33% inconclusive -> redo
       return TEST_INCONCLUSIVE
     else:
@@ -1374,8 +1414,10 @@ class HTMLTest(HTTPTest):
   # the HTTPTest stores URLs so we don't have to do this.
   def _remove_target_addr(self, target):
     Test._remove_target_addr(self, target)
-    if target in self.soupdiffer_files: del self.soupdiffer_files[target]
-    if target in self.jsdiffer_files: del self.jsdiffer_files[target]
+    if target in self.soupdiffer_files:
+      del self.soupdiffer_files[target]
+    if target in self.jsdiffer_files:
+      del self.jsdiffer_files[target]
 
   def refill_targets(self):
     Test.refill_targets(self)
@@ -1437,7 +1479,8 @@ class HTMLTest(HTTPTest):
     loaded = sets.Set([])
 
     for i in targets:
-      if i[1] in loaded: continue
+      if i[1] in loaded:
+        continue
       loaded.add(i[1])
       if self._is_useable_url(i[1], html_schemes):
         plog("NOTICE", "Adding "+i[0]+" target: "+i[1])
@@ -1570,7 +1613,8 @@ class HTMLTest(HTTPTest):
       result = HtmlTestResult(self.node_map[exit_node[1:]], 
                               address, TEST_INCONCLUSIVE, 
                               INCONCLUSIVE_NOLOCALCONTENT)
-      if self.rescan_nodes: result.from_rescan = True
+      if self.rescan_nodes:
+        result.from_rescan = True
       self.results.append(result)
       datahandler.saveResult(result)
       return TEST_INCONCLUSIVE
@@ -1652,10 +1696,12 @@ class HTMLTest(HTTPTest):
 
     if os.path.exists(content_prefix+".jsdiff"):
       jsdiff_file = content_prefix+".jsdiff"
-    else: jsdiff_file = None
+    else:
+      jsdiff_file = None
     if os.path.exists(content_prefix+".soupdiff"):
       soupdiff_file = content_prefix+".soupdiff"
-    else: soupdiff_file = None
+    else:
+      soupdiff_file = None
 
     result = HtmlTestResult(self.node_map[exit_node[1:]], 
                             address, TEST_FAILURE, FAILURE_DYNAMIC, 
@@ -1806,7 +1852,8 @@ class SSLTest(SearchBasedTest):
         result = SSLTestResult("NoExit", "NotStored!", address, ssl_file_name, 
                                TEST_INCONCLUSIVE,
                                INCONCLUSIVE_DYNAMICSSL)
-        if self.rescan_nodes: result.from_rescan = True
+        if self.rescan_nodes:
+          result.from_rescan = True
         datahandler.saveResult(result)
         self.results.append(result)
         self.remove_target(address, FALSEPOSITIVE_DYNAMIC)
@@ -1817,7 +1864,8 @@ class SSLTest(SearchBasedTest):
         result = SSLTestResult("NoExit", "NoStored!", address, ssl_file_name, 
                                TEST_INCONCLUSIVE,
                                INCONCLUSIVE_NOLOCALCONTENT)
-        if self.rescan_nodes: result.from_rescan = True
+        if self.rescan_nodes:
+          result.from_rescan = True
         datahandler.saveResult(result)
         self.results.append(result)
         self.remove_target(address, FALSEPOSITIVE_DEADSITE)
@@ -1841,7 +1889,8 @@ class SSLTest(SearchBasedTest):
       result = SSLTestResult(None,
                               address, ssl_file_name, TEST_INCONCLUSIVE,
                               INCONCLUSIVE_NOEXIT)
-      if self.rescan_nodes: result.from_rescan = True
+      if self.rescan_nodes:
+        result.from_rescan = True
       self.results.append(result)
       datahandler.saveResult(result)
       return TEST_INCONCLUSIVE
@@ -2532,7 +2581,8 @@ def decompress_response_data(response):
   data = ""
   while True:
     data_read = response.read(500) # Cells are 495 bytes..
-    if not start: start = time.time()
+    if not start:
+      start = time.time()
     # TODO: if this doesn't work, check stream observer for 
     # lack of progress.. or for a sign we should read..
     len_read = len(data)
@@ -2786,9 +2836,12 @@ def main(argv):
     common_nodes = None
     # Do set intersection and reuse nodes for shared tests
     for test in to_run:
-      if test.finished(): continue
-      if not common_nodes: common_nodes = copy.copy(test.nodes)
-      else: common_nodes &= test.nodes
+      if test.finished():
+        continue
+      if not common_nodes:
+        common_nodes = copy.copy(test.nodes)
+      else:
+        common_nodes &= test.nodes
       scanhdlr._sanity_check(map(lambda id: test.node_map[id],
                                              test.nodes))
 
@@ -2808,7 +2861,8 @@ def main(argv):
     else:
       plog("NOTICE", "No nodes in common between "+", ".join(map(lambda t: t.proto, to_run)))
       for test in to_run:
-        if test.finished(): continue
+        if test.finished():
+          continue
         current_exit = test.get_node()
         scanhdlr.set_exit_node("$"+current_exit_idhex)
         scanhdlr.new_exit()
