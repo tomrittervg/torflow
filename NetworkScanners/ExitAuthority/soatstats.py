@@ -9,8 +9,8 @@ import pickle
 import sys
 import time
 
-import sets
-from sets import Set
+if sys.version_info < (2, 5):
+    from sets import Set as set
 
 import libsoat
 from libsoat import *
@@ -37,7 +37,7 @@ def main(argv):
 
   reason_counts = {}
   nodeResults = {}
-  tests = Set([])
+  tests = set([])
 
   total = len(data)
 

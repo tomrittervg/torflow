@@ -14,12 +14,13 @@ import copy
 import socket
 import struct
 
+if sys.version_info < (2, 5):
+    from sets import Set as set
+
 from OpenSSL import crypto
 
 from soat import Tag, SoupStrainer
 
-import sets
-from sets import Set
 from soat_config_real import *
 
 sys.path.append("../../")
@@ -692,7 +693,7 @@ class DataHandler:
 # These three bits are needed to fully recursively strain the parsed soup.
 # For some reason, the SoupStrainer does not get applied recursively..
 __first_strainer = SoupStrainer(lambda name, attrs: name in tags_to_check or 
-   len(Set(map(lambda a: a[0], attrs)).intersection(Set(attrs_to_check))) > 0)
+   len(set(map(lambda a: a[0], attrs)).intersection(set(attrs_to_check))) > 0)
 
 def __tag_not_worthy(tag):
   if tag.name in tags_to_check:
@@ -804,19 +805,19 @@ class SoupDiffer:
     pass
 
   def _get_tags(self, soup):
-    return sets.Set(map(str, 
+    return set(map(str,
            [tag for tag in soup.findAll() if isinstance(tag, Tag)]))
 
   def _get_attributes(self, soup):
     attr_soup = [(tag.name, tag.attrs) for tag in soup.findAll()]
-    attrs = sets.Set([])
+    attrs = set([])
     for (tag, attr_list) in attr_soup:
       for at in attr_list:
         attrs.add((tag, at)) 
     return attrs
 
   def _get_content(self, soup):
-    return sets.Set(map(str, 
+    return set(map(str,
       [tag for tag in soup.findAll() if not isinstance(tag, Tag)]))
   
   def _update_changed_tag_map(self, tags_old, tags_new):
@@ -826,7 +827,7 @@ class SoupDiffer:
     for tags in map(TheChosenSoup, changed_tags):
       for t in tags.findAll():
         if t.name not in changed_tags:
-          self.changed_tag_map[t.name] = sets.Set([])
+          self.changed_tag_map[t.name] = set([])
         for attr in t.attrs:
           self.changed_tag_map[t.name].add(attr[0])
 
@@ -837,7 +838,7 @@ class SoupDiffer:
     changed_attributes = list(attrs_new - attrs_old)
     for (tag, attr) in changed_attributes:
       if tag not in self.changed_attr_map:
-        self.changed_attr_map[tag] = sets.Set([])
+        self.changed_attr_map[tag] = set([])
       self.changed_attr_map[tag].add(attr[0])
 
   def _update_changed_content(self, content_old, content_new):
@@ -853,9 +854,9 @@ class SoupDiffer:
     self._update_changed_tag_map(self.tag_pool, tags)
     self._update_changed_attr_map(self.attr_pool, attrs)
     self._update_changed_content(self.content_pool, cntnt)
-    self.tag_pool.union_update(tags)
-    self.attr_pool.union_update(attrs)
-    self.content_pool.union_update(cntnt)
+    self.tag_pool.update(tags)
+    self.attr_pool.update(attrs)
+    self.content_pool.update(cntnt)
 
   def show_changed_tags(self, soup):
     soup_tags = self._get_tags(soup)
@@ -894,8 +895,8 @@ class SoupDiffer:
 
 class HeaderDiffer:
   def __init__(self, orig_headers):
-    self.header_pool = sets.Set(orig_headers)
-    self.changed_headers = sets.Set([])
+    self.header_pool = set(orig_headers or [])
+    self.changed_headers = set([])
     self._pickle_revision = 0
  
   def filter_headers(headers):
@@ -906,22 +907,22 @@ class HeaderDiffer:
         if re.match(i, h[0]):
           matched = True
       if not matched: ret.append(h)
-    return sets.Set(ret)
+    return set(ret)
   filter_headers = Callable(filter_headers)
  
   def depickle_upgrade(self):
     pass
 
   def prune_differences(self, new_headers):
-    new_headers = sets.Set(new_headers)
+    new_headers = set(new_headers or [])
     changed = new_headers - self.header_pool
     for i in changed:
       self.changed_headers.add(i[0])
-    self.header_pool.union_update(new_headers)
+    self.header_pool.update(new_headers)
 
   def show_differences(self, new_headers):
     ret = ""
-    changed = sets.Set(new_headers) - self.header_pool
+    changed = set(new_headers or []) - self.header_pool
     for i in changed:
       if i[0] not in self.changed_headers:
         ret += " "+i[0]+": "+i[1]+"\n"

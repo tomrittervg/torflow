@@ -48,6 +48,9 @@ import Queue
 import threading
 import atexit
 
+if sys.version_info < (2, 5):
+    from sets import Set as set
+
 # Import the correct BeautifulSoup
 try:
     # Try system-wide BeautifulSoup
@@ -230,7 +233,7 @@ class ExitScanHandler(ScanSupport.ScanHandler):
 
     # get the structure
     routers = self.c.read_routers(self.c.get_network_status())
-    bad_exits = Set([])
+    bad_exits = set([])
     specific_bad_exits = [None]*len(ports_to_check)
     for i in range(len(ports_to_check)):
       specific_bad_exits[i] = []
@@ -360,10 +363,10 @@ class Test:
     self.port = port
     self.min_targets = min_targets
     self.filename = None
-    self.rescan_nodes = sets.Set([])
-    self.nodes = sets.Set([])
+    self.rescan_nodes = set([])
+    self.nodes = set([])
     self.node_map = {}
-    self.banned_targets = sets.Set([])
+    self.banned_targets = set([])
     self.total_nodes = 0
     self.scan_nodes = 0
     self.nodes_to_mark = 0
@@ -386,7 +389,7 @@ class Test:
       
       for addr in self.successes.keys():
         if type(self.successes[addr]) == int:
-          self.successes[addr] = sets.Set(xrange(0,self.successes[addr]))
+          self.successes[addr] = set(xrange(0,self.successes[addr]))
       plog("INFO", "Upgraded "+self.__class__.__name__+" to v1")
     if self._pickle_revision < 2: 
       self._pickle_revision = 2
@@ -445,7 +448,7 @@ class Test:
       self.results.remove(r)
 
   def load_rescan(self, type, since=None):
-    self.rescan_nodes = sets.Set([])
+    self.rescan_nodes = set([])
     results = datahandler.getAll()
     for r in results:
       if r.status == type:
@@ -461,7 +464,7 @@ class Test:
   def toggle_rescan(self):
     if self.rescan_nodes:
       plog("NOTICE", self.proto+" rescan complete. Switching back to normal scan")
-      self.rescan_nodes = sets.Set([])
+      self.rescan_nodes = set([])
       self.tests_per_node = num_tests_per_node
       self.update_nodes()
     else:
@@ -477,8 +480,8 @@ class Test:
     for n in nodes: 
       self.node_map[n.idhex] = n
     self.total_nodes = len(nodes)
-    self.nodes = sets.Set(map(lambda n: n.idhex, nodes))
-    marked_nodes = sets.Set(self.node_results.keys())
+    self.nodes = set(map(lambda n: n.idhex, nodes))
+    marked_nodes = set(self.node_results.keys())
     self.nodes -= marked_nodes # Remove marked nodes
     # Only scan the stuff loaded from the rescan
     if self.rescan_nodes:
@@ -600,7 +603,7 @@ class Test:
     if result.site in self.successes: 
       self.successes[result.site].add(result.exit_node)
     else:
-      self.successes[result.site]=sets.Set([result.exit_node])
+      self.successes[result.site]=set([result.exit_node])
 
     win_cnt = len(self.successes[result.site])
     
@@ -614,7 +617,7 @@ class Test:
     if result.site in self.connect_fails:
       self.connect_fails[result.site].add(result.exit_node)
     else:
-      self.connect_fails[result.site] = sets.Set([result.exit_node])
+      self.connect_fails[result.site] = set([result.exit_node])
     
     err_cnt = len(self.connect_fails[result.site])
 
@@ -692,7 +695,7 @@ class Test:
     if result.site in self.exit_fails: 
       self.exit_fails[result.site].add(result.exit_node)
     else:
-      self.exit_fails[result.site] = sets.Set([result.exit_node])
+      self.exit_fails[result.site] = set([result.exit_node])
 
     err_cnt = len(self.exit_fails[result.site])
 
@@ -706,7 +709,7 @@ class Test:
     if result.site in self.dynamic_fails:
       self.dynamic_fails[result.site].add(result.exit_node)
     else:
-      self.dynamic_fails[result.site] = sets.Set([result.exit_node])
+      self.dynamic_fails[result.site] = set([result.exit_node])
 
     err_cnt = len(self.dynamic_fails[result.site])
 
@@ -755,9 +758,9 @@ class SearchBasedTest(Test):
     '''
     plog('INFO', 'Searching google for relevant sites...')
   
-    urllist = Set([])
+    urllist = set([])
     for filetype in filetypes:
-      type_urls = Set([])
+      type_urls = set([])
   
       while len(type_urls) < results_per_type:
         query = random.choice(self.wordlist)
@@ -837,8 +840,8 @@ class SearchBasedTest(Test):
 
       # make sure we don't get more urls than needed
       if len(type_urls) > results_per_type:
-        type_urls = Set(random.sample(type_urls, results_per_type))
-      urllist.union_update(type_urls)
+        type_urls = set(random.sample(type_urls, results_per_type))
+      urllist.update(type_urls)
        
     return list(urllist)
 
@@ -970,7 +973,7 @@ class HTTPTest(SearchBasedTest):
     if result.site in self.httpcode_fails:
       self.httpcode_fails[result.site].add(result.exit_node)
     else:
-      self.httpcode_fails[result.site] = sets.Set([result.exit_node])
+      self.httpcode_fails[result.site] = set([result.exit_node])
     
     err_cnt = len(self.httpcode_fails[result.site])
 
@@ -1365,7 +1368,7 @@ class HTMLTest(HTTPTest):
     address = random.choice(self.targets)
     
     # Keep a trail log for this test and check for loops
-    fetched = sets.Set([])
+    fetched = set([])
 
     self.fetch_queue.append(("html", address, first_referer))
     n_success = n_fail = n_inconclusive = 0 
@@ -1476,7 +1479,7 @@ class HTMLTest(HTTPTest):
     if not found_favicon:
       targets.insert(0, ("image", urlparse.urljoin(orig_addr, "/favicon.ico")))
 
-    loaded = sets.Set([])
+    loaded = set([])
 
     for i in targets:
       if i[1] in loaded:
@@ -1593,7 +1596,7 @@ class HTMLTest(HTTPTest):
     # Also find recursive urls
     recurse_elements = SoupStrainer(lambda name, attrs: 
         name in tags_to_recurse and 
-       len(Set(map(lambda a: a[0], attrs)).intersection(Set(attrs_to_recurse))) > 0)
+       len(set(map(lambda a: a[0], attrs)).intersection(set(attrs_to_recurse))) > 0)
     self._add_recursive_targets(TheChosenSoup(tor_html.decode('ascii',
                                    'ignore'), recurse_elements), address) 
 
@@ -2457,7 +2460,7 @@ class DNSTest(Test):
       return TEST_SUCCESS
 
     exit_node = "$"+exit_node.idhex
-    ips_d = Set([])
+    ips_d = set([])
     try:
       results = socket.getaddrinfo(address,None)
       for result in results:
