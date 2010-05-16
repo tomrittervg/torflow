@@ -13,9 +13,10 @@ import re
 import copy
 import socket
 import struct
-sys.path.append("../libs")
+
 from OpenSSL import crypto
-from BeautifulSoup.BeautifulSoup import Tag, SoupStrainer
+
+from soat import Tag, SoupStrainer
 
 import sets
 from sets import Set

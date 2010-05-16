@@ -10,7 +10,7 @@ import sys
 sys.path.append("../../")
 from TorCtl.PathSupport import *
 
-from BeautifulSoup.BeautifulSoup import BeautifulSoup
+from soat import BeautifulSoup
 
 # Keywords from these files are used  when searching for 'random' urls 
 # for testing. They can be the same file, or different files.

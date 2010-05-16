@@ -48,10 +48,25 @@ import Queue
 import threading
 import atexit
 
+# Import the correct BeautifulSoup
+try:
+    # Try system-wide BeautifulSoup
+    from BeautifulSoup import __version__ as BS_version
+except ImportError:
+    # Use static version if it's not found
+    sys.path.insert(0, "../libs/BeautifulSoup")
+else:
+    # For now, if system-wide version is newer than 3.1
+    # use the static version
+    if BS_version.split(".") >= ['3','1','0','0']:
+        del sys.modules['BeautifulSoup']
+        sys.path.insert(0, "../libs/BeautifulSoup")
+from BeautifulSoup import Tag, SoupStrainer, BeautifulSoup
 
-sys.path.append("../../")
 
 from libsoat import *
+
+sys.path.append("../../")
 
 from TorCtl import TorUtil, TorCtl, PathSupport, ScanSupport
 from TorCtl.TorUtil import *
@@ -64,16 +79,16 @@ from OpenSSL import *
 from soat_config_real import *
 
 
-sys.path.append("../libs/")
+sys.path.insert(0,"../libs")
 
 # Make our SocksiPy use our socket
 __origsocket = socket.socket
 socket.socket = PathSupport.SmartSocket
-from SocksiPy import socks
+import SocksiPy.socks as socks
 socket.socket = __origsocket
 
-from BeautifulSoup.BeautifulSoup import SoupStrainer, Tag
-import Pyssh.pyssh
+
+import Pyssh.pyssh as pyssh
 
 
 # XXX: really need to standardize on $idhex or idhex :(
