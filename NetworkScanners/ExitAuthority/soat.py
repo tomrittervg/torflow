@@ -24,29 +24,31 @@ To run SoaT:
 
 __all__ = ["ExitNodeScanner", "DNSRebindScanner", "load_wordlist"]
 
+import atexit
 import commands
+import cookielib
+import copy
 import getopt
+import httplib
 import os
 import random
 import re
-from sets import Set
+import sha
 import smtplib
 import socket
 import sys
+import threading
 import time
+import traceback
 import urllib
 import urllib2
-import httplib
-import traceback
-import copy
-import StringIO
-import zlib,gzip
 import urlparse
-import cookielib
-import sha
+import zlib,gzip
+
 import Queue
-import threading
-import atexit
+import StringIO
+
+from OpenSSL import SSL, crypto
 
 if sys.version_info < (2, 5):
     from sets import Set as set
@@ -60,7 +62,7 @@ except ImportError:
     sys.path.insert(0, "../libs/BeautifulSoup")
 else:
     # For now, if system-wide version is newer than 3.1
-    # use the static version
+    # use the static version instead
     if BS_version.split(".") >= ['3','1','0','0']:
         del sys.modules['BeautifulSoup']
         sys.path.insert(0, "../libs/BeautifulSoup")
@@ -68,31 +70,20 @@ from BeautifulSoup import Tag, SoupStrainer, BeautifulSoup
 
 
 from libsoat import *
-
-sys.path.append("../../")
-
-from TorCtl import TorUtil, TorCtl, PathSupport, ScanSupport
-from TorCtl.TorUtil import *
-from TorCtl.PathSupport import *
-from TorCtl.TorCtl import Connection, EventHandler, ConsensusTracker
-
-import OpenSSL
-from OpenSSL import *
-
 from soat_config_real import *
 
+sys.path.append("../../")
+from TorCtl import TorUtil, TorCtl, PathSupport, ScanSupport
+from TorCtl.TorUtil import plog
 
 sys.path.insert(0,"../libs")
-
 # Make our SocksiPy use our socket
 __origsocket = socket.socket
 socket.socket = PathSupport.SmartSocket
 import SocksiPy.socks as socks
 socket.socket = __origsocket
 
-
 import Pyssh.pyssh as pyssh
-
 
 # XXX: really need to standardize on $idhex or idhex :(
 # The convention in TorCtl is that nicks have no $, and ids have $.
@@ -1762,7 +1753,7 @@ class SSLTest(SearchBasedTest):
       return (-float(e.value[0]), None,  e.__class__.__name__+str(e))
     except KeyboardInterrupt:
       raise KeyboardInterrupt
-    except OpenSSL.crypto.Error, e:
+    except crypto.Error, e:
       traceback.print_exc()
       return (-23.0, None, e.__class__.__name__+str(e))
     except Exception, e:
@@ -1953,7 +1944,7 @@ class SSLTest(SearchBasedTest):
     try:
       # get an easily comparable representation of the certs
       cert_pem = crypto.dump_certificate(crypto.FILETYPE_PEM, cert)
-    except OpenSSL.crypto.Error, e:
+    except crypto.Error, e:
       result = SSLTestResult(self.node_map[exit_node[1:]],
                    address, ssl_file_name, TEST_FAILURE, FAILURE_CRYPTOERROR)
       self.extra_info=e.__class__.__name__+str(e)
@@ -2076,7 +2067,7 @@ class POP3STest(Test):
       plog('WARN', e)
       socket.socket = defaultsocket
       return TEST_INCONCLUSIVE
-    except OpenSSL.SSL.SysCallError, e:
+    except SSL.SysCallError, e:
       plog('WARN', 'Error while negotiating an SSL connection to ' + address + ':' + port)
       plog('WARN', e)
       socket.socket = defaultsocket
@@ -2156,7 +2147,7 @@ class POP3STest(Test):
       plog('WARN', e)
       socket.socket = defaultsocket
       return TEST_INCONCLUSIVE
-    except OpenSSL.SSL.SysCallError, e:
+    except SSL.SysCallError, e:
       plog('WARN', 'Error while negotiating an SSL connection to ' + address + ':' + port)
       plog('WARN', e)
       socket.socket = defaultsocket
@@ -2356,7 +2347,7 @@ class IMAPSTest(Test):
       plog('WARN', e)
       socket.socket = defaultsocket
       return TEST_INCONCLUSIVE
-    except OpenSSL.SSL.SysCallError, e:
+    except SSL.SysCallError, e:
       plog('WARN', 'Error while negotiating an SSL connection to ' + address + ':' + port)
       plog('WARN', e)
       socket.socket = defaultsocket
@@ -2426,7 +2417,7 @@ class IMAPSTest(Test):
       plog('WARN', e)
       socket.socket = defaultsocket
       return TEST_INCONCLUSIVE
-    except OpenSSL.SSL.SysCallError, e:
+    except SSL.SysCallError, e:
       plog('WARN', 'Error while negotiating an SSL connection to ' + address + ':' + port)
       plog('WARN', e)
       socket.socket = defaultsocket
@@ -2510,13 +2501,13 @@ class Client:
       response = response[:-1]
     return response 
 
-class DNSRebindScanner(EventHandler):
+class DNSRebindScanner(TorCtl.EventHandler):
   ''' 
   A tor control event handler extending TorCtl.EventHandler 
   Monitors for REMAP events (see check_dns_rebind())
   '''
   def __init__(self, mt, c):
-    EventHandler.__init__(self)
+    TorCtl.EventHandler.__init__(self)
     self.__mt = mt
     c.set_event_handler(self)
     c.set_events([TorCtl.EVENT_TYPE.STREAM], True)

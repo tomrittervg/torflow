@@ -2,17 +2,17 @@
 #
 # Common code to soat
 
+import copy
+import difflib
 import operator
 import os
 import pickle
+import re
+import socket
+import struct
 import sys
 import time
 import traceback
-import difflib
-import re
-import copy
-import socket
-import struct
 
 if sys.version_info < (2, 5):
     from sets import Set as set
@@ -32,6 +32,29 @@ import antlr3
 from JavaScriptParser import tokenNames as JSTokenNames
 from JavaScriptLexer import JavaScriptLexer
 from JavaScriptParser import JavaScriptParser
+
+
+__all__ = [ # Classes
+           "LoggingJSParser", "LoggingJSLexer", "TestResult", "SSLTestResult", "SSLDomain", "HttpTestResult",
+           "CookieTestResult", "JsTestResult", "HtmlTestResult", "SSHTestResult", "DNSTestResult",
+           "DNSRebindTestResult", "SMTPTestResult", "IMAPTestResult", "POPTestResult", "DataHandler",
+           "SnakePickler", "SoupDiffer", "HeaderDiffer", "JSDiffer", "JSSoupDiffer",
+            # Functions
+           "FullyStrainedSoup",
+            # Constants
+           "TEST_SUCCESS", "TEST_INCONCLUSIVE", "TEST_FAILURE",
+           "RESULT_STRINGS", "RESULT_CODES",
+           "INCONCLUSIVE_NOLOCALCONTENT", "INCONCLUSIVE_DYNAMICSSL",
+           "INCONCLUSIVE_TORBREAKAGE", "INCONCLUSIVE_NOEXIT",
+           "FAILURE_EXITONLY", "FAILURE_DYNAMIC", "FAILURE_COOKIEMISMATCH", "FAILURE_BADHTTPCODE",
+           "FAILURE_NOEXITCONTENT", "FAILURE_EXITTRUNCATION", "FAILURE_SOCKSERROR",
+           "FAILURE_HOSTUNREACH", "FAILURE_NETUNREACH", "FAILURE_EXITPOLICY",
+           "FAILURE_CONNREFUSED", "FAILURE_CONNERROR", "FAILURE_URLERROR", "FAILURE_CRYPTOERROR",
+           "FAILURE_TIMEOUT", "FAILURE_HEADERCHANGE", "FAILURE_MISCEXCEPTION",
+           "FALSEPOSITIVE_HTTPERRORS", "FALSEPOSITIVE_DYNAMIC", "FALSEPOSITIVE_DYNAMIC_TOR",
+           "FALSEPOSITIVE_DEADSITE"
+          ]
+
 
 class LoggingJSParser(JavaScriptParser):
   def __init__(self, tokens):
