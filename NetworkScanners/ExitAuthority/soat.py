@@ -259,7 +259,7 @@ class ExitScanHandler(ScanSupport.ScanHandler):
     plog('INFO', 'Total bad exits: ' + `len(bad_exits)` + ' (~' + `(len(bad_exits) * 100 / len(routers))` + '%)')
 
   # FIXME: Hrmm is this in the right place?
-  def check_dns_rebind(self):
+  def check_dns_rebind(self, cookie_file):
     '''
     A DNS-rebind attack test that runs in the background and monitors REMAP
     events The test makes sure that external hosts are not resolved to private
@@ -270,8 +270,8 @@ class ExitScanHandler(ScanSupport.ScanHandler):
     try:
       s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
       s.connect((TorUtil.control_host, TorUtil.control_port))
-      c = Connection(s)
-      c.authenticate()
+      c = PathSupport.Connection(s)
+      c.authenticate_cookie(file(cookie_file, "r"))
     except socket.error, e:
       plog('ERROR', 'Couldn\'t connect to the control port')
       plog('ERROR', e)
@@ -2691,7 +2691,7 @@ def main(argv):
 
   # initiate the passive dns rebind attack monitor
   if do_dns_rebind:
-    scanhdlr.check_dns_rebind()
+    scanhdlr.check_dns_rebind(data_dir+"tor/control_auth_cookie")
 
   # check for sketchy exit policies
   if do_consistency:
