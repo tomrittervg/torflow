@@ -7,25 +7,19 @@ from email.MIMEText import MIMEText
 from email.Utils import COMMASPACE, formatdate
 from email import Encoders
 
-import dircache
 import operator
 import os
-import pickle
 import sys
 import time
-
-import sets
-from sets import Set
+import traceback
 
 import getopt
 
-import libsoat
 from libsoat import *
+from soat_config_real import *
 
 sys.path.append("../../")
-
 import TorCtl.TorUtil
-from TorCtl.TorUtil import *
 
 TorCtl.TorUtil.loglevel="INFO"
 
