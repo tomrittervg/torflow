@@ -25,7 +25,6 @@ To run SoaT:
 __all__ = ["ExitNodeScanner", "DNSRebindScanner", "load_wordlist"]
 
 import atexit
-import commands
 import cookielib
 import copy
 import getopt
@@ -2601,7 +2600,8 @@ def decompress_response_data(response):
 
 def tor_resolve(address):
   ''' performs a DNS query explicitly via tor '''
-  return commands.getoutput("tor-resolve " + address)
+  import commands
+  return commands.getoutput("tor-resolve '%s'" % address)
 
 def int2bin(n):
   '''
