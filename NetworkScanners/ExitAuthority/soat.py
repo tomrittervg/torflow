@@ -2456,7 +2456,7 @@ class DNSTest(Test):
       results = socket.getaddrinfo(address,None)
       for result in results:
         ips_d.add(result[4][0])
-    except socket.herror, e:
+    except socket.gaierror, e:
       plog('WARN', 'An error occured while performing a basic dns test')
       plog('WARN', e)
       return TEST_INCONCLUSIVE
