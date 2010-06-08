@@ -47,7 +47,7 @@ def usage(argv):
 
 def getargs(argv):
   try:
-    opts,args = getopt.getopt(argv[1:],"d:f:e:r:vt:p:s:o:n:a:b:Fmc",
+    opts,args = getopt.getopt(argv[1:],"d:f:e:x:r:vt:p:s:o:n:a:b:Fmc",
              ["dir=", "file=", "exit=", "reason=", "resultfilter=", "proto=",
               "verbose", "statuscode=", "sortby=", "noreason=", "after=",
               "before=", "falsepositives", "email", "confirmed"])
@@ -75,6 +75,8 @@ def getargs(argv):
       use_dir = a
     elif o == '-e' or o == '--email':
       send_email = True
+    elif o == '-x' or o == '--exit':
+      node = a
     elif o == '-f' or o == '--file':
       use_file = a
     elif o == '-b' or o == '--before':
@@ -139,7 +141,7 @@ def main(argv):
   if use_file:
     results = [dh.getResult(use_file)]
   elif node:
-    results = dh.filterByNode(dh.getAll(), "$"+node)
+    results = dh.filterByNode(dh.getAll(), node)
   else:
     results = dh.getAll()
 
