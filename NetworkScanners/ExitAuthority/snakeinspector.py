@@ -174,11 +174,11 @@ def main(argv):
         print r
       except KeyboardInterrupt:
         raise KeyboardInterrupt
-      except IOError, e:
+      except (Exception, IOError), e:
         traceback.print_exc()
-      except Exception, e:
-        traceback.print_exc()
-      print "\n-----------------------------\n"
+        sys.stderr.write("\n-----------------------------\n")
+      else:
+          print "\n-----------------------------\n"
 
   if send_email:
     for p in by_proto.iterkeys():
