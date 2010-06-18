@@ -1717,12 +1717,12 @@ class SSLTest(SearchBasedTest):
   def get_targets(self):
     return self.get_search_urls('https', self.test_hosts, True, search_mode=google_search_mode)
 
-  def ssl_request(self, address):
+  def ssl_request(self, address, method='TLSv1_METHOD'):
     ''' initiate an ssl connection and return the server certificate '''
     address=str(address) # Unicode hostnames not supported..
 
     # specify the context
-    ctx = SSL.Context(SSL.TLSv1_METHOD)
+    ctx = SSL.Context(getattr(SSL,method))
     ctx.set_timeout(int(read_timeout))
     ctx.set_verify_depth(1)
 
@@ -1755,6 +1755,17 @@ class SSLTest(SearchBasedTest):
     except crypto.Error, e:
       traceback.print_exc()
       return (-23.0, None, e.__class__.__name__+str(e))
+    except SSL.Error, e:
+      for (lib, func, reason) in e[0]:
+        if reason == 'wrong version number':
+          # Check if the server supports a different SSL version
+          if method == 'TLSv1_METHOD':
+            return self.ssl_request(address, 'SSLv3_METHOD')
+          elif method == 'SSLv3_METHOD':
+            return self.ssl_request(address, 'SSLv2_METHOD')
+      plog('WARN', 'An unknown SSL error occured for '+address+': '+str(e))
+      traceback.print_exc()
+      return (-666.0, None,  e.__class__.__name__+str(e))
     except Exception, e:
       plog('WARN', 'An unknown SSL error occured for '+address+': '+str(e))
       traceback.print_exc()
