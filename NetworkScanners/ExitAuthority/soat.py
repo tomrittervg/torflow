@@ -1726,9 +1726,6 @@ class SSLTest(SearchBasedTest):
     ctx.set_timeout(int(read_timeout))
     ctx.set_verify_depth(1)
 
-    # ready the certificate request
-    request = crypto.X509Req()
-
     # open an ssl connection
     # FIXME: Hrmmm. handshake considerations
     try:
@@ -1738,7 +1735,12 @@ class SSLTest(SearchBasedTest):
       c = SSL.Connection(ctx, s)
       c.set_connect_state()
       c.connect((address, 443)) # DNS OK.
-      c.send(crypto.dump_certificate_request(crypto.FILETYPE_PEM,request))
+      # XXX: A PEM encoded certificate request was a bizarre and fingerprintable
+      # thing to send here. All we actually need to do is perform a handshake,
+      # but it might be good to make a simple GET request to further limit
+      # fingerprintability.
+      # c.send(crypto.dump_certificate_request(crypto.FILETYPE_PEM,request))
+      c.do_handshake()
       # return the cert
       return (0, c.get_peer_certificate(), None)
     except socket.timeout, e:
@@ -1757,11 +1759,13 @@ class SSLTest(SearchBasedTest):
       return (-23.0, None, e.__class__.__name__+str(e))
     except SSL.Error, e:
       for (lib, func, reason) in e[0]:
-        if reason == 'wrong version number':
+        if reason in ('wrong version number','sslv3 alert illegal parameter'):
           # Check if the server supports a different SSL version
           if method == 'TLSv1_METHOD':
+            plog('DEBUG','Could not negotiate SSL handshake with %s, retrying with SSLv3_METHOD' % address)
             return self.ssl_request(address, 'SSLv3_METHOD')
           elif method == 'SSLv3_METHOD':
+            plog('DEBUG','Could not negotiate SSL handshake with %s, retrying with SSLv2_METHOD' % address)
             return self.ssl_request(address, 'SSLv2_METHOD')
       plog('WARN', 'An unknown SSL error occured for '+address+': '+str(e))
       traceback.print_exc()
@@ -1789,7 +1793,7 @@ class SSLTest(SearchBasedTest):
     for ip in check_ips:
       #let's always check.
       #if not ssl_domain.seen_ip(ip):
-      plog('INFO', 'Ssl connection to new ip '+ip+" for "+ssl_domain.domain)
+      plog('INFO', 'SSL connection to new ip '+ip+" for "+ssl_domain.domain)
       (code, raw_cert, exc) = self.ssl_request(ip)
       if not raw_cert:
         plog('WARN', 'Error getting the correct cert for '+ssl_domain.domain+":"+ip+" "+str(code)+"("+str(exc)+")")
