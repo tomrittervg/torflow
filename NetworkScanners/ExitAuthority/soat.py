@@ -1723,15 +1723,16 @@ class SSLTest(SearchBasedTest):
 
     # specify the context
     ctx = SSL.Context(getattr(SSL,method))
-    ctx.set_timeout(int(read_timeout))
-    ctx.set_verify_depth(1)
+
+    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    # XXX: This creats a blocking socket with no timeout. Setting a timeout
+    # won't help because we can't differentiate a timeout from an
+    # SSL.WantReadError. An attacker can hang SoaT here by doing:
+    # nc -l -p 443, and waiting for us to connect.
+    s.settimeout(None)
 
     # open an ssl connection
-    # FIXME: Hrmmm. handshake considerations
     try:
-      s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-      # SSL has its own timeouts handled above. Undo ours from BindingSocket
-      s.settimeout(None) 
       c = SSL.Connection(ctx, s)
       c.set_connect_state()
       c.connect((address, 443)) # DNS OK.
