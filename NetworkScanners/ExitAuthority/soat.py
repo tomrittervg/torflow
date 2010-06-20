@@ -1743,33 +1743,36 @@ class SSLTest(SearchBasedTest):
       c.do_handshake()
       # return the cert
       return (0, c.get_peer_certificate(), None)
-    except socket.timeout, e:
-      plog('WARN','Socket timeout for '+address+": "+str(e))
-      return (-6.0, None,  e.__class__.__name__+str(e))
-    except socket.error, e:
-      plog('WARN','An error occured while opening an ssl connection to '+address+": "+str(e))
-      return (-666.0, None,  e.__class__.__name__+str(e))
     except socks.Socks5Error, e:
       plog('WARN', 'A SOCKS5 error '+str(e.value[0])+' occured for '+address+": "+str(e))
       return (-float(e.value[0]), None,  e.__class__.__name__+str(e))
-    except KeyboardInterrupt:
-      raise KeyboardInterrupt
     except crypto.Error, e:
       traceback.print_exc()
       return (-23.0, None, e.__class__.__name__+str(e))
+    except (SSL.ZeroReturnError, SSL.WantReadError, SSL.WantWriteError, SSL.WantX509LookupError), e:
+      # XXX: None of these are really "errors" per se
+      traceback.print_exc()
+      return (-666.0, None, e.__class__.__name__+str(e))
+    except SSL.SysCallError, e:
+      # Errors on the underlying socket will be caught here.
+      if e[0] == -1: # unexpected eof
+        # Might be an SSLv2 server, but it's unlikely, let's just call it a CONNERROR
+        return (float(e[0]), None, e[1])
+      else:
+        traceback.print_exc()
+        return (-666.0, None, e.__class__.__name__+str(e))
     except SSL.Error, e:
-      for (lib, func, reason) in e[0]:
+      for (lib, func, reason) in e.message: # e.message is always list of 3-tuples
         if reason in ('wrong version number','sslv3 alert illegal parameter'):
           # Check if the server supports a different SSL version
           if method == 'TLSv1_METHOD':
             plog('DEBUG','Could not negotiate SSL handshake with %s, retrying with SSLv3_METHOD' % address)
             return self.ssl_request(address, 'SSLv3_METHOD')
-          elif method == 'SSLv3_METHOD':
-            plog('DEBUG','Could not negotiate SSL handshake with %s, retrying with SSLv2_METHOD' % address)
-            return self.ssl_request(address, 'SSLv2_METHOD')
       plog('WARN', 'An unknown SSL error occured for '+address+': '+str(e))
       traceback.print_exc()
       return (-666.0, None,  e.__class__.__name__+str(e))
+    except KeyboardInterrupt:
+      raise
     except Exception, e:
       plog('WARN', 'An unknown SSL error occured for '+address+': '+str(e))
       traceback.print_exc()
