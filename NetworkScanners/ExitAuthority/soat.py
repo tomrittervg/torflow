@@ -1934,13 +1934,6 @@ class SSLTest(SearchBasedTest):
           result = SSLTestResult(self.node_map[exit_node[1:]], address,
                                 ssl_file_name, TEST_FAILURE, fail_reason)
           return self.register_timeout_failure(result)
-        elif code == -13:
-          fail_reason = FAILURE_NOEXITCONTENT # shouldn't happen here
-          result = SSLTestResult(self.node_map[exit_node[1:]],
-                       address, ssl_file_name, TEST_FAILURE, fail_reason)
-          self.extra_info=exc
-          self.register_exit_failure(result)
-          return TEST_FAILURE
         elif code == -23:
           fail_reason = FAILURE_CRYPTOERROR
           result = SSLTestResult(self.node_map[exit_node[1:]],
