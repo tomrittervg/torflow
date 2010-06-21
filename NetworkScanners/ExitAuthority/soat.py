@@ -33,6 +33,7 @@ import os
 import random
 import re
 import sha
+import signal
 import smtplib
 import socket
 import sys
@@ -1717,7 +1718,18 @@ class SSLTest(SearchBasedTest):
   def get_targets(self):
     return self.get_search_urls('https', self.test_hosts, True, search_mode=google_search_mode)
 
-  def ssl_request(self, address, method='TLSv1_METHOD'):
+  def _raise_timeout(self, signum, frame):
+    raise socket.timeout("SSL connection timed out")
+
+  def ssl_request(self, address):
+    # The SIGALARM can be triggered outside of the try/except in
+    # _ssl_request, so we need to catch socket.timeout here
+    try:
+      return self._ssl_request(address)
+    except socket.timeout, e:
+      return (-6.0, None, "Socket timeout")
+
+  def _ssl_request(self, address, method='TLSv1_METHOD'):
     ''' initiate an ssl connection and return the server certificate '''
     address=str(address) # Unicode hostnames not supported..
 
@@ -1725,16 +1737,15 @@ class SSLTest(SearchBasedTest):
     ctx = SSL.Context(getattr(SSL,method))
 
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    # XXX: This creats a blocking socket with no timeout. Setting a timeout
-    # won't help because we can't differentiate a timeout from an
-    # SSL.WantReadError. An attacker can hang SoaT here by doing:
-    # nc -l -p 443, and waiting for us to connect.
     s.settimeout(None)
 
+    signal.signal(signal.SIGALRM, self._raise_timeout)
     # open an ssl connection
+    rval = (None, None, None)
     try:
       c = SSL.Connection(ctx, s)
       c.set_connect_state()
+      signal.alarm(int(read_timeout)) # raise a timeout after read_timeout
       c.connect((address, 443)) # DNS OK.
       # XXX: A PEM encoded certificate request was a bizarre and fingerprintable
       # thing to send here. All we actually need to do is perform a handshake,
@@ -1742,42 +1753,49 @@ class SSLTest(SearchBasedTest):
       # fingerprintability.
       # c.send(crypto.dump_certificate_request(crypto.FILETYPE_PEM,request))
       c.do_handshake()
-      # return the cert
-      return (0, c.get_peer_certificate(), None)
+      rval = (0, c.get_peer_certificate(), None)
+    except socket.timeout, e:
+      rval = (-6.0, None, "Socket timeout")
     except socks.Socks5Error, e:
       plog('WARN', 'A SOCKS5 error '+str(e.value[0])+' occured for '+address+": "+str(e))
-      return (-float(e.value[0]), None,  e.__class__.__name__+str(e))
+      rval = (-float(e.value[0]), None,  e.__class__.__name__+str(e))
     except crypto.Error, e:
       traceback.print_exc()
-      return (-23.0, None, e.__class__.__name__+str(e))
+      rval = (-23.0, None, e.__class__.__name__+str(e))
     except (SSL.ZeroReturnError, SSL.WantReadError, SSL.WantWriteError, SSL.WantX509LookupError), e:
       # XXX: None of these are really "errors" per se
       traceback.print_exc()
-      return (-666.0, None, e.__class__.__name__+str(e))
+      rval = (-666.0, None, e.__class__.__name__+str(e))
     except SSL.SysCallError, e:
       # Errors on the underlying socket will be caught here.
       if e[0] == -1: # unexpected eof
         # Might be an SSLv2 server, but it's unlikely, let's just call it a CONNERROR
-        return (float(e[0]), None, e[1])
+        rval = (float(e[0]), None, e[1])
       else:
         traceback.print_exc()
-        return (-666.0, None, e.__class__.__name__+str(e))
+        rval = (-666.0, None, e.__class__.__name__+str(e))
     except SSL.Error, e:
+      signal.alarm(0) # Since we might recurse
       for (lib, func, reason) in e.message: # e.message is always list of 3-tuples
         if reason in ('wrong version number','sslv3 alert illegal parameter'):
           # Check if the server supports a different SSL version
           if method == 'TLSv1_METHOD':
             plog('DEBUG','Could not negotiate SSL handshake with %s, retrying with SSLv3_METHOD' % address)
-            return self.ssl_request(address, 'SSLv3_METHOD')
-      plog('WARN', 'An unknown SSL error occured for '+address+': '+str(e))
-      traceback.print_exc()
-      return (-666.0, None,  e.__class__.__name__+str(e))
+            rval = self._ssl_request(address, 'SSLv3_METHOD')
+            break
+      else:
+        plog('WARN', 'An unknown SSL error occured for '+address+': '+str(e))
+        traceback.print_exc()
+        rval = (-666.0, None,  e.__class__.__name__+str(e))
     except KeyboardInterrupt:
+      signal.alarm(0)
       raise
     except Exception, e:
       plog('WARN', 'An unknown SSL error occured for '+address+': '+str(e))
       traceback.print_exc()
-      return (-666.0, None,  e.__class__.__name__+str(e))
+      rval = (-666.0, None,  e.__class__.__name__+str(e))
+    signal.alarm(0)
+    return rval
 
   def get_resolved_ip(self, hostname):
     # XXX: This is some extreme GIL abuse.. It may have race conditions
