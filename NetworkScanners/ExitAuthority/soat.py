@@ -2610,12 +2610,13 @@ def decompress_response_data(response):
     # lack of progress.. or for a sign we should read..
     len_read = len(data)
     now = time.time()
-
+    
     plog("DEBUG", "Read "+str(len_read)+"/"+str(tot_len))
     # Wait 5 seconds before counting data
-    if (now-start) > 5 and len_read/(now-start) < min_rate:
+    rate = (float(len_read)/(now-start)) #B/s
+    if (now-start) > 5 and rate < min_rate:
       plog("WARN", "Minimum xfer rate not maintained. Aborting xfer")
-      return ""
+      raise socket.timeout("Rate: %.2f KB/s" % (rate/1024))
       
     if not data_read:
       break
