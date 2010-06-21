@@ -775,7 +775,7 @@ class SnakePickler:
           pickle.dump(obj, f)
           f.close()
           finished = True
-        except KeyboardIterrupt:
+        except KeyboardInterrupt:
           pass
       raise KeyboardInterrupt
     except Exception, e:
