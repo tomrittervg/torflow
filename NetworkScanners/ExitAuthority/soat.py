@@ -131,6 +131,23 @@ class BindingSocket(_origsocket):
 socket.socket = BindingSocket
 
 
+def torify(func, *args):
+  defaultsocket = socket.socket
+  socks.setdefaultproxy(socks.PROXY_TYPE_SOCKS5, TorUtil.tor_host, TorUtil.tor_port)
+  socket.socket = socks.socksocket
+  rval = None
+  try:
+    rval = apply(func, args)
+  except:
+    PathSupport.SmartSocket.clear_port_table()
+    socket.socket = defaultsocket
+    raise
+  # reset the connection method back to direct
+  PathSupport.SmartSocket.clear_port_table()
+  socket.socket = defaultsocket
+  return rval
+
+
 # Nice.. HTTPConnection.connect is doing DNS for us! Fix that:
 # Hrmm.. suppose we could also bind here.. but BindingSocket is 
 # more general and may come in handy for other tests.
@@ -1053,17 +1070,8 @@ class HTTPTest(SearchBasedTest):
       self.tor_cookie_jar = orig_tor_cookie_jar
       return TEST_INCONCLUSIVE
 
-    defaultsocket = socket.socket
-    socks.setdefaultproxy(socks.PROXY_TYPE_SOCKS5, TorUtil.tor_host,
-                          TorUtil.tor_port)
-    socket.socket = socks.socksocket
-
-    (pcode, presp_headers, pnew_cookies, pmime_type, pcontent) = http_request(address, self.tor_cookie_jar, self.headers)
+    (pcode, presp_headers, pnew_cookies, pmime_type, pcontent) = torify(http_request, address, self.tor_cookie_jar, self.headers)
     psha1sum = sha.sha(pcontent)
-
-    # reset the connection to direct
-    PathSupport.SmartSocket.clear_port_table()
-    socket.socket = defaultsocket
 
     exit_node = scanhdlr.get_exit_node()
     if not exit_node:
@@ -1902,16 +1910,7 @@ class SSLTest(SearchBasedTest):
         return TEST_INCONCLUSIVE
 
     # get the cert via tor
-    defaultsocket = socket.socket
-    socks.setdefaultproxy(socks.PROXY_TYPE_SOCKS5, TorUtil.tor_host,
-                          TorUtil.tor_port)
-    socket.socket = socks.socksocket
-
-    (code, cert, exc) = self.ssl_request(address)
-
-    # reset the connection method back to direct
-    PathSupport.SmartSocket.clear_port_table()
-    socket.socket = defaultsocket
+    (code, cert, exc) = torify(self.ssl_request, address)
 
     exit_node = scanhdlr.get_exit_node()
     if not exit_node:
