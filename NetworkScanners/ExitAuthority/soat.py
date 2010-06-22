@@ -1853,17 +1853,17 @@ class SSLTest(SearchBasedTest):
       ssl_domain = SSLDomain(address)
 
     check_ips = []
+    resolved = []
     # Make 3 resolution attempts
     for attempt in xrange(1,4):
       try:
-        resolved = []
-        resolved = socket.getaddrinfo(address, 443)
+        resolved = socket.getaddrinfo(address, 443, socket.AF_INET, socket.SOCK_STREAM, socket.IPPROTO_TCP)
         break
       except socket.gaierror:
-        plog("NOTICE", "Local resolution failure #"+str(attempt)+" for "+address)
+        plog("NOTICE", "Local resolution failure #%d for %s" % (attempt, address))
 
     for res in resolved:
-      if res[0] == socket.AF_INET and res[2] == socket.IPPROTO_TCP:
+      if res[4][0] not in check_ips:
         check_ips.append(res[4][0])
 
     if not check_ips:
