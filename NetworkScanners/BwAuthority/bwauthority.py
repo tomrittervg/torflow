@@ -144,8 +144,10 @@ class BwScanHandler(ScanSupport.SQLScanHandler):
     def notlambda(this):
       cond.acquire()
       # TODO: Using the entry_gen router list is somewhat ghetto..
-      if (not this.selmgr.bad_restrictions) or \
-        (this.selmgr.path_selector.entry_gen.rstr_routers and \
+      if this.selmgr.bad_restrictions:
+        plog("NOTICE",
+          "Bad restrictions on last attempt. Declaring this slice finished")
+      elif (this.selmgr.path_selector.entry_gen.rstr_routers and \
           this.selmgr.path_selector.exit_gen.rstr_routers):
         for r in this.selmgr.path_selector.entry_gen.rstr_routers:
           if r._generated[position] < count:
