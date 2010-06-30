@@ -327,6 +327,11 @@ def main(argv):
         n.add_line(line)
       except ValueError,e:
         plog("NOTICE", "Conversion error "+str(e)+" at "+l)
+      except AttributeError, e:
+        plog("NOTICE", "Slice file format error "+str(e)+" at "+l)
+      except Exception, e:
+        plog("WARN", "Unknown slice parse error "+str(e)+" at "+l)
+        traceback.print_exc()
     fp.close()
 
   if len(nodes) == 0:
