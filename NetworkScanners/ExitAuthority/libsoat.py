@@ -686,6 +686,19 @@ class DataHandler:
 
     return DataHandler.uniqueFilename(str((rdir+address+'.'+result.exit_node[1:]+".result").decode('ascii', 'ignore')))
 
+  def checkResultDir(self, dir):
+    if not dir.startswith(self.data_dir):
+      return False
+    if not os.path.exists(dir):
+      try:
+        os.makedirs(dir, 0700)
+      except OSError, e:
+        plog("WARN", "Unable to create results directory %s. %s" % (dir, e))
+        return False
+    elif not os.access(dir, os.R_OK|os.W_OK):
+      return False
+    return True
+
   def saveResult(self, result):
     ''' generic method for saving test results '''
     result.filename = self.__resultFilename(result)

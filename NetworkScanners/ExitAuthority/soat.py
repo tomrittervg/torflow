@@ -2788,6 +2788,40 @@ def main(argv):
 
   tests = {}
 
+  # Check that necessary result directories exist
+  dirsok = True
+  tocheck = []
+  rsubdirs = ['confirmed/', 'falsepositive/', 'rescan/', 'successful/', 'inconclusive/', 'failed/']
+  if do_ssl:
+    ssl_data_dir = os.path.join(soat_dir, 'ssl')
+    tocheck += [ssl_certs_dir]
+    tocheck += [os.path.join(ssl_data_dir, r) for r in rsubdirs]
+  if do_html or do_http:
+    tocheck += [http_content_dir]
+    tocheck += [os.path.join(http_data_dir, r) for r in rsubdirs]
+  if do_dns_rebind:
+    rebind_data_dir = os.path.join(soat_dir, 'dnsrebind')
+    tocheck += [os.path.join(rebind_data_dir, r) for r in rsubdirs]
+  # TODO: Uncomment relevant sections when tests are reenabled
+  #if do_ssh:
+  #  ssh_data_dir = os.path.join(soat_dir, 'ssh')
+  #  tocheck += [os.path.join(ssh_data_dir, r) for r in rsubdirs]
+  #if do_smtp:
+  #  smtp_data_dir = os.path.join(soat_dir, 'smtp')
+  #  tocheck += [os.path.join(smtp_data_dir, r) for r in rsubdirs]
+  #if do_pop:
+  #  pop_data_dir = os.path.join(soat_dir, 'pop')
+  #  tocheck += [os.path.join(pop_data_dir, r) for r in rsubdirs]
+  #if do_imap:
+  #  imap_data_dir = os.path.join(soat_dir, 'imap')
+  #  tocheck += [os.path.join(imap_data_dir, r) for r in rsubdirs]
+  for d in tocheck:
+    dirsok &= datahandler.checkResultDir(d)
+  if not dirsok:
+    plog("ERROR", "Could not create result directories")
+    sys.exit(1)
+
+  # Initialize tests
   if do_resume:
     plog("NOTICE", "Resuming previous SoaT run #"+str(resume_run))
     if do_ssl:
