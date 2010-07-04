@@ -32,7 +32,6 @@ import httplib
 import os
 import random
 import re
-import sha
 import signal
 import smtplib
 import socket
@@ -51,7 +50,10 @@ import StringIO
 from OpenSSL import SSL, crypto
 
 if sys.version_info < (2, 5):
-    from sets import Set as set
+  from sets import Set as set
+  from sha import sha
+else:
+  from hashlib import sha1 as sha
 
 # Import the correct BeautifulSoup
 try:
@@ -1007,7 +1009,7 @@ class HTTPTest(SearchBasedTest):
     try:
       # Load content from disk, md5
       content_file = open(content_prefix+'.content', 'r')
-      sha1sum = sha.sha()
+      sha1sum = sha()
       buf = content_file.read(4096)
       while buf:
         sha1sum.update(buf)
@@ -1043,7 +1045,7 @@ class HTTPTest(SearchBasedTest):
         self.cookie_jar = orig_cookie_jar
         self.tor_cookie_jar = orig_tor_cookie_jar
         return TEST_INCONCLUSIVE 
-      sha1sum = sha.sha(content)
+      sha1sum = sha(content)
 
       content_file = open(content_prefix+'.content', 'w')
       content_file.write(content)
@@ -1071,7 +1073,7 @@ class HTTPTest(SearchBasedTest):
       return TEST_INCONCLUSIVE
 
     (pcode, presp_headers, pnew_cookies, pmime_type, pcontent) = torify(http_request, address, self.tor_cookie_jar, self.headers)
-    psha1sum = sha.sha(pcontent)
+    psha1sum = sha(pcontent)
 
     exit_node = scanhdlr.get_exit_node()
     if not exit_node:
@@ -1218,7 +1220,7 @@ class HTTPTest(SearchBasedTest):
 
     SnakePickler.dump(headerdiffer, content_prefix+'.headerdiff')
 
-    sha1sum_new = sha.sha(content_new)
+    sha1sum_new = sha(content_new)
 
     if sha1sum.hexdigest() != sha1sum_new.hexdigest():
       # if content has changed outside of tor, update the saved file
