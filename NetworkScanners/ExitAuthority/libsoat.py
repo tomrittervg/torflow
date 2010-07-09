@@ -52,7 +52,9 @@ __all__ = [ # Classes
            "FAILURE_CONNREFUSED", "FAILURE_CONNERROR", "FAILURE_URLERROR", "FAILURE_CRYPTOERROR",
            "FAILURE_TIMEOUT", "FAILURE_HEADERCHANGE", "FAILURE_MISCEXCEPTION",
            "FALSEPOSITIVE_HTTPERRORS", "FALSEPOSITIVE_DYNAMIC", "FALSEPOSITIVE_DYNAMIC_TOR",
-           "FALSEPOSITIVE_DEADSITE"
+           "FALSEPOSITIVE_DEADSITE",
+           "E_SOCKS", "E_POLICY", "E_NETUNREACH", "E_HOSTUNREACH", "E_REFUSED",
+           "E_TIMEOUT", "E_NOCONTENT", "E_CRYPTO", "E_URL", "E_MISC",
           ]
 
 
@@ -111,6 +113,18 @@ FALSEPOSITIVE_HTTPERRORS = "FalsePositiveHTTPErrors"
 FALSEPOSITIVE_DYNAMIC = "FalsePositiveDynamic"
 FALSEPOSITIVE_DYNAMIC_TOR = "FalsePositiveDynamicTor"
 FALSEPOSITIVE_DEADSITE = "FalsePositiveDeadSite"
+
+# Error Codes (Negative floats so as to distinguish from positive int HTTP resp. codes)
+E_SOCKS = -1.0
+E_POLICY = -2.0
+E_NETUNREACH = -3.0
+E_HOSTUNREACH = -4.0
+E_REFUSED = -5.0
+E_TIMEOUT = -6.0
+E_NOCONTENT = -13.0
+E_CRYPTO = -14.0
+E_URL = -15.0
+E_MISC = -99.0
 
 # classes to use with pickle to dump test results into files
 

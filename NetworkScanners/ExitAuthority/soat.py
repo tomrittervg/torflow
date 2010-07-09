@@ -332,28 +332,28 @@ def http_request(address, cookie_jar=None, headers=firefox_headers):
   except socket.timeout, e:
     plog("WARN", "Socket timeout for "+address+": "+str(e))
     traceback.print_exc()
-    return (-6.0, None, [], "", e.__class__.__name__+str(e))
+    return (E_TIMEOUT, None, [], "", e.__class__.__name__+str(e))
   except httplib.BadStatusLine, e:
     plog('NOTICE', "HTTP Error during request of "+address+": "+str(e))
     if not e.line: 
-      return (-13.0, None, [], "", e.__class__.__name__+"(None)") 
+      return (E_NOCONTENT, None, [], "", e.__class__.__name__+"(None)")
     else:
       traceback.print_exc()
-      return (-666.0, None, [], "", e.__class__.__name__+str(e)) 
+      return (E_MISC, None, [], "", e.__class__.__name__+str(e))
   except urllib2.HTTPError, e:
     plog('NOTICE', "HTTP Error during request of "+address+": "+str(e))
     if str(e) == "<urlopen error timed out>": # Yah, super ghetto...
-      return (-6.0, None, [], "", e.__class__.__name__+str(e)) 
+      return (E_TIMEOUT, None, [], "", e.__class__.__name__+str(e))
     else:
       traceback.print_exc()
       return (e.code, None, [], "", e.__class__.__name__+str(e)) 
   except (ValueError, urllib2.URLError), e:
     plog('WARN', 'The http-request address ' + address + ' is malformed')
     if str(e) == "<urlopen error timed out>": # Yah, super ghetto...
-      return (-6.0, None, [], "", e.__class__.__name__+str(e)) 
+      return (E_TIMEOUT, None, [], "", e.__class__.__name__+str(e))
     else:
       traceback.print_exc()
-      return (-23.0, None, [], "", e.__class__.__name__+str(e))
+      return (E_URL, None, [], "", e.__class__.__name__+str(e))
   except socks.Socks5Error, e:
     plog('WARN', 'A SOCKS5 error '+str(e.value[0])+' occured for '+address+": "+str(e))
     return (-float(e.value[0]), None, [], "", e.__class__.__name__+str(e))
@@ -362,7 +362,7 @@ def http_request(address, cookie_jar=None, headers=firefox_headers):
   except Exception, e:
     plog('WARN', 'An unknown HTTP error occured for '+address+": "+str(e))
     traceback.print_exc()
-    return (-666.0, None, [], "", e.__class__.__name__+str(e))
+    return (E_MISC, None, [], "", e.__class__.__name__+str(e))
 
   return (reply.code, reply_headers, new_cookies, mime_type, content)
 
@@ -1108,35 +1108,35 @@ class HTTPTest(SearchBasedTest):
         return TEST_INCONCLUSIVE 
 
       if pcode < 0 and type(pcode) == float:
-        if pcode == -1: # "General socks error"
+        if pcode == E_SOCKS: # "General socks error"
           fail_reason = FAILURE_CONNERROR
-        elif pcode == -2: # "connection not allowed aka ExitPolicy
+        elif pcode == E_POLICY: # "connection not allowed aka ExitPolicy
           fail_reason = FAILURE_EXITPOLICY
-        elif pcode == -3: # "Net Unreach" ??
+        elif pcode == E_NETUNREACH: # "Net Unreach" ??
           fail_reason = FAILURE_NETUNREACH
-        elif pcode == -4: # "Host Unreach" aka RESOLVEFAILED
+        elif pcode == E_HOSTUNREACH: # "Host Unreach" aka RESOLVEFAILED
           fail_reason = FAILURE_HOSTUNREACH
           result = HttpTestResult(self.node_map[exit_node[1:]],
                                  address, TEST_FAILURE, fail_reason)
           return self.register_dns_failure(result)
-        elif pcode == -5: # Connection refused
+        elif pcode == E_REFUSED: # Connection refused
           fail_reason = FAILURE_CONNREFUSED
           result = HttpTestResult(self.node_map[exit_node[1:]], 
                               address, TEST_FAILURE, fail_reason)
           self.register_exit_failure(result)
           return TEST_FAILURE
-        elif pcode == -6: # timeout
+        elif pcode == E_TIMEOUT: # timeout
           fail_reason = FAILURE_TIMEOUT
           result = HttpTestResult(self.node_map[exit_node[1:]],
                                  address, TEST_FAILURE, fail_reason)
           return self.register_timeout_failure(result)
-        elif pcode == -13:
+        elif pcode == E_NOCONTENT:
           fail_reason = FAILURE_NOEXITCONTENT
           result = HttpTestResult(self.node_map[exit_node[1:]], 
                               address, TEST_FAILURE, fail_reason)
           self.register_exit_failure(result)
           return TEST_FAILURE
-        elif pcode == -23: 
+        elif pcode == E_URL:
           fail_reason = FAILURE_URLERROR
         else:
           fail_reason = FAILURE_MISCEXCEPTION
@@ -1737,7 +1737,7 @@ class SSLTest(SearchBasedTest):
     try:
       return self._ssl_request(address)
     except socket.timeout, e:
-      return (-6.0, None, "Socket timeout")
+      return (E_TIMEOUT, None, "Socket timeout")
 
   def _ssl_request(self, address, method='TLSv1_METHOD'):
     ''' initiate an ssl connection and return the server certificate '''
@@ -1765,17 +1765,17 @@ class SSLTest(SearchBasedTest):
       c.do_handshake()
       rval = (0, c.get_peer_certificate(), None)
     except socket.timeout, e:
-      rval = (-6.0, None, "Socket timeout")
+      rval = (E_TIMEOUT, None, "Socket timeout")
     except socks.Socks5Error, e:
       plog('WARN', 'A SOCKS5 error '+str(e.value[0])+' occured for '+address+": "+str(e))
       rval = (-float(e.value[0]), None,  e.__class__.__name__+str(e))
     except crypto.Error, e:
       traceback.print_exc()
-      rval = (-23.0, None, e.__class__.__name__+str(e))
+      rval = (E_CRYPTO, None, e.__class__.__name__+str(e))
     except (SSL.ZeroReturnError, SSL.WantReadError, SSL.WantWriteError, SSL.WantX509LookupError), e:
       # XXX: None of these are really "errors" per se
       traceback.print_exc()
-      rval = (-666.0, None, e.__class__.__name__+str(e))
+      rval = (E_MISC, None, e.__class__.__name__+str(e))
     except SSL.SysCallError, e:
       # Errors on the underlying socket will be caught here.
       if e[0] == -1: # unexpected eof
@@ -1783,7 +1783,7 @@ class SSLTest(SearchBasedTest):
         rval = (float(e[0]), None, e[1])
       else:
         traceback.print_exc()
-        rval = (-666.0, None, e.__class__.__name__+str(e))
+        rval = (E_MISC, None, e.__class__.__name__+str(e))
     except SSL.Error, e:
       signal.alarm(0) # Since we might recurse
       for (lib, func, reason) in e.message: # e.message is always list of 3-tuples
@@ -1796,14 +1796,14 @@ class SSLTest(SearchBasedTest):
       else:
         plog('WARN', 'An unknown SSL error occured for '+address+': '+str(e))
         traceback.print_exc()
-        rval = (-666.0, None,  e.__class__.__name__+str(e))
+        rval = (E_MISC, None,  e.__class__.__name__+str(e))
     except KeyboardInterrupt:
       signal.alarm(0)
       raise
     except Exception, e:
       plog('WARN', 'An unknown SSL error occured for '+address+': '+str(e))
       traceback.print_exc()
-      rval = (-666.0, None,  e.__class__.__name__+str(e))
+      rval = (E_MISC, None,  e.__class__.__name__+str(e))
     signal.alarm(0)
     return rval
 
@@ -1930,30 +1930,30 @@ class SSLTest(SearchBasedTest):
 
     if not cert:
       if code < 0 and type(code) == float:
-        if code == -1: # "General socks error"
+        if code == E_SOCKS: # "General socks error"
           fail_reason = FAILURE_CONNERROR
-        elif code == -2: # "connection not allowed" aka ExitPolicy
+        elif code == E_POLICY: # "connection not allowed" aka ExitPolicy
           fail_reason = FAILURE_EXITPOLICY
-        elif code == -3: # "Net Unreach" ??
+        elif code == E_NETUNREACH: # "Net Unreach" ??
           fail_reason = FAILURE_NETUNREACH
-        elif code == -4: # "Host Unreach" aka RESOLVEFAILED
+        elif code == E_HOSTUNREACH: # "Host Unreach" aka RESOLVEFAILED
           fail_reason = FAILURE_HOSTUNREACH
           result = SSLTestResult(self.node_map[exit_node[1:]], address,
                                 ssl_file_name, TEST_FAILURE, fail_reason)
           return self.register_dns_failure(result)
-        elif code == -5: # Connection refused
+        elif code == E_REFUSED: # Connection refused
           fail_reason = FAILURE_CONNREFUSED
           result = SSLTestResult(self.node_map[exit_node[1:]],
                        address, ssl_file_name, TEST_FAILURE, fail_reason)
           self.extra_info=exc
           self.register_exit_failure(result)
           return TEST_FAILURE
-        elif code == -6: # timeout
+        elif code == E_TIMEOUT: # timeout
           fail_reason = FAILURE_TIMEOUT
           result = SSLTestResult(self.node_map[exit_node[1:]], address,
                                 ssl_file_name, TEST_FAILURE, fail_reason)
           return self.register_timeout_failure(result)
-        elif code == -23:
+        elif code == E_CRYPTO:
           fail_reason = FAILURE_CRYPTOERROR
           result = SSLTestResult(self.node_map[exit_node[1:]],
                        address, ssl_file_name, TEST_FAILURE, fail_reason)
