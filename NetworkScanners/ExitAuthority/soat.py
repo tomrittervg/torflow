@@ -1852,7 +1852,8 @@ class SSLTest(SearchBasedTest):
     plog('INFO', 'Conducting an ssl test with destination ' + address)
 
     # an address representation acceptable for a filename 
-    address_file = DataHandler.safeFilename(address[8:])
+    shortaddr = address[:min(len(address), 16)]
+    address_file = DataHandler.safeFilename(shortaddr)
     ssl_file_name = ssl_certs_dir + address_file + '.ssl'
 
     # load the original cert and compare
