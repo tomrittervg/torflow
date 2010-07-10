@@ -50,11 +50,13 @@ __all__ = [ # Classes
            "FAILURE_NOEXITCONTENT", "FAILURE_EXITTRUNCATION", "FAILURE_SOCKSERROR",
            "FAILURE_HOSTUNREACH", "FAILURE_NETUNREACH", "FAILURE_EXITPOLICY",
            "FAILURE_CONNREFUSED", "FAILURE_CONNERROR", "FAILURE_URLERROR", "FAILURE_CRYPTOERROR",
-           "FAILURE_TIMEOUT", "FAILURE_HEADERCHANGE", "FAILURE_MISCEXCEPTION",
+           "FAILURE_TIMEOUT", "FAILURE_SLOWXFER", "FAILURE_HEADERCHANGE", "FAILURE_MISCEXCEPTION",
            "FALSEPOSITIVE_HTTPERRORS", "FALSEPOSITIVE_DYNAMIC", "FALSEPOSITIVE_DYNAMIC_TOR",
            "FALSEPOSITIVE_DEADSITE",
            "E_SOCKS", "E_POLICY", "E_NETUNREACH", "E_HOSTUNREACH", "E_REFUSED",
-           "E_TIMEOUT", "E_NOCONTENT", "E_CRYPTO", "E_URL", "E_MISC",
+           "E_TIMEOUT", "E_SLOWXFER", "E_NOCONTENT", "E_CRYPTO", "E_URL", "E_MISC",
+           # Exception classes
+           "SlowXferException",
           ]
 
 
@@ -105,6 +107,7 @@ FAILURE_CONNERROR = "FailureConnError"
 FAILURE_URLERROR = "FailureURLError"
 FAILURE_CRYPTOERROR = "FailureCryptoError"
 FAILURE_TIMEOUT = "FailureTimeout"
+FAILURE_SLOWXFER = "FailureSlowXfer"
 FAILURE_HEADERCHANGE = "FailureHeaderChange"
 FAILURE_MISCEXCEPTION = "FailureMiscException"
 
@@ -121,6 +124,7 @@ E_NETUNREACH = -3.0
 E_HOSTUNREACH = -4.0
 E_REFUSED = -5.0
 E_TIMEOUT = -6.0
+E_SLOWXFER = -7.0
 E_NOCONTENT = -13.0
 E_CRYPTO = -14.0
 E_URL = -15.0
@@ -1134,3 +1138,6 @@ class JSSoupDiffer(JSDiffer):
         ast_cnts = JSSoupDiffer._add_cnts(tag_cnts, ast_cnts)
     return ast_cnts
 
+
+class SlowXferException(Exception):
+  pass

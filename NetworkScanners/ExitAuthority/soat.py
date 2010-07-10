@@ -1210,6 +1210,13 @@ class HTTPTest(SearchBasedTest):
           result = HttpTestResult(self.node_map[exit_node[1:]],
                                  address, TEST_FAILURE, fail_reason)
           return self.register_timeout_failure(result)
+        elif pcode == E_SLOWXFER: # Transfer too slow
+          # TODO: This still calls register_timeout_failure, I think that's ok
+          # but it should probably be discussed.
+          fail_reason = FAILURE_SLOWXFER
+          result = HttpTestResult(self.node_map[exit_node[1:]],
+                                 address, TEST_FAILURE, fail_reason)
+          return self.register_timeout_failure(result)
         elif pcode == E_NOCONTENT:
           fail_reason = FAILURE_NOEXITCONTENT
           result = HttpTestResult(self.node_map[exit_node[1:]], 
@@ -2615,10 +2622,11 @@ def decompress_response_data(response):
     
     plog("DEBUG", "Read "+str(len_read)+"/"+str(tot_len))
     # Wait 5 seconds before counting data
-    rate = (float(len_read)/(now-start)) #B/s
-    if (now-start) > 5 and rate < min_rate:
-      plog("WARN", "Minimum xfer rate not maintained. Aborting xfer")
-      raise socket.timeout("Rate: %.2f KB/s" % (rate/1024))
+    if (now-start) > 5:
+      rate = (float(len_read)/(now-start)) #B/s
+      if rate < min_rate:
+        plog("WARN", "Minimum xfer rate not maintained. Aborting xfer")
+        raise SlowXferException("Rate: %.2f KB/s" % (rate/1024))
       
     if not data_read:
       break
