@@ -296,10 +296,7 @@ class ExitScanHandler(ScanSupport.ScanHandler):
 
     self.__dnshandler = DNSRebindScanner(self, c)
 
-
-
-
-# Http request handling
+# HTTP request handling
 def http_request(address, cookie_jar=None, headers=firefox_headers):
   ''' perform a http GET-request and return the content received '''
   request = urllib2.Request(address)
@@ -309,6 +306,7 @@ def http_request(address, cookie_jar=None, headers=firefox_headers):
   content = ""
   new_cookies = []
   mime_type = ""
+  rval = (None, None, None, None, None)
   try:
     plog("DEBUG", "Starting request for: "+address)
     if cookie_jar != None:
@@ -329,43 +327,125 @@ def http_request(address, cookie_jar=None, headers=firefox_headers):
     reply_headers.add(("mime-type", mime_type))
     plog("DEBUG", "Mime type is "+mime_type+", length "+str(length))
     content = decompress_response_data(reply)
+    rval = (reply.code, reply_headers, new_cookies, mime_type, content)
   except socket.timeout, e:
     plog("WARN", "Socket timeout for "+address+": "+str(e))
-    traceback.print_exc()
-    return (E_TIMEOUT, None, [], "", e.__class__.__name__+str(e))
+    rval = (E_TIMEOUT, None, [], "", e.__class__.__name__+str(e))
+  except SlowXferException, e:
+    rval = (E_SLOWXFER, None, [], "", e.__class__.__name__+str(e))
   except httplib.BadStatusLine, e:
     plog('NOTICE', "HTTP Error during request of "+address+": "+str(e))
     if not e.line: 
-      return (E_NOCONTENT, None, [], "", e.__class__.__name__+"(None)")
+      rval = (E_NOCONTENT, None, [], "", e.__class__.__name__+"(None)")
     else:
       traceback.print_exc()
-      return (E_MISC, None, [], "", e.__class__.__name__+str(e))
+      rval = (E_MISC, None, [], "", e.__class__.__name__+str(e))
   except urllib2.HTTPError, e:
     plog('NOTICE', "HTTP Error during request of "+address+": "+str(e))
     if str(e) == "<urlopen error timed out>": # Yah, super ghetto...
-      return (E_TIMEOUT, None, [], "", e.__class__.__name__+str(e))
+      rval = (E_TIMEOUT, None, [], "", e.__class__.__name__+str(e))
     else:
       traceback.print_exc()
-      return (e.code, None, [], "", e.__class__.__name__+str(e)) 
+      rval = (e.code, None, [], "", e.__class__.__name__+str(e)) 
   except (ValueError, urllib2.URLError), e:
     plog('WARN', 'The http-request address ' + address + ' is malformed')
     if str(e) == "<urlopen error timed out>": # Yah, super ghetto...
-      return (E_TIMEOUT, None, [], "", e.__class__.__name__+str(e))
+      rval = (E_TIMEOUT, None, [], "", e.__class__.__name__+str(e))
     else:
       traceback.print_exc()
-      return (E_URL, None, [], "", e.__class__.__name__+str(e))
+      rval = (E_URL, None, [], "", e.__class__.__name__+str(e))
   except socks.Socks5Error, e:
     plog('WARN', 'A SOCKS5 error '+str(e.value[0])+' occured for '+address+": "+str(e))
-    return (-float(e.value[0]), None, [], "", e.__class__.__name__+str(e))
+    rval = (-float(e.value[0]), None, [], "", e.__class__.__name__+str(e))
   except KeyboardInterrupt:
     raise KeyboardInterrupt
   except Exception, e:
     plog('WARN', 'An unknown HTTP error occured for '+address+": "+str(e))
     traceback.print_exc()
-    return (E_MISC, None, [], "", e.__class__.__name__+str(e))
+    rval = (E_MISC, None, [], "", e.__class__.__name__+str(e))
+  return rval
 
-  return (reply.code, reply_headers, new_cookies, mime_type, content)
 
+# SSL request handling
+def ssl_request(address):
+  # The SIGALARM can be triggered outside of the try/except in
+  # _ssl_request, so we need to catch socket.timeout here
+  try:
+    return _ssl_request(address)
+  except socket.timeout, e:
+    return (E_TIMEOUT, None, "Socket timeout")
+
+def _ssl_request(address, method='TLSv1_METHOD'):
+  ''' initiate an ssl connection and return the server certificate '''
+  address=str(address) # Unicode hostnames not supported..
+
+  # specify the context
+  ctx = SSL.Context(getattr(SSL,method))
+
+  s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+  s.settimeout(None)
+
+  def _raise_timeout(signum, frame):
+    raise socket.timeout("SSL connection timed out")
+  signal.signal(signal.SIGALRM, _raise_timeout)
+  # open an ssl connection
+  rval = (None, None, None)
+  try:
+    c = SSL.Connection(ctx, s)
+    c.set_connect_state()
+    signal.alarm(int(read_timeout)) # raise a timeout after read_timeout
+    c.connect((address, 443)) # DNS OK.
+    # XXX: A PEM encoded certificate request was a bizarre and fingerprintable
+    # thing to send here. All we actually need to do is perform a handshake,
+    # but it might be good to make a simple GET request to further limit
+    # fingerprintability.
+    # c.send(crypto.dump_certificate_request(crypto.FILETYPE_PEM,request))
+    c.do_handshake()
+    rval = (0, c.get_peer_certificate(), None)
+  except socket.timeout, e:
+    rval = (E_TIMEOUT, None, "Socket timeout")
+  except socks.Socks5Error, e:
+    plog('WARN', 'A SOCKS5 error '+str(e.value[0])+' occured for '+address+": "+str(e))
+    rval = (-float(e.value[0]), None,  e.__class__.__name__+str(e))
+  except crypto.Error, e:
+    traceback.print_exc()
+    rval = (E_CRYPTO, None, e.__class__.__name__+str(e))
+  except (SSL.ZeroReturnError, SSL.WantReadError, SSL.WantWriteError, SSL.WantX509LookupError), e:
+    # XXX: None of these are really "errors" per se
+    traceback.print_exc()
+    rval = (E_MISC, None, e.__class__.__name__+str(e))
+  except SSL.SysCallError, e:
+    # Errors on the underlying socket will be caught here.
+    if e[0] == -1: # unexpected eof
+      # Might be an SSLv2 server, but it's unlikely, let's just call it a CONNERROR
+      rval = (float(e[0]), None, e[1])
+    else:
+      traceback.print_exc()
+      rval = (E_MISC, None, e.__class__.__name__+str(e))
+  except SSL.Error, e:
+    signal.alarm(0) # Since we might recurse
+    for (lib, func, reason) in e.message: # e.message is always list of 3-tuples
+      if reason in ('wrong version number','sslv3 alert illegal parameter'):
+        # Check if the server supports a different SSL version
+        if method == 'TLSv1_METHOD':
+          plog('DEBUG','Could not negotiate SSL handshake with %s, retrying with SSLv3_METHOD' % address)
+          rval = _ssl_request(address, 'SSLv3_METHOD')
+          break
+    else:
+      plog('WARN', 'An unknown SSL error occured for '+address+': '+str(e))
+      traceback.print_exc()
+      rval = (E_MISC, None,  e.__class__.__name__+str(e))
+  except KeyboardInterrupt:
+    signal.alarm(0)
+    raise
+  except Exception, e:
+    plog('WARN', 'An unknown SSL error occured for '+address+': '+str(e))
+    traceback.print_exc()
+    rval = (E_MISC, None,  e.__class__.__name__+str(e))
+  signal.alarm(0)
+  return rval
+
+# Base Test Classes
 class Test:
   """ Base class for our tests """
   def __init__(self, proto, port):
@@ -1723,89 +1803,10 @@ class SSLTest(SearchBasedTest):
 
   def run_test(self):
     self.tests_run += 1
-    return self.check_openssl(random.choice(self.targets))
+    return self.check_ssl(random.choice(self.targets))
 
   def get_targets(self):
     return self.get_search_urls('https', self.test_hosts, True, search_mode=google_search_mode)
-
-  def _raise_timeout(self, signum, frame):
-    raise socket.timeout("SSL connection timed out")
-
-  def ssl_request(self, address):
-    # The SIGALARM can be triggered outside of the try/except in
-    # _ssl_request, so we need to catch socket.timeout here
-    try:
-      return self._ssl_request(address)
-    except socket.timeout, e:
-      return (E_TIMEOUT, None, "Socket timeout")
-
-  def _ssl_request(self, address, method='TLSv1_METHOD'):
-    ''' initiate an ssl connection and return the server certificate '''
-    address=str(address) # Unicode hostnames not supported..
-
-    # specify the context
-    ctx = SSL.Context(getattr(SSL,method))
-
-    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    s.settimeout(None)
-
-    signal.signal(signal.SIGALRM, self._raise_timeout)
-    # open an ssl connection
-    rval = (None, None, None)
-    try:
-      c = SSL.Connection(ctx, s)
-      c.set_connect_state()
-      signal.alarm(int(read_timeout)) # raise a timeout after read_timeout
-      c.connect((address, 443)) # DNS OK.
-      # XXX: A PEM encoded certificate request was a bizarre and fingerprintable
-      # thing to send here. All we actually need to do is perform a handshake,
-      # but it might be good to make a simple GET request to further limit
-      # fingerprintability.
-      # c.send(crypto.dump_certificate_request(crypto.FILETYPE_PEM,request))
-      c.do_handshake()
-      rval = (0, c.get_peer_certificate(), None)
-    except socket.timeout, e:
-      rval = (E_TIMEOUT, None, "Socket timeout")
-    except socks.Socks5Error, e:
-      plog('WARN', 'A SOCKS5 error '+str(e.value[0])+' occured for '+address+": "+str(e))
-      rval = (-float(e.value[0]), None,  e.__class__.__name__+str(e))
-    except crypto.Error, e:
-      traceback.print_exc()
-      rval = (E_CRYPTO, None, e.__class__.__name__+str(e))
-    except (SSL.ZeroReturnError, SSL.WantReadError, SSL.WantWriteError, SSL.WantX509LookupError), e:
-      # XXX: None of these are really "errors" per se
-      traceback.print_exc()
-      rval = (E_MISC, None, e.__class__.__name__+str(e))
-    except SSL.SysCallError, e:
-      # Errors on the underlying socket will be caught here.
-      if e[0] == -1: # unexpected eof
-        # Might be an SSLv2 server, but it's unlikely, let's just call it a CONNERROR
-        rval = (float(e[0]), None, e[1])
-      else:
-        traceback.print_exc()
-        rval = (E_MISC, None, e.__class__.__name__+str(e))
-    except SSL.Error, e:
-      signal.alarm(0) # Since we might recurse
-      for (lib, func, reason) in e.message: # e.message is always list of 3-tuples
-        if reason in ('wrong version number','sslv3 alert illegal parameter'):
-          # Check if the server supports a different SSL version
-          if method == 'TLSv1_METHOD':
-            plog('DEBUG','Could not negotiate SSL handshake with %s, retrying with SSLv3_METHOD' % address)
-            rval = self._ssl_request(address, 'SSLv3_METHOD')
-            break
-      else:
-        plog('WARN', 'An unknown SSL error occured for '+address+': '+str(e))
-        traceback.print_exc()
-        rval = (E_MISC, None,  e.__class__.__name__+str(e))
-    except KeyboardInterrupt:
-      signal.alarm(0)
-      raise
-    except Exception, e:
-      plog('WARN', 'An unknown SSL error occured for '+address+': '+str(e))
-      traceback.print_exc()
-      rval = (E_MISC, None,  e.__class__.__name__+str(e))
-    signal.alarm(0)
-    return rval
 
   def get_resolved_ip(self, hostname):
     # XXX: This is some extreme GIL abuse.. It may have race conditions
@@ -1826,7 +1827,7 @@ class SSLTest(SearchBasedTest):
       #let's always check.
       #if not ssl_domain.seen_ip(ip):
       plog('INFO', 'SSL connection to new ip '+ip+" for "+ssl_domain.domain)
-      (code, raw_cert, exc) = self.ssl_request(ip)
+      (code, raw_cert, exc) = ssl_request(ip)
       if not raw_cert:
         plog('WARN', 'Error getting the correct cert for '+ssl_domain.domain+":"+ip+" "+str(code)+"("+str(exc)+")")
         continue
@@ -1839,7 +1840,7 @@ class SSLTest(SearchBasedTest):
         plog('WARN', 'Error dumping cert for '+ssl_domain.domain+":"+ip+" E:"+str(e))
     return changed
 
-  def check_openssl(self, address):
+  def check_ssl(self, address):
     ''' check whether an https connection to a given address is molested '''
     plog('INFO', 'Conducting an ssl test with destination ' + address)
 
@@ -1912,7 +1913,7 @@ class SSLTest(SearchBasedTest):
         return TEST_INCONCLUSIVE
 
     # get the cert via tor
-    (code, cert, exc) = torify(self.ssl_request, address)
+    (code, cert, exc) = torify(ssl_request, address)
 
     exit_node = scanhdlr.get_exit_node()
     if not exit_node:
