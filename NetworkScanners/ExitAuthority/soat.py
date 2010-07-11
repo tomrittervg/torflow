@@ -12,7 +12,7 @@ and comparing content received directly and via tor.
 
 It interacts with metatroller and the control port to be aware of the tor network status.
 
-To run SoaT: 
+To run SoaT:
 1) make sure you have py-openssl packages installed (see README)
 2) open Tor control port in the torrc
 3) start metatroller in the background (python ./metatroller.py)
@@ -151,7 +151,7 @@ def torify(func, *args):
 
 
 # Nice.. HTTPConnection.connect is doing DNS for us! Fix that:
-# Hrmm.. suppose we could also bind here.. but BindingSocket is 
+# Hrmm.. suppose we could also bind here.. but BindingSocket is
 # more general and may come in handy for other tests.
 class NoDNSHTTPConnection(httplib.HTTPConnection):
   def connect(self):
@@ -256,13 +256,13 @@ class ExitScanHandler(ScanSupport.ScanHandler):
           bad_exits.add(router)
           specific_bad_exits[i].append(router)
           #plog('INFO', 'Router ' + router.nickname + ' allows ' + common_protocol + ' but not ' + secure_protocol)
-  
+
 
     for i,exits in enumerate(specific_bad_exits):
       [common_protocol, common_restriction, secure_protocol, secure_restriction] = ports_to_check[i]
       plog("NOTICE", "Nodes allowing "+common_protocol+" but not "+secure_protocol+":\n\t"+"\n\t".join(map(lambda r: r.nickname+"="+r.idhex, exits)))
       #plog('INFO', 'Router ' + router.nickname + ' allows ' + common_protocol + ' but not ' + secure_protocol)
-     
+
 
     # report results
     plog('INFO', 'Total nodes: ' + `len(routers)`)
@@ -335,7 +335,7 @@ def http_request(address, cookie_jar=None, headers=firefox_headers):
     rval = (E_SLOWXFER, None, [], "", e.__class__.__name__+str(e))
   except httplib.BadStatusLine, e:
     plog('NOTICE', "HTTP Error during request of "+address+": "+str(e))
-    if not e.line: 
+    if not e.line:
       rval = (E_NOCONTENT, None, [], "", e.__class__.__name__+"(None)")
     else:
       traceback.print_exc()
@@ -346,7 +346,7 @@ def http_request(address, cookie_jar=None, headers=firefox_headers):
       rval = (E_TIMEOUT, None, [], "", e.__class__.__name__+str(e))
     else:
       traceback.print_exc()
-      rval = (e.code, None, [], "", e.__class__.__name__+str(e)) 
+      rval = (e.code, None, [], "", e.__class__.__name__+str(e))
   except (ValueError, urllib2.URLError), e:
     plog('WARN', 'The http-request address ' + address + ' is malformed')
     if str(e) == "<urlopen error timed out>": # Yah, super ghetto...
@@ -445,6 +445,7 @@ def _ssl_request(address, method='TLSv1_METHOD'):
   signal.alarm(0)
   return rval
 
+
 # Base Test Classes
 class Test:
   """ Base class for our tests """
@@ -464,7 +465,7 @@ class Test:
     self._reset()
     self._pickle_revision = 6 # Will increment as fields are added
 
-  def run_test(self): 
+  def run_test(self):
     raise NotImplementedError()
 
   def depickle_upgrade(self):
@@ -473,12 +474,12 @@ class Test:
       # Yes, this is a hack, and yes, it will bias results
       # away from the filter, but hey, at least it will still run.
       self._pickle_revision = 1
-      
+
       for addr in self.successes.keys():
         if type(self.successes[addr]) == int:
           self.successes[addr] = set(xrange(0,self.successes[addr]))
       plog("INFO", "Upgraded "+self.__class__.__name__+" to v1")
-    if self._pickle_revision < 2: 
+    if self._pickle_revision < 2:
       self._pickle_revision = 2
     if self._pickle_revision < 3:
       self.timeout_fails = {}
@@ -509,14 +510,14 @@ class Test:
     if target in self.connect_fails:
       del self.connect_fails[target]
     kill_results = []
-    for r in self.results: 
+    for r in self.results:
       if r.site == target:
         kill_results.append(r)
     for r in kill_results:
-      # XXX: Need to re-add this node to our test set 
+      # XXX: Need to re-add this node to our test set
       # (If it is still up)
       if r.status == TEST_FAILURE:
-        # Save this new result file in false positive dir 
+        # Save this new result file in false positive dir
         # and remove old one
         try:
           os.unlink(r.filename)
@@ -556,7 +557,7 @@ class Test:
   def update_nodes(self):
     nodes = scanhdlr.get_nodes_for_port(self.port)
     self.node_map = {}
-    for n in nodes: 
+    for n in nodes:
       self.node_map[n.idhex] = n
     self.total_nodes = len(nodes)
     self.nodes = set(map(lambda n: n.idhex, nodes))
@@ -569,7 +570,7 @@ class Test:
       plog("ERROR", "No nodes remain after rescan load!")
     self.scan_nodes = len(self.nodes)
     self.nodes_to_mark = self.scan_nodes*self.tests_per_node
-    scanhdlr._sanity_check(map(lambda id: self.node_map[id], 
+    scanhdlr._sanity_check(map(lambda id: self.node_map[id],
                      self.nodes))
 
   def mark_chosen(self, node, result):
@@ -593,10 +594,10 @@ class Test:
     else:
       plog("DEBUG", "Keeping node "+node+". "+str(len(self.nodes))+" nodes remain. Tests: "+str(len(self.node_results[node]))+"/"+str(self.tests_per_node))
 
-     
+
   def finished(self):
     return not self.nodes
-   
+
   def percent_complete(self):
     return round(100.0 - (100.0*self.scan_nodes)/self.total_nodes, 1)
 
@@ -647,7 +648,7 @@ class Test:
     self.exit_fails = {}
     self.successes = {}
     self.dynamic_fails = {}
- 
+
   def rewind(self):
     self._reset()
     self.update_nodes()
@@ -657,11 +658,11 @@ class Test:
     if type(self.targets) == dict:
       for subtype in self.targets.iterkeys():
         targets = "\n\t".join(self.targets[subtype])
-        plog("INFO", "Using the following urls for "+self.proto+"/"+subtype+" scan:\n\t"+targets) 
-        
+        plog("INFO", "Using the following urls for "+self.proto+"/"+subtype+" scan:\n\t"+targets)
+
     else:
       targets = "\n\t".join(self.targets)
-      plog("INFO", "Using the following urls for "+self.proto+" scan:\n\t"+targets) 
+      plog("INFO", "Using the following urls for "+self.proto+" scan:\n\t"+targets)
 
   def site_tests(self, site):
     tot_cnt = 0
@@ -679,16 +680,16 @@ class Test:
     if self.rescan_nodes:
       result.from_rescan = True
     #datahandler.saveResult(result)
-    if result.site in self.successes: 
+    if result.site in self.successes:
       self.successes[result.site].add(result.exit_node)
     else:
       self.successes[result.site]=set([result.exit_node])
 
     win_cnt = len(self.successes[result.site])
-    
+
     plog("INFO", self.proto+" success at "+result.exit_node+". This makes "+str(win_cnt)+"/"+str(self.site_tests(result.site))+" node successes for "+result.site)
 
-  def _register_site_connect_failure(self, result): 
+  def _register_site_connect_failure(self, result):
     if self.rescan_nodes:
       result.from_rescan = True
     self.results.append(result)
@@ -697,7 +698,7 @@ class Test:
       self.connect_fails[result.site].add(result.exit_node)
     else:
       self.connect_fails[result.site] = set([result.exit_node])
-    
+
     err_cnt = len(self.connect_fails[result.site])
 
     plog("ERROR", self.proto+" connection fail of "+result.reason+" at "+result.exit_node+". This makes "+str(err_cnt)+"/"+str(self.site_tests(result.site))+" node failures for "+result.site)
@@ -710,11 +711,11 @@ class Test:
     self.connect_fails_per_exit[result.exit_node] += 1
 
     c_cnt = self.connect_fails_per_exit[result.exit_node]
-   
+
     if c_cnt > num_connfails_per_node:
       if result.extra_info:
         result.extra_info = str(result.extra_info) + " count: "+str(c_cnt)
-      else: 
+      else:
         result.extra_info = str(c_cnt)
       self._register_site_connect_failure(result)
       del self.connect_fails_per_exit[result.exit_node]
@@ -731,11 +732,11 @@ class Test:
     self.dns_fails_per_exit[result.exit_node] += 1
 
     d_cnt = self.dns_fails_per_exit[result.exit_node]
-   
+
     if d_cnt > num_dnsfails_per_node:
       if result.extra_info:
         result.extra_info = str(result.extra_info) + " count: "+str(d_cnt)
-      else: 
+      else:
         result.extra_info = str(d_cnt)
       self._register_site_connect_failure(result)
       del self.dns_fails_per_exit[result.exit_node]
@@ -752,11 +753,11 @@ class Test:
     self.timeout_fails_per_exit[result.exit_node] += 1
 
     t_cnt = self.timeout_fails_per_exit[result.exit_node]
-   
+
     if t_cnt > num_timeouts_per_node:
       if result.extra_info:
         result.extra_info = str(result.extra_info) + " count: "+str(t_cnt)
-      else: 
+      else:
         result.extra_info = str(t_cnt)
       self._register_site_connect_failure(result)
       del self.timeout_fails_per_exit[result.exit_node]
@@ -771,7 +772,7 @@ class Test:
     datahandler.saveResult(result)
     self.results.append(result)
 
-    if result.site in self.exit_fails: 
+    if result.site in self.exit_fails:
       self.exit_fails[result.site].add(result.exit_node)
     else:
       self.exit_fails[result.site] = set([result.exit_node])
@@ -819,7 +820,7 @@ class BaseHTTPTest(Test):
       exit_node = "$"+scanhdlr.get_exit_node().idhex
       plog("ERROR", "Cookie mismatch at "+exit_node+":\nTor Cookies:"+tor_cookies+"\nPlain Cookies:\n"+plain_cookies)
       result = CookieTestResult(self.node_map[exit_node[1:]],
-                          TEST_FAILURE, FAILURE_COOKIEMISMATCH, plain_cookies, 
+                          TEST_FAILURE, FAILURE_COOKIEMISMATCH, plain_cookies,
                           tor_cookies)
       if self.rescan_nodes:
         result.from_rescan = True
@@ -828,13 +829,12 @@ class BaseHTTPTest(Test):
       return TEST_FAILURE
     return TEST_SUCCESS
 
-
   def run_test(self):
     # A single test should have a single cookie jar
     self.tor_cookie_jar = cookielib.MozillaCookieJar()
     self.cookie_jar = cookielib.MozillaCookieJar()
     self.headers = copy.copy(firefox_headers)
-   
+
     self.tests_run += 1
 
     typed_targets = {}
@@ -846,10 +846,10 @@ class BaseHTTPTest(Test):
 
     n_tests = random.choice(xrange(1,len(typed_targets)+1))
     filetypes = random.sample(typed_targets.keys(), n_tests)
-    
+
     plog("INFO", "HTTPTest decided to fetch "+str(n_tests)+" urls of types: "+str(filetypes))
 
-    n_success = n_fail = n_inconclusive = 0 
+    n_success = n_fail = n_inconclusive = 0
     for ftype in filetypes:
       # FIXME: Set referrer to random or none for each of these
       address = random.choice(typed_targets[ftype])
@@ -864,13 +864,13 @@ class BaseHTTPTest(Test):
     # Cookie jars contain locks and can't be pickled. Clear them away.
     self.tor_cookie_jar = None
     self.cookie_jar = None
-  
+
     if n_fail:
       return TEST_FAILURE
     elif n_inconclusive > 2*n_success: # > 66% inconclusive -> redo
       return TEST_INCONCLUSIVE
     else:
-      return TEST_SUCCESS 
+      return TEST_SUCCESS
 
   def remove_target(self, address, reason):
     Test.remove_target(self, address, reason)
@@ -887,7 +887,7 @@ class BaseHTTPTest(Test):
     if site in self.httpcode_fails:
       tot_cnt += len(self.httpcode_fails[site])
     return tot_cnt
-    
+
   def register_http_failure(self, result): # XXX: Currently deadcode
     if self.rescan_nodes:
       result.from_rescan = True
@@ -897,27 +897,29 @@ class BaseHTTPTest(Test):
       self.httpcode_fails[result.site].add(result.exit_node)
     else:
       self.httpcode_fails[result.site] = set([result.exit_node])
-    
+
     err_cnt = len(self.httpcode_fails[result.site])
 
     plog("ERROR", self.proto+" http error code fail of "+result.reason+" at "+result.exit_node+". This makes "+str(err_cnt)+"/"+str(self.site_tests(result.site))+" node failures for "+result.site)
-    
+
 
   def check_http_nodynamic(self, address, nocontent=False):
     # TODO: use nocontent to cause us to not load content into memory.
     # This will require refactoring http_response though.
     ''' check whether a http connection to a given address is molested '''
 
-    # an address representation acceptable for a filename 
+    # an address representation acceptable for a filename
     address_file = DataHandler.safeFilename(address[7:])
     content_prefix = http_content_dir+address_file
-    
+
     # Keep a copy of the cookie jar before mods for refetch or
     # to restore on errors that cancel a fetch
     orig_cookie_jar = cookielib.MozillaCookieJar()
-    for cookie in self.cookie_jar: orig_cookie_jar.set_cookie(cookie)
+    for cookie in self.cookie_jar:
+      orig_cookie_jar.set_cookie(cookie)
     orig_tor_cookie_jar = cookielib.MozillaCookieJar()
-    for cookie in self.tor_cookie_jar: orig_tor_cookie_jar.set_cookie(cookie)
+    for cookie in self.tor_cookie_jar:
+      orig_tor_cookie_jar.set_cookie(cookie)
 
     try:
       # Load content from disk, md5
@@ -928,7 +930,7 @@ class BaseHTTPTest(Test):
         sha1sum.update(buf)
         buf = content_file.read(4096)
       content_file.close()
-      
+
       added_cookie_jar = cookielib.MozillaCookieJar()
       added_cookie_jar.load(content_prefix+'.cookies', ignore_discard=True)
       self.cookie_jar.load(content_prefix+'.cookies', ignore_discard=True)
@@ -936,7 +938,7 @@ class BaseHTTPTest(Test):
       headerdiffer = SnakePickler.load(content_prefix+'.headerdiff')
 
       content = None
-      mime_type = None 
+      mime_type = None
 
     except IOError:
       (code, resp_headers, new_cookies, mime_type, content) = http_request(address, self.cookie_jar, self.headers)
@@ -957,20 +959,21 @@ class BaseHTTPTest(Test):
         # Restore cookie jar
         self.cookie_jar = orig_cookie_jar
         self.tor_cookie_jar = orig_tor_cookie_jar
-        return TEST_INCONCLUSIVE 
+        return TEST_INCONCLUSIVE
       sha1sum = sha(content)
 
       content_file = open(content_prefix+'.content', 'w')
       content_file.write(content)
       content_file.close()
-      
+
       headerdiffer = HeaderDiffer(resp_headers)
       SnakePickler.dump(headerdiffer, content_prefix+'.headerdiff')
-      
-      # Need to do set subtraction and only save new cookies.. 
+
+      # Need to do set subtraction and only save new cookies..
       # or extract/make_cookies
       added_cookie_jar = cookielib.MozillaCookieJar()
-      for cookie in new_cookies: added_cookie_jar.set_cookie(cookie)
+      for cookie in new_cookies:
+        added_cookie_jar.set_cookie(cookie)
       try:
         added_cookie_jar.save(content_prefix+'.cookies', ignore_discard=True)
       except:
@@ -991,7 +994,7 @@ class BaseHTTPTest(Test):
     exit_node = scanhdlr.get_exit_node()
     if not exit_node:
       plog('NOTICE', 'We had no exit node to test, skipping to the next test.')
-      result = HttpTestResult(None, 
+      result = HttpTestResult(None,
                               address, TEST_INCONCLUSIVE, INCONCLUSIVE_NOEXIT)
       if self.rescan_nodes:
         result.from_rescan = True
@@ -1013,12 +1016,12 @@ class BaseHTTPTest(Test):
       BindingSocket.bind_to = refetch_ip
       (code_new, resp_headers_new, new_cookies_new, mime_type_new, content_new) = http_request(address, orig_tor_cookie_jar, self.headers)
       BindingSocket.bind_to = None
-      
+
       if code_new == pcode:
         plog("NOTICE", "Non-tor HTTP error "+str(code_new)+" fetching content for "+address)
         # Just remove it
         self.remove_target(address, FALSEPOSITIVE_HTTPERRORS)
-        return TEST_INCONCLUSIVE 
+        return TEST_INCONCLUSIVE
 
       if pcode < 0 and type(pcode) == float:
         if pcode == E_SOCKS: # "General socks error"
@@ -1034,7 +1037,7 @@ class BaseHTTPTest(Test):
           return self.register_dns_failure(result)
         elif pcode == E_REFUSED: # Connection refused
           fail_reason = FAILURE_CONNREFUSED
-          result = HttpTestResult(self.node_map[exit_node[1:]], 
+          result = HttpTestResult(self.node_map[exit_node[1:]],
                               address, TEST_FAILURE, fail_reason)
           self.register_exit_failure(result)
           return TEST_FAILURE
@@ -1052,7 +1055,7 @@ class BaseHTTPTest(Test):
           return self.register_timeout_failure(result)
         elif pcode == E_NOCONTENT:
           fail_reason = FAILURE_NOEXITCONTENT
-          result = HttpTestResult(self.node_map[exit_node[1:]], 
+          result = HttpTestResult(self.node_map[exit_node[1:]],
                               address, TEST_FAILURE, fail_reason)
           self.register_exit_failure(result)
           return TEST_FAILURE
@@ -1060,9 +1063,9 @@ class BaseHTTPTest(Test):
           fail_reason = FAILURE_URLERROR
         else:
           fail_reason = FAILURE_MISCEXCEPTION
-      else: 
+      else:
         fail_reason = FAILURE_BADHTTPCODE+str(pcode)
-      result = HttpTestResult(self.node_map[exit_node[1:]], 
+      result = HttpTestResult(self.node_map[exit_node[1:]],
                             address, TEST_FAILURE, fail_reason)
       result.extra_info = str(pcontent)
       self.register_connect_failure(result)
@@ -1070,7 +1073,7 @@ class BaseHTTPTest(Test):
 
     # if we have no content, we had a connection error
     if pcontent == "":
-      result = HttpTestResult(self.node_map[exit_node[1:]], 
+      result = HttpTestResult(self.node_map[exit_node[1:]],
                               address, TEST_FAILURE, FAILURE_NOEXITCONTENT)
       self.register_exit_failure(result)
       # Restore cookie jars
@@ -1085,7 +1088,7 @@ class BaseHTTPTest(Test):
     # compare the content
     # if content matches, everything is ok
     if not hdiffs and psha1sum.hexdigest() == sha1sum.hexdigest():
-      result = HttpTestResult(self.node_map[exit_node[1:]], 
+      result = HttpTestResult(self.node_map[exit_node[1:]],
                               address, TEST_SUCCESS)
       self.register_success(result)
       return TEST_SUCCESS
@@ -1097,16 +1100,16 @@ class BaseHTTPTest(Test):
       content_file = open(load_file, 'r')
       content = content_file.read()
       content_file.close()
-    
+
     if content and len(pcontent) < len(content):
       if content[0:len(pcontent)] == pcontent[0:len(pcontent)]:
         failed_prefix = http_failed_dir+address_file
         exit_content_file = open(DataHandler.uniqueFilename(failed_prefix+'.'+exit_node[1:]+'.content'), 'w')
         exit_content_file.write(pcontent)
         exit_content_file.close()
-        result = HttpTestResult(self.node_map[exit_node[1:]], 
-                                address, TEST_FAILURE, FAILURE_EXITTRUNCATION, 
-                                sha1sum.hexdigest(), psha1sum.hexdigest(), 
+        result = HttpTestResult(self.node_map[exit_node[1:]],
+                                address, TEST_FAILURE, FAILURE_EXITTRUNCATION,
+                                sha1sum.hexdigest(), psha1sum.hexdigest(),
                                 content_prefix+".content",
                                 exit_content_file.name)
         self.register_exit_failure(result)
@@ -1123,11 +1126,11 @@ class BaseHTTPTest(Test):
     BindingSocket.bind_to = refetch_ip
     (code_new, resp_headers_new, new_cookies_new, mime_type_new, content_new) = http_request(address, orig_tor_cookie_jar, self.headers)
     BindingSocket.bind_to = None
-    
+
     if not content_new:
       plog("WARN", "Failed to re-frech "+address+" outside of Tor. Did our network fail?")
-      result = HttpTestResult(self.node_map[exit_node[1:]], 
-                              address, TEST_INCONCLUSIVE, 
+      result = HttpTestResult(self.node_map[exit_node[1:]],
+                              address, TEST_INCONCLUSIVE,
                               INCONCLUSIVE_NOLOCALCONTENT)
       if self.rescan_nodes:
         result.from_rescan = True
@@ -1149,12 +1152,12 @@ class BaseHTTPTest(Test):
       new_content_file.write(content_new)
       new_content_file.close()
 
-    # Need to do set subtraction and only save new cookies.. 
+    # Need to do set subtraction and only save new cookies..
     # or extract/make_cookies
-    
+
     self.cookie_jar = orig_cookie_jar
     new_cookie_jar = cookielib.MozillaCookieJar()
-    for cookie in new_cookies_new: 
+    for cookie in new_cookies_new:
       new_cookie_jar.set_cookie(cookie)
       self.cookie_jar.set_cookie(cookie) # Update..
     os.rename(content_prefix+'.cookies', content_prefix+'.cookies-old')
@@ -1165,24 +1168,24 @@ class BaseHTTPTest(Test):
       plog("WARN", "Error saving cookies in "+str(new_cookie_jar)+" to "+content_prefix+".cookies")
 
     if hdiffs:
-      # XXX: We probably should store the header differ + exit headers 
+      # XXX: We probably should store the header differ + exit headers
       # for later comparison (ie if the header differ picks up more diffs)
       plog("NOTICE", "Post-refetch header changes for "+address+": \n"+hdiffs)
-      result = HttpTestResult(self.node_map[exit_node[1:]], 
+      result = HttpTestResult(self.node_map[exit_node[1:]],
                               address, TEST_FAILURE, FAILURE_HEADERCHANGE)
       result.extra_info = hdiffs
       self.register_dynamic_failure(result)
       # Lets let the rest of the tests run too actually
-      #return TEST_FAILURE 
+      #return TEST_FAILURE
 
     # compare the node content and the new content
     # if it matches, everything is ok
     if psha1sum.hexdigest() == sha1sum_new.hexdigest():
-      result = HttpTestResult(self.node_map[exit_node[1:]], 
+      result = HttpTestResult(self.node_map[exit_node[1:]],
                               address, TEST_SUCCESS)
       self.register_success(result)
       return TEST_SUCCESS
- 
+
     if not content and not nocontent:
       if sha1sum.hexdigest() != sha1sum_new.hexdigest():
         load_file = content_prefix+'.content-old'
@@ -1191,7 +1194,7 @@ class BaseHTTPTest(Test):
       content_file = open(load_file, 'r')
       content = content_file.read()
       content_file.close()
-    
+
     if not ((mime_type == mime_type_new or not mime_type) \
                and mime_type_new == pmime_type):
       if not mime_type:
@@ -1200,7 +1203,7 @@ class BaseHTTPTest(Test):
       # TODO: If this actually happens, store a result.
 
     # Dirty dirty dirty...
-    return (mime_type_new, pcontent, psha1sum, content, sha1sum, content_new, 
+    return (mime_type_new, pcontent, psha1sum, content, sha1sum, content_new,
             sha1sum_new, exit_node)
 
   def check_http(self, address):
@@ -1208,11 +1211,11 @@ class BaseHTTPTest(Test):
     ret = self.check_http_nodynamic(address)
     if type(ret) == int:
       return ret
-    return self._check_http_worker(address, ret) 
+    return self._check_http_worker(address, ret)
 
   def _check_http_worker(self, address, http_ret):
     (mime_type,pcontent,psha1sum,content,sha1sum,content_new,sha1sum_new,exit_node) = http_ret
-     
+
     address_file = DataHandler.safeFilename(address[7:])
     content_prefix = http_content_dir+address_file
     failed_prefix = http_failed_dir+address_file
@@ -1225,8 +1228,8 @@ class BaseHTTPTest(Test):
       exit_content_file.close()
 
       result = HttpTestResult(self.node_map[exit_node[1:]],
-                              address, TEST_FAILURE, FAILURE_EXITONLY, 
-                              sha1sum.hexdigest(), psha1sum.hexdigest(), 
+                              address, TEST_FAILURE, FAILURE_EXITONLY,
+                              sha1sum.hexdigest(), psha1sum.hexdigest(),
                               content_prefix+".content", exit_content_file.name)
       self.register_exit_failure(result)
       return TEST_FAILURE
@@ -1235,10 +1238,10 @@ class BaseHTTPTest(Test):
     exit_content_file.write(pcontent)
     exit_content_file.close()
 
-    result = HttpTestResult(self.node_map[exit_node[1:]], 
-                            address, TEST_FAILURE, FAILURE_DYNAMIC, 
-                            sha1sum_new.hexdigest(), psha1sum.hexdigest(), 
-                            content_prefix+".content", exit_content_file.name, 
+    result = HttpTestResult(self.node_map[exit_node[1:]],
+                            address, TEST_FAILURE, FAILURE_DYNAMIC,
+                            sha1sum_new.hexdigest(), psha1sum.hexdigest(),
+                            content_prefix+".content", exit_content_file.name,
                             content_prefix+'.content-old',
                             sha1sum.hexdigest())
     if self.rescan_nodes:
@@ -1259,7 +1262,7 @@ class BaseHTMLTest(BaseHTTPTest):
     self.proto = "HTML"
     self.recurse_filetypes = recurse_filetypes
     self.fetch_queue = []
-   
+
   def run_test(self):
     # A single test should have a single cookie jar
     self.tor_cookie_jar = cookielib.MozillaCookieJar()
@@ -1267,28 +1270,28 @@ class BaseHTMLTest(BaseHTTPTest):
     self.headers = copy.copy(firefox_headers)
 
     use_referers = False
-    first_referer = None    
+    first_referer = None
     if random.randint(1,100) < referer_chance_pct:
       use_referers = True
       # FIXME: Hrmm.. May want to do this a bit better..
       first_referer = random.choice(self.targets)
       plog("INFO", "Chose random referer "+first_referer)
-    
+
     self.tests_run += 1
     address = random.choice(self.targets)
-    
+
     # Keep a trail log for this test and check for loops
     fetched = set([])
 
     self.fetch_queue.append(("html", address, first_referer))
-    n_success = n_fail = n_inconclusive = 0 
+    n_success = n_fail = n_inconclusive = 0
     while self.fetch_queue:
       (test, url, referer) = self.fetch_queue.pop(0)
       if url in fetched:
         plog("INFO", "Already fetched "+url+", skipping")
         continue
       fetched.add(url)
-      if use_referers and referer: 
+      if use_referers and referer:
         self.headers.append(('Referer', referer))
       # Technically both html and js tests check and dispatch via mime types
       # but I want to know when link tags lie
@@ -1302,7 +1305,7 @@ class BaseHTMLTest(BaseHTTPTest):
         accept_hdr[1] = image_accept_hdr
         result = self.check_http(url)
         accept_hdr[1] = orig_accept
-      else: 
+      else:
         plog("WARN", "Unknown test type: "+test+" for "+url)
         result = TEST_SUCCESS
       if result == TEST_INCONCLUSIVE:
@@ -1321,7 +1324,7 @@ class BaseHTMLTest(BaseHTTPTest):
     elif 2*n_inconclusive > n_success: # > 33% inconclusive -> redo
       return TEST_INCONCLUSIVE
     else:
-      return TEST_SUCCESS 
+      return TEST_SUCCESS
 
   def _add_recursive_targets(self, soup, orig_addr):
     # Only pull at most one filetype from the list of 'a' links
@@ -1370,7 +1373,7 @@ class BaseHTMLTest(BaseHTTPTest):
                     targets.append(("http", urlparse.urljoin(orig_addr, attr_tgt)))
             else:
               targets.append(("http", urlparse.urljoin(orig_addr, attr_tgt)))
-    
+
     if not found_favicon:
       targets.insert(0, ("image", urlparse.urljoin(orig_addr, "/favicon.ico")))
 
@@ -1402,15 +1405,15 @@ class BaseHTMLTest(BaseHTTPTest):
   def is_html(self, mime_type, content):
     is_html = False
     for type_match in html_mime_types:
-      if re.match(type_match, mime_type.lower()): 
+      if re.match(type_match, mime_type.lower()):
         is_html = True
         break
     return is_html
- 
+
   def is_script(self, mime_type, content):
     is_script = False
     for type_match in script_mime_types:
-      if re.match(type_match, mime_type.lower()): 
+      if re.match(type_match, mime_type.lower()):
         is_script = True
         break
     return is_script
@@ -1420,7 +1423,7 @@ class BaseHTMLTest(BaseHTTPTest):
 
     if not self.is_script(mime_type, orig_js):
       plog("WARN", "Non-script mime type "+mime_type+" fed to JS test for "+address)
-     
+
       if self.is_html(mime_type, orig_js):
         return self._check_html_worker(address, http_ret)
       else:
@@ -1436,14 +1439,14 @@ class BaseHTMLTest(BaseHTTPTest):
     else:
       plog("DEBUG", "No jsdiff for "+address+". Creating+dumping")
       jsdiff = JSDiffer(orig_js)
-    
+
     jsdiff.prune_differences(new_js)
     SnakePickler.dump(jsdiff, content_prefix+".jsdiff")
 
     has_js_changes = jsdiff.contains_differences(tor_js)
 
     if not has_js_changes:
-      result = JsTestResult(self.node_map[exit_node[1:]], 
+      result = JsTestResult(self.node_map[exit_node[1:]],
                             address, TEST_SUCCESS)
       self.register_success(result)
       return TEST_SUCCESS
@@ -1452,9 +1455,9 @@ class BaseHTMLTest(BaseHTTPTest):
       exit_content_file.write(tor_js)
       exit_content_file.close()
 
-      result = JsTestResult(self.node_map[exit_node[1:]], 
-                             address, TEST_FAILURE, FAILURE_DYNAMIC, 
-                             content_prefix+".content", exit_content_file.name, 
+      result = JsTestResult(self.node_map[exit_node[1:]],
+                             address, TEST_FAILURE, FAILURE_DYNAMIC,
+                             content_prefix+".content", exit_content_file.name,
                              content_prefix+'.content-old',
                              content_prefix+".jsdiff")
       self.register_dynamic_failure(result)
@@ -1463,7 +1466,7 @@ class BaseHTMLTest(BaseHTTPTest):
   def check_html(self, address):
     plog('INFO', 'Conducting an html test with destination ' + address)
     ret = self.check_http_nodynamic(address)
-    
+
     if type(ret) == int:
       return ret
 
@@ -1480,7 +1483,7 @@ class BaseHTMLTest(BaseHTTPTest):
       else:
         return self._check_http_worker(address, http_ret)
 
-    # an address representation acceptable for a filename 
+    # an address representation acceptable for a filename
     address_file = DataHandler.safeFilename(address[7:])
     content_prefix = http_content_dir+address_file
     failed_prefix = http_failed_dir+address_file
@@ -1489,17 +1492,17 @@ class BaseHTMLTest(BaseHTTPTest):
     tor_soup = FullyStrainedSoup(tor_html.decode('ascii', 'ignore'))
 
     # Also find recursive urls
-    recurse_elements = SoupStrainer(lambda name, attrs: 
-        name in tags_to_recurse and 
+    recurse_elements = SoupStrainer(lambda name, attrs:
+        name in tags_to_recurse and
        len(set(map(lambda a: a[0], attrs)).intersection(set(attrs_to_recurse))) > 0)
     self._add_recursive_targets(TheChosenSoup(tor_html.decode('ascii',
-                                   'ignore'), recurse_elements), address) 
+                                   'ignore'), recurse_elements), address)
 
     # compare the content
     # if content matches, everything is ok
     if str(orig_soup) == str(tor_soup):
       plog("INFO", "Successful soup comparison after SHA1 fail for "+address+" via "+exit_node)
-      result = HtmlTestResult(self.node_map[exit_node[1:]], 
+      result = HtmlTestResult(self.node_map[exit_node[1:]],
                               address, TEST_SUCCESS)
       self.register_success(result)
 
@@ -1508,8 +1511,8 @@ class BaseHTMLTest(BaseHTTPTest):
     content_new = new_html.decode('ascii', 'ignore')
     if not content_new:
       plog("WARN", "Failed to re-frech "+address+" outside of Tor. Did our network fail?")
-      result = HtmlTestResult(self.node_map[exit_node[1:]], 
-                              address, TEST_INCONCLUSIVE, 
+      result = HtmlTestResult(self.node_map[exit_node[1:]],
+                              address, TEST_INCONCLUSIVE,
                               INCONCLUSIVE_NOLOCALCONTENT)
       if self.rescan_nodes:
         result.from_rescan = True
@@ -1526,8 +1529,8 @@ class BaseHTMLTest(BaseHTTPTest):
       exit_content_file.write(tor_html)
       exit_content_file.close()
 
-      result = HtmlTestResult(self.node_map[exit_node[1:]], 
-                              address, TEST_FAILURE, FAILURE_EXITONLY, 
+      result = HtmlTestResult(self.node_map[exit_node[1:]],
+                              address, TEST_FAILURE, FAILURE_EXITONLY,
                               content_prefix+".content", exit_content_file.name)
       self.register_exit_failure(result)
       return TEST_FAILURE
@@ -1547,12 +1550,12 @@ class BaseHTMLTest(BaseHTTPTest):
       soupdiff = SoupDiffer(orig_soup, new_soup)
 
     SnakePickler.dump(soupdiff, content_prefix+".soupdiff")
-    
-    more_tags = soupdiff.show_changed_tags(tor_soup)     
+
+    more_tags = soupdiff.show_changed_tags(tor_soup)
     more_attrs = soupdiff.show_changed_attrs(tor_soup)
     more_content = soupdiff.show_changed_content(tor_soup)
 
-    # Verify all of our changed tags are present here 
+    # Verify all of our changed tags are present here
     if more_tags or more_attrs or (more_content and not soupdiff.content_changed):
       false_positive = False
       plog("NOTICE", "SoupDiffer finds differences for "+address)
@@ -1571,7 +1574,7 @@ class BaseHTMLTest(BaseHTTPTest):
       else:
         plog("DEBUG", "No jsdiff for "+address+". Creating+dumping")
         jsdiff = JSSoupDiffer(orig_soup)
-      
+
       jsdiff.prune_differences(new_soup)
       SnakePickler.dump(jsdiff, content_prefix+".jsdiff")
 
@@ -1583,7 +1586,7 @@ class BaseHTMLTest(BaseHTTPTest):
 
     if false_positive:
       plog("NOTICE", "False positive detected for dynamic change at "+address+" via "+exit_node)
-      result = HtmlTestResult(self.node_map[exit_node[1:]], 
+      result = HtmlTestResult(self.node_map[exit_node[1:]],
                               address, TEST_SUCCESS)
       self.register_success(result)
       return TEST_SUCCESS
@@ -1601,9 +1604,9 @@ class BaseHTMLTest(BaseHTTPTest):
     else:
       soupdiff_file = None
 
-    result = HtmlTestResult(self.node_map[exit_node[1:]], 
-                            address, TEST_FAILURE, FAILURE_DYNAMIC, 
-                            content_prefix+".content", exit_content_file.name, 
+    result = HtmlTestResult(self.node_map[exit_node[1:]],
+                            address, TEST_FAILURE, FAILURE_DYNAMIC,
+                            content_prefix+".content", exit_content_file.name,
                             content_prefix+'.content-old',
                             soupdiff_file, jsdiff_file)
     self.register_dynamic_failure(result)
@@ -1654,7 +1657,7 @@ class BaseSSLTest(Test):
     ''' check whether an https connection to a given address is molested '''
     plog('INFO', 'Conducting an ssl test with destination ' + address)
 
-    # an address representation acceptable for a filename 
+    # an address representation acceptable for a filename
     shortaddr = address[:min(len(address), 16)]
     address_file = DataHandler.safeFilename(shortaddr)
     ssl_file_name = ssl_certs_dir + address_file + '.ssl'
@@ -1713,7 +1716,7 @@ class BaseSSLTest(Test):
 
     if not ssl_domain.num_certs():
         plog("NOTICE", "No non-tor certs available for "+address)
-        result = SSLTestResult("NoExit", "NoStored!", address, ssl_file_name, 
+        result = SSLTestResult("NoExit", "NoStored!", address, ssl_file_name,
                                TEST_INCONCLUSIVE,
                                INCONCLUSIVE_NOLOCALCONTENT)
         if self.rescan_nodes:
@@ -1795,7 +1798,7 @@ class BaseSSLTest(Test):
 
     # if certs match, everything is ok
     if ssl_domain.seen_cert(cert_pem):
-      result = SSLTestResult(self.node_map[exit_node[1:]], 
+      result = SSLTestResult(self.node_map[exit_node[1:]],
                              address, ssl_file_name, TEST_SUCCESS)
       self.register_success(result)
       return TEST_SUCCESS
@@ -1803,17 +1806,17 @@ class BaseSSLTest(Test):
     # False positive case.. Can't help it if the cert rotates AND we have a
     # failure... Need to prune all results for this cert and give up.
     if ssl_domain.cert_rotates:
-      result = SSLTestResult(self.node_map[exit_node[1:]], 
-                             address, ssl_file_name, TEST_FAILURE, 
-                             FAILURE_DYNAMIC, self.get_resolved_ip(address), 
+      result = SSLTestResult(self.node_map[exit_node[1:]],
+                             address, ssl_file_name, TEST_FAILURE,
+                             FAILURE_DYNAMIC, self.get_resolved_ip(address),
                              cert_pem)
       self.register_dynamic_failure(result)
       return TEST_FAILURE
 
     # if certs dont match, means the exit node has been messing with the cert
-    result = SSLTestResult(self.node_map[exit_node[1:]], 
+    result = SSLTestResult(self.node_map[exit_node[1:]],
                            address, ssl_file_name, TEST_FAILURE,
-                           FAILURE_EXITONLY, self.get_resolved_ip(address), 
+                           FAILURE_EXITONLY, self.get_resolved_ip(address),
                            cert_pem)
     self.register_exit_failure(result)
     return TEST_FAILURE
@@ -1923,7 +1926,7 @@ class SearchBasedTest:
           plog('ERROR', 'Soup-scraping of http://'+host+search_path+" failed")
           traceback.print_exc()
           print "Content is: "+str(content)
-          return [self.result_protocol+"://www.eff.org", self.result_protocol+"://www.fastmail.fm", self.result_protocol+"://www.torproject.org", self.result_protocol+"://secure.wikileaks.org/"] 
+          return [self.result_protocol+"://www.eff.org", self.result_protocol+"://www.fastmail.fm", self.result_protocol+"://www.torproject.org", self.result_protocol+"://secure.wikileaks.org/"]
         # get the links and do some additional filtering
         for link in soup.findAll('a'):
           skip = True
@@ -2054,11 +2057,11 @@ class POP3STest(Test):
     return self.check_pop(random.choice(self.targets))
 
   def get_targets(self):
-    return [] 
+    return []
 
   def check_pop(self, address, port=''):
-    ''' 
-    check whether a pop + tls connection to a given address is molested 
+    '''
+    check whether a pop + tls connection to a given address is molested
     it is implied that the server reads/sends messages compliant with RFC1939 & RFC2449
     '''
 
@@ -2079,7 +2082,7 @@ class POP3STest(Test):
 
     try:
       pop = Client(address, port)
-    
+
       # read the server greeting
       server_greeting = pop.readline()
 
@@ -2094,7 +2097,7 @@ class POP3STest(Test):
           break
         elif 'STLS' in curr:
           starttls_present = True
-      
+
       if not capabilities_ok:
         return TEST_INCONCLUSIVE
 
@@ -2106,13 +2109,13 @@ class POP3STest(Test):
       starttls_started = '+OK' in starttls_response
 
       # negotiate TLS and issue some request to feel good about it
-      # TODO check certs? 
+      # TODO check certs?
       ctx = SSL.Context(SSL.SSLv23_METHOD)
       c = SSL.Connection(ctx, pop.sock)
       c.set_connect_state()
       c.do_handshake()
       c.send('CAPA' + linebreak)
-      
+
       while tls_succeeded == None:
         line = ''
         char = None
@@ -2131,7 +2134,7 @@ class POP3STest(Test):
         elif not line:
           tls_succeeded = False
 
-    except socket.error, e: 
+    except socket.error, e:
       plog('WARN', 'Connection to ' + address + ':' + port + ' refused')
       plog('WARN', e)
       socket.socket = defaultsocket
@@ -2161,7 +2164,7 @@ class POP3STest(Test):
 
     try:
       pop = Client(address, port)
-    
+
       # read the server greeting
       server_greeting = pop.readline()
 
@@ -2176,7 +2179,7 @@ class POP3STest(Test):
           break
         elif 'STLS' in curr:
           starttls_present_d = True
-      
+
       if not capabilities_ok_d:
         return TEST_INCONCLUSIVE
 
@@ -2192,7 +2195,7 @@ class POP3STest(Test):
       c.set_connect_state()
       c.do_handshake()
       c.send('CAPA' + linebreak)
-      
+
       while tls_succeeded_d == None:
         line = ''
         char = None
@@ -2211,7 +2214,7 @@ class POP3STest(Test):
         elif not line:
           tls_succeeded_d = False
 
-    except socket.error, e: 
+    except socket.error, e:
       plog('WARN', 'Connection to ' + address + ':' + port + ' refused')
       plog('WARN', e)
       socket.socket = defaultsocket
@@ -2223,12 +2226,12 @@ class POP3STest(Test):
       return TEST_INCONCLUSIVE
 
     # compare
-    if (capabilities_ok != capabilities_ok_d or starttls_present != starttls_present_d or 
+    if (capabilities_ok != capabilities_ok_d or starttls_present != starttls_present_d or
         tls_started != tls_started_d or tls_succeeded != tls_succeeded_d):
       result = POPTestResult(self.node_map[exit_node[1:]], address, TEST_FAILURE)
       datahandler.saveResult(result)
       return TEST_FAILURE
-    
+
     result = POPTestResult(self.node_map[exit_node[1:]], address, TEST_SUCCESS)
     datahandler.saveResult(result)
     return TEST_SUCCESS
@@ -2245,7 +2248,7 @@ class SMTPSTest(Test):
     return [('smtp.gmail.com','587')]
 
   def check_smtp(self, address, port=''):
-    ''' 
+    '''
     check whether smtp + tls connection to a given address is molested
     this is done by going through the STARTTLS sequence and comparing server
     responses for the direct and tor connections
@@ -2285,7 +2288,7 @@ class SMTPSTest(Test):
       plog('WARN', e)
       return TEST_INCONCLUSIVE
     # reset the connection method back to direct
-    socket.socket = defaultsocket 
+    socket.socket = defaultsocket
 
     # check whether the test was valid at all
     exit_node = scanhdlr.get_exit_node()
@@ -2347,10 +2350,10 @@ class IMAPSTest(Test):
     return []
 
   def check_imap(self, address, port=''):
-    ''' 
-    check whether an imap + tls connection to a given address is molested 
+    '''
+    check whether an imap + tls connection to a given address is molested
     it is implied that the server reads/sends messages compliant with RFC3501
-    ''' 
+    '''
     plog('INFO', 'Conducting an imap test with destination ' + address)
 
     if not port:
@@ -2360,7 +2363,7 @@ class IMAPSTest(Test):
     socks.setdefaultproxy(socks.PROXY_TYPE_SOCKS5, TorUtil.tor_host,
                           TorUtil.tor_port)
     socket.socket = socks.socksocket
-    
+
     capabilities_ok = None
     starttls_present = None
     tls_started = None
@@ -2376,7 +2379,7 @@ class IMAPSTest(Test):
       imap.writeline('a001 CAPABILITY')
       capabilities = imap.readline() # first line - list of capabilities
       capabilities_ok = 'OK' in imap.readline() # second line - the request status
-    
+
       if not capabilities_ok:
          return TEST_INCONCLUSIVE
 
@@ -2394,7 +2397,7 @@ class IMAPSTest(Test):
       c.set_connect_state()
       c.do_handshake()
       c.send('a003 CAPABILITY' + linebreak)
-      
+
       while tls_succeeded == None:
         line = ''
         char = None
@@ -2410,8 +2413,8 @@ class IMAPSTest(Test):
           tls_succeeded = True
         elif not line:
           tls_succeeded = False
-  
-    except socket.error, e: 
+
+    except socket.error, e:
       plog('WARN', 'Connection to ' + address + ':' + port + ' refused')
       plog('WARN', e)
       socket.socket = defaultsocket
@@ -2421,8 +2424,8 @@ class IMAPSTest(Test):
       plog('WARN', e)
       socket.socket = defaultsocket
       return TEST_INCONCLUSIVE
-    
-    socket.socket = defaultsocket 
+
+    socket.socket = defaultsocket
 
     # check whether the test was valid at all
     exit_node = scanhdlr.get_exit_node()
@@ -2481,7 +2484,7 @@ class IMAPSTest(Test):
         elif not line:
           tls_succeeded_d = False
 
-    except socket.error, e: 
+    except socket.error, e:
       plog('WARN', 'Connection to ' + address + ':' + port + ' refused')
       plog('WARN', e)
       socket.socket = defaultsocket
@@ -2493,7 +2496,7 @@ class IMAPSTest(Test):
       return TEST_INCONCLUSIVE
 
     # compare
-    if (capabilities_ok != capabilities_ok_d or starttls_present != starttls_present_d or 
+    if (capabilities_ok != capabilities_ok_d or starttls_present != starttls_present_d or
       tls_started != tls_started_d or tls_succeeded != tls_succeeded_d):
       result = IMAPTestResult(self.node_map[exit_node[1:]], address, TEST_FAILURE)
       datahandler.saveResult(result)
@@ -2506,7 +2509,7 @@ class IMAPSTest(Test):
 class DNSTest(Test):
   def check_dns(self, address):
     ''' A basic comparison DNS test. Rather unreliable. '''
-    # TODO Spawns a lot of false positives (for ex. doesn't work for google.com). 
+    # TODO Spawns a lot of false positives (for ex. doesn't work for google.com).
     # TODO: This should be done passive like the DNSRebind test (possibly as
     # part of it)
     plog('INFO', 'Conducting a basic dns test for destination ' + address)
@@ -2547,8 +2550,7 @@ class SSHTest(Test):
     #response = self.ssh.sendcmd('ls')
     #print response
 
-    return 0 
-
+    return 0
 
 # a simple interface to handle a socket connection
 class Client:
@@ -2568,11 +2570,11 @@ class Client:
       response = response[:-2]
     elif response[-1:] in linebreak:
       response = response[:-1]
-    return response 
+    return response
 
 class DNSRebindScanner(TorCtl.EventHandler):
-  ''' 
-  A tor control event handler extending TorCtl.EventHandler 
+  '''
+  A tor control event handler extending TorCtl.EventHandler
   Monitors for REMAP events (see check_dns_rebind())
   '''
   def __init__(self, mt, c):
@@ -2592,7 +2594,7 @@ class DNSRebindScanner(TorCtl.EventHandler):
           node = "$"+self.__mt.get_exit_node().idhex
           plog("ERROR", "DNS Rebeind failure via "+node)
 
-          result = DNSRebindTestResult(self.__mt.node_manager.idhex_to_r(node), 
+          result = DNSRebindTestResult(self.__mt.node_manager.idhex_to_r(node),
                                        '', TEST_FAILURE)
           handler.saveResult(result)
     # TODO: This is currently handled via socks error codes,
@@ -2608,7 +2610,7 @@ class DNSRebindScanner(TorCtl.EventHandler):
 def load_wordlist(file):
   ''' load a list of strings from a file (which contains words separated by newlines) '''
   plog('INFO', 'Loading the wordlist')
-  
+
   wordlist = []
   fh = None
   try:
@@ -2616,7 +2618,7 @@ def load_wordlist(file):
   except IOError, e:
     plog('ERROR', 'Reading the wordlist file failed.')
     plog('ERROR', e)
-  
+
   try:
     for line in fh:
       wordlist.append(line[:-1]) # get rid of the linebreaks
@@ -2629,7 +2631,7 @@ def load_wordlist(file):
 def decompress_response_data(response):
   encoding = None
 
-  # a reponse to a httplib.HTTPRequest 
+  # a reponse to a httplib.HTTPRequest
   if (response.__class__.__name__ == "HTTPResponse"):
     encoding = response.getheader("Content-Encoding")
   # a response to urllib2.urlopen()
@@ -2646,11 +2648,11 @@ def decompress_response_data(response):
     data_read = response.read(500) # Cells are 495 bytes..
     if not start:
       start = time.time()
-    # TODO: if this doesn't work, check stream observer for 
+    # TODO: if this doesn't work, check stream observer for
     # lack of progress.. or for a sign we should read..
     len_read = len(data)
     now = time.time()
-    
+
     plog("DEBUG", "Read "+str(len_read)+"/"+str(tot_len))
     # Wait 5 seconds before counting data
     if (now-start) > 5:
@@ -2658,11 +2660,11 @@ def decompress_response_data(response):
       if rate < min_rate:
         plog("WARN", "Minimum xfer rate not maintained. Aborting xfer")
         raise SlowXferException("Rate: %.2f KB/s" % (rate/1024))
-      
+
     if not data_read:
       break
-    data += data_read 
- 
+    data += data_read
+
   if encoding == 'gzip' or encoding == 'x-gzip':
     return gzip.GzipFile('', 'rb', 9, StringIO.StringIO(data)).read()
   elif encoding == 'deflate':
@@ -2677,7 +2679,7 @@ def tor_resolve(address):
 
 def int2bin(n):
   '''
-  simple decimal -> binary conversion, needed for comparing IP addresses 
+  simple decimal -> binary conversion, needed for comparing IP addresses
   '''
   n = int(n)
   if n < 0:
