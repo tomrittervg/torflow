@@ -2868,18 +2868,19 @@ def main(argv):
     sys.exit(1)
 
   # Initialize tests
-  if do_resume:
-    plog("NOTICE", "Resuming previous SoaT run #"+str(resume_run))
-    if do_ssl:
-      tests["SSL"] = datahandler.loadTest("SSLTest", resume_run)
+  #XXX: Resume currently broken. New depickling routines required
+  #if do_resume:
+  #  plog("NOTICE", "Resuming previous SoaT run #"+str(resume_run))
+  #  if do_ssl:
+  #    tests["SSL"] = datahandler.loadTest("SSLTest", resume_run)
 
-    if do_http:
-      tests["HTTP"] = datahandler.loadTest("HTTPTest", resume_run)
+  #  if do_http:
+  #    tests["HTTP"] = datahandler.loadTest("HTTPTest", resume_run)
 
-    if do_html:
-      tests["HTML"] = datahandler.loadTest("HTMLTest", resume_run)
-  
-  elif fixed_targets:
+  #  if do_html:
+  #    tests["HTML"] = datahandler.loadTest("HTMLTest", resume_run)
+
+  if fixed_targets:
     if do_ssl:
       tests["SSL"] = FixedTargetSSLTest(fixed_targets)
 
