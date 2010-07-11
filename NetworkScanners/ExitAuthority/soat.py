@@ -465,10 +465,7 @@ class Test:
     self._pickle_revision = 6 # Will increment as fields are added
 
   def run_test(self): 
-    raise NotImplemented()
-
-  def get_targets(self): 
-    raise NotImplemented()
+    raise NotImplementedError()
 
   def depickle_upgrade(self):
     if self._pickle_revision < 1:
@@ -498,19 +495,11 @@ class Test:
       self.connect_fails_per_exit = {}
       self._pickle_revision = 6
 
-  def refill_targets(self):
-    if len(self.targets) < self.min_targets:
-      plog("NOTICE", self.proto+" scanner short on targets. Adding more")
-      self.targets.extend(self.get_targets())
-
-  def _remove_target_addr(self, target):
-    if target in self.targets:
-      self.targets.remove(target)
-
   def remove_target(self, target, reason="None"):
     self.banned_targets.add(target)
     self.refill_targets()
-    self._remove_target_addr(target)
+    if target in self.targets:
+      self.targets.remove(target)
     if target in self.dynamic_fails:
       del self.dynamic_fails[target]
     if target in self.successes:
@@ -806,150 +795,13 @@ class Test:
     plog("ERROR", self.proto+" dynamic fail of "+result.reason+" at "+result.exit_node+". This makes "+str(err_cnt)+"/"+str(self.site_tests(result.site))+" node failures for "+result.site)
 
 
-class SearchBasedTest(Test):
-  def __init__(self, proto, port, wordlist_file):
-    self.wordlist_file = wordlist_file
-    Test.__init__(self, proto, port)
-
-  def rewind(self):
-    self.wordlist = load_wordlist(self.wordlist_file)
-    Test.rewind(self)
-
-  def _is_useable_url(self, url, valid_schemes=None, filetypes=None):
-    (scheme, netloc, path, params, query, fragment) = urlparse.urlparse(url)
-    if netloc.rfind(":") != -1:
-      # FIXME: %-encoding?
-      port = netloc[netloc.rfind(":")+1:]
-      try:
-        if int(port) != self.port:
-          plog("DEBUG", "Unusable port "+port+" in "+url)
-          return False
-      except:
-        traceback.print_exc()
-        plog("WARN", "Unparseable port "+port+" in "+url)
-        return False
-    if valid_schemes and scheme not in valid_schemes:
-      plog("DEBUG", "Unusable scheme "+scheme+" in "+url)
-      return False
-    if url in self.banned_targets:
-      plog("DEBUG", "Banned url "+url)
-      return False
-    if filetypes: # Must be checked last
-      for filetype in filetypes:
-        if url[-len(filetype):] == filetype:
-          return True
-      plog("DEBUG", "Bad filetype for "+url)
-      return False
-    return True
-
-  def get_search_urls(self, protocol='any', results_per_type=10, host_only=False, filetypes=['any'], search_mode=default_search_mode):
-    ''' 
-    construct a list of urls based on the wordlist, filetypes and protocol. 
-    '''
-    plog('INFO', 'Searching google for relevant sites...')
-  
-    urllist = set([])
-    for filetype in filetypes:
-      type_urls = set([])
-  
-      while len(type_urls) < results_per_type:
-        query = random.choice(self.wordlist)
-        if filetype != 'any':
-          query += " "+search_mode["filetype"]+filetype
-        if protocol != 'any' and search_mode["inurl"]:
-          query += " "+search_mode["inurl"]+protocol # this isn't too reliable, but we'll re-filter results later
-        #query += '&num=' + `g_results_per_page` 
-  
-        # search google for relevant pages
-        # note: google only accepts requests from idenitified browsers
-        host = search_mode["host"]
-        params = urllib.urlencode({search_mode["query"] : query})
-        search_path = '/search' + '?' + params
-        search_url = "http://"+host+search_path
-         
-        plog("INFO", "Search url: "+search_url)
-        try:
-          if search_mode["useragent"]:
-            (code, resp_headers, new_cookies, mime_type, content) = http_request(search_url, search_cookies)
-          else:
-            headers = filter(lambda h: h[0] != "User-Agent", 
-                             copy.copy(firefox_headers))
-            (code, resp_headers, new_cookies, mime_type, content) = http_request(search_url, search_cookies, headers)
-        except socket.gaierror:
-          plog('ERROR', 'Scraping of http://'+host+search_path+" failed")
-          traceback.print_exc()
-          return list(urllist)
-        except:
-          plog('ERROR', 'Scraping of http://'+host+search_path+" failed")
-          traceback.print_exc()
-          # Bloody hack just to run some tests overnight
-          return [protocol+"://www.eff.org", protocol+"://www.fastmail.fm", protocol+"://www.torproject.org", protocol+"://secure.wikileaks.org/"]
-  
-        links = SoupStrainer('a')
-        try:
-          soup = TheChosenSoup(content, parseOnlyThese=links)
-        except Exception:
-          plog('ERROR', 'Soup-scraping of http://'+host+search_path+" failed")
-          traceback.print_exc()
-          print "Content is: "+str(content)
-          return [protocol+"://www.eff.org", protocol+"://www.fastmail.fm", protocol+"://www.torproject.org", protocol+"://secure.wikileaks.org/"] 
-        # get the links and do some additional filtering
-        for link in soup.findAll('a'):
-          skip = True
-          for a in link.attrs:
-            if a[0] == "class" and search_mode["class"] in a[1]:
-              skip = False
-              break
-          if skip:
-            continue
-          if link.has_key(search_mode['realtgt']):
-            url = link[search_mode['realtgt']]
-          else:
-            url = link['href']
-          if protocol == 'any':
-            prot_list = None
-          else:
-            prot_list = [protocol]
-          if filetype == 'any':
-            file_list = None
-          else:
-            file_list = filetypes
-
-          if self._is_useable_url(url, prot_list, file_list):
-            if host_only:
-              # FIXME: %-encoding, @'s, etc?
-              host = urlparse.urlparse(url)[1]
-              # Have to check again here after parsing the url: 
-              if host not in self.banned_targets:
-                type_urls.add(host)
-            else:
-              type_urls.add(url)
-          else:
-            pass
-        plog("INFO", "Have "+str(len(type_urls))+"/"+str(results_per_type)+" google urls so far..") 
-
-      # make sure we don't get more urls than needed
-      if len(type_urls) > results_per_type:
-        type_urls = set(random.sample(type_urls, results_per_type))
-      urllist.update(type_urls)
-       
-    return list(urllist)
-
-class HTTPTest(SearchBasedTest):
-  def __init__(self, wordlist, filetypes=scan_filetypes):
+class BaseHTTPTest(Test):
+  def __init__(self, filetypes=scan_filetypes):
     # FIXME: Handle http urls w/ non-80 ports..
-    SearchBasedTest.__init__(self, "HTTP", 80, wordlist)
+    Test.__init__(self, "HTTP", 80)
     self.fetch_targets = urls_per_filetype
     self.httpcode_fails = {}
     self.scan_filetypes = filetypes
-
-  def _reset(self):
-    SearchBasedTest._reset(self)
-    self.targets = {}
-
-  def rewind(self):
-    SearchBasedTest.rewind(self)
-    self.httpcode_fails = {}
 
   def check_cookies(self):
     # FIXME: This test is badly broken..
@@ -985,15 +837,22 @@ class HTTPTest(SearchBasedTest):
    
     self.tests_run += 1
 
-    n_tests = random.choice(xrange(1,len(self.targets)+1))
-    filetypes = random.sample(self.targets.keys(), n_tests)
+    typed_targets = {}
+    for target in self.targets:
+      for ftype in self.scan_filetypes:
+        if target[-len(ftype):] == ftype:
+          typed_targets.setdefault(ftype,[])
+          typed_targets[ftype].append(target)
+
+    n_tests = random.choice(xrange(1,len(typed_targets)+1))
+    filetypes = random.sample(typed_targets.keys(), n_tests)
     
     plog("INFO", "HTTPTest decided to fetch "+str(n_tests)+" urls of types: "+str(filetypes))
 
     n_success = n_fail = n_inconclusive = 0 
     for ftype in filetypes:
       # FIXME: Set referrer to random or none for each of these
-      address = random.choice(self.targets[ftype])
+      address = random.choice(typed_targets[ftype])
       result = self.check_http(address)
       if result == TEST_INCONCLUSIVE:
         n_inconclusive += 1
@@ -1013,44 +872,18 @@ class HTTPTest(SearchBasedTest):
     else:
       return TEST_SUCCESS 
 
-  def _remove_target_addr(self, target):
-    for ftype in self.targets:
-      if target in self.targets[ftype]:
-        self.targets[ftype].remove(target)
-
   def remove_target(self, address, reason):
-    SearchBasedTest.remove_target(self, address, reason)
+    Test.remove_target(self, address, reason)
     if address in self.httpcode_fails:
       del self.httpcode_fails[address]
 
-  def refill_targets(self):
-    for ftype in self.targets:
-      if len(self.targets[ftype]) < self.fetch_targets:
-        plog("NOTICE", self.proto+" scanner short on "+ftype+" targets. Adding more")
-        raw_urls = self.get_search_urls('http', self.fetch_targets, 
-                                        filetypes=[ftype])
-        self.targets[ftype].extend(raw_urls)
-
-    
-  def get_targets(self):
-    raw_urls = self.get_search_urls('http', self.fetch_targets, 
-                                     filetypes=self.scan_filetypes)
-    urls = {} 
-    # Slow, but meh..
-    for ftype in self.scan_filetypes: urls[ftype] = []
-    for url in raw_urls:
-      for ftype in self.scan_filetypes:
-        if url[-len(ftype):] == ftype:
-          urls[ftype].append(url)
-    return urls     
-
   def remove_false_positives(self):
-    SearchBasedTest.remove_false_positives(self)
+    Test.remove_false_positives(self)
     self._remove_false_positive_type(self.httpcode_fails,
                                      FALSEPOSITIVE_HTTPERRORS,
                                      max_httpcode_fail_pct)
   def site_tests(self, site):
-    tot_cnt = SearchBasedTest.site_tests(self, site) 
+    tot_cnt = Test.site_tests(self, site)
     if site in self.httpcode_fails:
       tot_cnt += len(self.httpcode_fails[site])
     return tot_cnt
@@ -1418,26 +1251,15 @@ class HTTPTest(SearchBasedTest):
     self.remove_target(address, FALSEPOSITIVE_DYNAMIC)
     return TEST_FAILURE
 
-class HTMLTest(HTTPTest):
-  def __init__(self, wordlist, recurse_filetypes=scan_filetypes):
-    HTTPTest.__init__(self, wordlist, recurse_filetypes)
+
+class BaseHTMLTest(BaseHTTPTest):
+  def __init__(self, recurse_filetypes=scan_filetypes):
+    BaseHTTPTest.__init__(self, recurse_filetypes)
     self.fetch_targets = num_html_urls
     self.proto = "HTML"
     self.recurse_filetypes = recurse_filetypes
     self.fetch_queue = []
    
-  def _reset(self):
-    HTTPTest._reset(self)
-    self.targets = [] # FIXME: Lame..
-    self.soupdiffer_files = {} # XXX: These two are now deprecated
-    self.jsdiffer_files = {}
- 
-  def depickle_upgrade(self):
-    if self._pickle_revision < 2:
-      self.soupdiffer_files = {}
-      self.jsdiffer_files = {}
-    SearchBasedTest.depickle_upgrade(self)
-
   def run_test(self):
     # A single test should have a single cookie jar
     self.tor_cookie_jar = cookielib.MozillaCookieJar()
@@ -1500,21 +1322,6 @@ class HTMLTest(HTTPTest):
       return TEST_INCONCLUSIVE
     else:
       return TEST_SUCCESS 
-
-  # FIXME: This is pretty lame.. We should change how
-  # the HTTPTest stores URLs so we don't have to do this.
-  def _remove_target_addr(self, target):
-    Test._remove_target_addr(self, target)
-    if target in self.soupdiffer_files:
-      del self.soupdiffer_files[target]
-    if target in self.jsdiffer_files:
-      del self.jsdiffer_files[target]
-
-  def refill_targets(self):
-    Test.refill_targets(self)
-
-  def get_targets(self):
-    return self.get_search_urls('http', self.fetch_targets) 
 
   def _add_recursive_targets(self, soup, orig_addr):
     # Only pull at most one filetype from the list of 'a' links
@@ -1802,18 +1609,14 @@ class HTMLTest(HTTPTest):
     self.register_dynamic_failure(result)
     return TEST_FAILURE
 
-
-class SSLTest(SearchBasedTest):
-  def __init__(self, wordlist):
+class BaseSSLTest(Test):
+  def __init__(self):
+    Test.__init__(self, "SSL", 443)
     self.test_hosts = num_ssl_hosts
-    SearchBasedTest.__init__(self, "SSL", 443, wordlist)
 
   def run_test(self):
     self.tests_run += 1
     return self.check_ssl(random.choice(self.targets))
-
-  def get_targets(self):
-    return self.get_search_urls('https', self.test_hosts, True, search_mode=google_search_mode)
 
   def get_resolved_ip(self, hostname):
     # XXX: This is some extreme GIL abuse.. It may have race conditions
@@ -2014,6 +1817,233 @@ class SSLTest(SearchBasedTest):
                            cert_pem)
     self.register_exit_failure(result)
     return TEST_FAILURE
+
+# Fixed Target Tests
+class FixedTargetTest:
+  """ Mixin class. Must be mixed with a subclass of Test """
+  def __init__(self, targets):
+    self.fixed_targets = targets
+
+  def refill_targets(self):
+    pass
+
+  def get_targets(self):
+    return self.fixed_targets[:]
+
+  def finished(self):
+    # FixedTargetTests are done if they test all nodes or run out of targets
+    return not (self.nodes and self.targets)
+
+class FixedTargetHTTPTest(FixedTargetTest, BaseHTTPTest):
+  def __init__(self, targets):
+    BaseHTTPTest.__init__(self)
+    FixedTargetTest.__init__(self, targets)
+
+class FixedTargetHTMLTest(FixedTargetTest, BaseHTMLTest):
+  def __init__(self, targets):
+    BaseHTMLTest.__init__(self)
+    FixedTargetTest.__init__(self, targets)
+  def _add_recursive_targets(self, soup, orig_addr):
+    # Don't recurse for FixedTarget tests
+    pass
+
+class FixedTargetSSLTest(FixedTargetTest, BaseSSLTest):
+  def __init__(self, targets):
+    BaseSSLTest.__init__(self)
+    FixedTargetTest.__init__(self, targets)
+
+# Search Based Tests
+class SearchBasedTest:
+  """ Mixin class. Must be mixed with a subclass of Test """
+  def __init__(self, wordlist_file):
+    self.wordlist_file = wordlist_file
+
+    self.host_only = False
+    self.result_filetypes = ['any']
+    self.result_protocol = 'any'
+    self.results_per_type = 10
+    self.search_mode = default_search_mode
+
+  def refill_targets(self):
+    if len(self.targets) < self.min_targets:
+      plog("NOTICE", self.proto+" scanner short on targets. Adding more")
+      self.targets.extend(self.get_targets())
+
+  def get_targets(self):
+    return self.get_search_urls()
+
+  def get_search_urls(self):
+    '''
+    construct a list of urls based on the wordlist, filetypes and protocol.
+    '''
+    plog('INFO', 'Searching for relevant sites...')
+
+    urllist = set([])
+    for filetype in self.result_filetypes:
+      type_urls = set([])
+
+      while len(type_urls) < self.results_per_type:
+        query = random.choice(self.wordlist)
+        if filetype != 'any':
+          query += " "+self.search_mode["filetype"]+filetype
+        plog("WARN", "RESULTPROTOCOL IS:" + self.result_protocol)
+        if self.result_protocol != 'any' and self.search_mode["inurl"]:
+          query += " "+self.search_mode["inurl"]+self.result_protocol # this isn't too reliable, but we'll re-filter results later
+        #query += '&num=' + `g_results_per_page`
+
+        # search google for relevant pages
+        # note: google only accepts requests from idenitified browsers
+        host = self.search_mode["host"]
+        params = urllib.urlencode({self.search_mode["query"] : query})
+        search_path = '/search' + '?' + params
+        search_url = "http://"+host+search_path
+
+        plog("INFO", "Search url: "+search_url)
+        try:
+          if self.search_mode["useragent"]:
+            (code, resp_headers, new_cookies, mime_type, content) = http_request(search_url, search_cookies)
+          else:
+            headers = filter(lambda h: h[0] != "User-Agent",
+                             copy.copy(firefox_headers))
+            (code, resp_headers, new_cookies, mime_type, content) = http_request(search_url, search_cookies, headers)
+        except socket.gaierror:
+          plog('ERROR', 'Scraping of http://'+host+search_path+" failed")
+          traceback.print_exc()
+          return list(urllist)
+        except:
+          plog('ERROR', 'Scraping of http://'+host+search_path+" failed")
+          traceback.print_exc()
+          # Bloody hack just to run some tests overnight
+          return [self.result_protocol+"://www.eff.org", self.result_protocol+"://www.fastmail.fm", self.result_protocol+"://www.torproject.org", self.result_protocol+"://secure.wikileaks.org/"]
+
+        links = SoupStrainer('a')
+        try:
+          soup = TheChosenSoup(content, parseOnlyThese=links)
+        except Exception:
+          plog('ERROR', 'Soup-scraping of http://'+host+search_path+" failed")
+          traceback.print_exc()
+          print "Content is: "+str(content)
+          return [self.result_protocol+"://www.eff.org", self.result_protocol+"://www.fastmail.fm", self.result_protocol+"://www.torproject.org", self.result_protocol+"://secure.wikileaks.org/"] 
+        # get the links and do some additional filtering
+        for link in soup.findAll('a'):
+          skip = True
+          for a in link.attrs:
+            if a[0] == "class" and self.search_mode["class"] in a[1]:
+              skip = False
+              break
+          if skip:
+            continue
+          if link.has_key(self.search_mode['realtgt']):
+            url = link[self.search_mode['realtgt']]
+          else:
+            url = link['href']
+          if self.result_protocol == 'any':
+            prot_list = None
+          else:
+            prot_list = [self.result_protocol]
+          if filetype == 'any':
+            file_list = None
+          else:
+            file_list = self.result_filetypes
+
+          if self._is_useable_url(url, prot_list, file_list):
+            if self.host_only:
+              # FIXME: %-encoding, @'s, etc?
+              plog("INFO", url)
+              host = urlparse.urlparse(url)[1]
+              # Have to check again here after parsing the url:
+              if host not in self.banned_targets:
+                type_urls.add(host)
+            else:
+              type_urls.add(url)
+          else:
+            pass
+        plog("INFO", "Have "+str(len(type_urls))+"/"+str(self.results_per_type)+" google urls so far..")
+
+      # make sure we don't get more urls than needed
+      if len(type_urls) > self.results_per_type:
+        type_urls = set(random.sample(type_urls, self.results_per_type))
+      urllist.update(type_urls)
+
+    return list(urllist)
+
+
+class SearchBasedHTTPTest(SearchBasedTest, BaseHTTPTest):
+  def __init__(self, wordlist):
+    BaseHTTPTest.__init__(self)
+    SearchBasedTest.__init__(self, wordlist)
+    self.result_filetypes = self.scan_filetypes
+    self.result_protocol = "http"
+    self.results_per_type = self.fetch_targets
+    self.targets_by_type = dict.fromkeys(self.scan_filetypes, [])
+
+  def rewind(self):
+    self.wordlist = load_wordlist(self.wordlist_file)
+    self.httpcode_fails = {}
+    Test.rewind(self)
+
+  def refill_targets(self):
+    for ftype in self.targets_by_type:
+      if len(self.targets_by_type[ftype]) < self.fetch_targets:
+        plog("NOTICE", self.proto+" scanner short on "+ftype+" targets. Adding more")
+        # :-\ - This swapping out result_filetypes thing is a hack.
+        tmp = self.result_filetypes[:]
+        self.result_filetypes = [ftype]
+        self.targets.extend(self.get_search_urls())
+        self.result_filetypes = tmp
+
+  def add_target(self, target, type=None):
+    if type is None:
+      type = target.rsplit('.',1)[-1]
+    if type in self.scan_filetypes:
+      self.targets.append(target)
+      self.targets_by_type[type].append(target)
+
+  def remove_target(self, target):
+    if target in self.targets:
+      self.targets.remove(target)
+    # I'm not trusting the target's extension here. Should
+    # give us a little more flexibility w/o much overhead.
+    for k,v in self.targets_by_type.items():
+      if target in v:
+        v.remove(target)
+    Test.remove_target(self, target)
+
+  def get_targets(self):
+    raw_urls = self.get_search_urls()
+    new = {}
+    for url in raw_urls:
+      split = url.rsplit('.',1) # Try to get filetype
+      if len(split) > 1 and split[-1] in self.targets_by_type:
+        new.setdefault(split[-1],[]).append(url)
+    for k,v in new:
+      self.targets_by_type[k].extend(v)
+    return raw_urls
+
+class SearchBasedHTMLTest(SearchBasedTest, BaseHTMLTest):
+  def __init__(self, wordlist):
+    BaseHTMLTest.__init__(self)
+    SearchBasedTest.__init__(self, wordlist)
+    self.result_filetypes = "html"
+    self.result_protocol = "http"
+    self.results_per_type = self.fetch_targets
+
+  def rewind(self):
+    self.wordlist = load_wordlist(self.wordlist_file)
+    Test.rewind(self)
+
+class SearchBasedSSLTest(SearchBasedTest, BaseSSLTest):
+  def __init__(self, wordlist):
+    BaseSSLTest.__init__(self)
+    SearchBasedTest.__init__(self, wordlist)
+    self.host_only = True
+    self.result_protocol = 'https'
+    self.search_mode=google_search_mode
+
+  def rewind(self):
+    self.wordlist = load_wordlist(self.wordlist_file)
+    Test.rewind(self)
+
 
 class POP3STest(Test):
   def __init__(self):
@@ -2720,10 +2750,11 @@ def main(argv):
     print '--dnsrebind (use with one or more of above tests)'
     print '--policies'
     print '--exit <exit>'
+    print '--target <ip or url>'
     print ''
     return
 
-  opts = ['ssl','rescan', 'pernode=', 'resume=', 'html','http','ssh','smtp','pop','imap','dns','dnsrebind','policies','exit=']
+  opts = ['ssl','rescan', 'pernode=', 'resume=', 'html','http','ssh','smtp','pop','imap','dns','dnsrebind','policies','exit=','target=']
   flags, trailer = getopt.getopt(argv[1:], [], opts)
 
   # get specific test types
@@ -2740,9 +2771,12 @@ def main(argv):
   do_consistency = ('--policies','') in flags
 
   scan_exit=None
+  fixed_targets=[]
   for flag in flags:
     if flag[0] == "--exit":
       scan_exit = flag[1]
+    if flag[0] == "--target":
+      fixed_targets.append(flag[1])
     if flag[0] == "--pernode":
       global num_tests_per_node
       num_tests_per_node = int(flag[1])
@@ -2843,15 +2877,25 @@ def main(argv):
     if do_html:
       tests["HTML"] = datahandler.loadTest("HTMLTest", resume_run)
   
-  else:
+  elif fixed_targets:
     if do_ssl:
-      tests["SSL"] = SSLTest(ssl_wordlist_file)
+      tests["SSL"] = FixedTargetSSLTest(fixed_targets)
 
     if do_http:
-      tests["HTTP"] = HTTPTest(filetype_wordlist_file)
+      tests["HTTP"] = FixedTargetHTTPTest(fixed_targets)
 
     if do_html:
-      tests["HTML"] = HTMLTest(html_wordlist_file)
+      tests["HTML"] = FixedTargetHTMLTest(fixed_targets)
+
+  else:
+    if do_ssl:
+      tests["SSL"] = SearchBasedSSLTest(ssl_wordlist_file)
+
+    if do_http:
+      tests["HTTP"] = SearchBasedHTTPTest(filetype_wordlist_file)
+
+    if do_html:
+      tests["HTML"] = SearchBasedHTMLTest(html_wordlist_file)
 
 
   # maybe no tests could be initialized
