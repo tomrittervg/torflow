@@ -2029,7 +2029,7 @@ class SearchBasedHTTPTest(SearchBasedTest, BaseHTTPTest):
       self.targets.append(target)
       self.targets_by_type[type].append(target)
 
-  def remove_target(self, target):
+  def remove_target(self, target, reason="None"):
     if target in self.targets:
       self.targets.remove(target)
     # I'm not trusting the target's extension here. Should
@@ -2046,7 +2046,7 @@ class SearchBasedHTTPTest(SearchBasedTest, BaseHTTPTest):
       split = url.rsplit('.',1) # Try to get filetype
       if len(split) > 1 and split[-1] in self.targets_by_type:
         new.setdefault(split[-1],[]).append(url)
-    for k,v in new:
+    for k,v in new.items():
       self.targets_by_type[k].extend(v)
     return raw_urls
 
