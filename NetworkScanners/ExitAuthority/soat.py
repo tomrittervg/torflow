@@ -496,6 +496,33 @@ class Test:
       self.connect_fails_per_exit = {}
       self._pickle_revision = 6
 
+  def _is_useable_url(self, url, valid_schemes=None, filetypes=None):
+    (scheme, netloc, path, params, query, fragment) = urlparse.urlparse(url)
+    if netloc.rfind(":") != -1:
+      # FIXME: %-encoding?
+      port = netloc[netloc.rfind(":")+1:]
+      try:
+        if int(port) != self.port:
+          plog("DEBUG", "Unusable port "+port+" in "+url)
+          return False
+      except:
+        traceback.print_exc()
+        plog("WARN", "Unparseable port "+port+" in "+url)
+        return False
+    if valid_schemes and scheme not in valid_schemes:
+      plog("DEBUG", "Unusable scheme "+scheme+" in "+url)
+      return False
+    if url in self.banned_targets:
+      plog("DEBUG", "Banned url "+url)
+      return False
+    if filetypes: # Must be checked last
+      for filetype in filetypes:
+        if url[-len(filetype):] == filetype:
+          return True
+      plog("DEBUG", "Bad filetype for "+url)
+      return False
+    return True
+
   def remove_target(self, target, reason="None"):
     self.banned_targets.add(target)
     self.refill_targets()
