@@ -1684,8 +1684,8 @@ class BaseSSLTest(Test):
     ''' check whether an https connection to a given address is molested '''
     plog('INFO', 'Conducting an ssl test with destination ' + address)
 
-    # an address representation acceptable for a filename
-    shortaddr = address[:min(len(address), 16)]
+    # an address representation acceptable for a filename (first 20 chars excluding www.)
+    shortaddr = address.lstrip('www.')[:min(len(address), 20)]
     address_file = DataHandler.safeFilename(shortaddr)
     ssl_file_name = ssl_certs_dir + address_file + '.ssl'
 
