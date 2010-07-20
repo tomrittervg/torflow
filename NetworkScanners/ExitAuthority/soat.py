@@ -2953,8 +2953,11 @@ def main(argv):
       test.rewind()
 
   if scan_exit:
-    plog("NOTICE", "Scanning only "+scan_exit)
     scanhdlr.set_exit_node(scan_exit)
+    if scanhdlr.selmgr.bad_restrictions:
+      plog("NOTICE", "Requested exit node, %s, is not available. Exiting." % scan_exit)
+      return
+    plog("NOTICE", "Scanning only "+scan_exit)
     scanhdlr.new_exit()
 
     while 1:
