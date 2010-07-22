@@ -463,7 +463,7 @@ class Test:
     self.nodes_to_mark = 0
     self.tests_per_node = num_tests_per_node
     self._reset()
-    self._pickle_revision = 6 # Will increment as fields are added
+    self._pickle_revision = 7 # Will increment as fields are added
 
   def run_test(self):
     raise NotImplementedError()
@@ -2010,9 +2010,20 @@ class SearchBasedHTTPTest(SearchBasedTest, BaseHTTPTest):
     self.results_per_type = self.fetch_targets
     self.targets_by_type = dict.fromkeys(self.scan_filetypes, [])
 
+  def depickle_upgrade(self):
+    Test.depickle_upgrade(self)
+    if self._pickle_revision < 7:
+      self.result_filetypes = self.scan_filetypes
+      self.result_protocol = "http"
+      self.results_per_type = self.fetch_targets
+      self.targets_by_type = self.targets
+      self.targets = reduce(list.__add__, self.targets.values(), [])
+      self._pickle_revision = 7
+
   def rewind(self):
     self.wordlist = load_wordlist(self.wordlist_file)
     self.httpcode_fails = {}
+    self.targets_by_type = {}
     Test.rewind(self)
 
   def refill_targets(self):
@@ -2020,7 +2031,7 @@ class SearchBasedHTTPTest(SearchBasedTest, BaseHTTPTest):
       if len(self.targets_by_type[ftype]) < self.fetch_targets:
         plog("NOTICE", self.proto+" scanner short on "+ftype+" targets. Adding more")
         # :-\ - This swapping out result_filetypes thing is a hack.
-        tmp = self.result_filetypes[:]
+        tmp = self.result_filetypes
         self.result_filetypes = [ftype]
         self.targets.extend(self.get_search_urls())
         self.result_filetypes = tmp
@@ -2063,6 +2074,13 @@ class SearchBasedHTMLTest(SearchBasedTest, BaseHTMLTest):
     self.result_protocol = "http"
     self.results_per_type = self.fetch_targets
 
+  def depickle_upgrade(self):
+    Test.depickle_upgrade(self)
+    if self._pickle_revision < 7:
+      self.result_filetypes = "html"
+      self.result_protocol = "http"
+      self.results_per_type = self.fetch_targets
+
   def rewind(self):
     self.wordlist = load_wordlist(self.wordlist_file)
     Test.rewind(self)
@@ -2076,6 +2094,13 @@ class SearchBasedSSLTest(SearchBasedTest, BaseSSLTest):
     self.host_only = True
     self.result_protocol = 'https'
     self.search_mode=google_search_mode
+
+  def depickle_upgrade(self):
+    Test.depickle_upgrade(self)
+    if self._pickle_revision < 7:
+      self.host_only = True
+      self.result_protocol = 'https'
+      self.search_mode=google_search_mode
 
   def rewind(self):
     self.wordlist = load_wordlist(self.wordlist_file)
