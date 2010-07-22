@@ -723,10 +723,14 @@ class DataHandler:
     SnakePickler.dump(result, result.filename)
 
   def __testFilename(self, test, position=-1):
-    if position == -1:
-      return DataHandler.uniqueFilename(self.data_dir+test.__class__.__name__+".test")
+    if hasattr(test, "save_name"):
+      name = test.save_name
     else:
-      return self.data_dir+test.__class__.__name__+"."+str(position)+".test"
+      name = test.__class__.__name__
+    if position == -1:
+      return DataHandler.uniqueFilename(self.data_dir+name+".test")
+    else:
+      return self.data_dir+name+"."+str(position)+".test"
 
   def loadTest(self, testname, position=-1):
     filename = self.data_dir+testname

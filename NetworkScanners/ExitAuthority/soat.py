@@ -827,6 +827,7 @@ class BaseHTTPTest(Test):
   def __init__(self, filetypes=scan_filetypes):
     # FIXME: Handle http urls w/ non-80 ports..
     Test.__init__(self, "HTTP", 80)
+    self.save_name = "HTTPTest"
     self.fetch_targets = urls_per_filetype
     self.httpcode_fails = {}
     self.scan_filetypes = filetypes
@@ -1285,6 +1286,7 @@ class BaseHTTPTest(Test):
 class BaseHTMLTest(BaseHTTPTest):
   def __init__(self, recurse_filetypes=scan_filetypes):
     BaseHTTPTest.__init__(self, recurse_filetypes)
+    self.save_name = "HTMLTest"
     self.fetch_targets = num_html_urls
     self.proto = "HTML"
     self.recurse_filetypes = recurse_filetypes
@@ -1642,6 +1644,7 @@ class BaseHTMLTest(BaseHTTPTest):
 class BaseSSLTest(Test):
   def __init__(self):
     Test.__init__(self, "SSL", 443)
+    self.save_name = "SSLTest"
     self.test_hosts = num_ssl_hosts
 
   def run_test(self):
@@ -2050,6 +2053,8 @@ class SearchBasedHTTPTest(SearchBasedTest, BaseHTTPTest):
       self.targets_by_type[k].extend(v)
     return raw_urls
 
+HTTPTest = SearchBasedHTTPTest # For resuming from old HTTPTest.*.test files
+
 class SearchBasedHTMLTest(SearchBasedTest, BaseHTMLTest):
   def __init__(self, wordlist):
     BaseHTMLTest.__init__(self)
@@ -2062,6 +2067,8 @@ class SearchBasedHTMLTest(SearchBasedTest, BaseHTMLTest):
     self.wordlist = load_wordlist(self.wordlist_file)
     Test.rewind(self)
 
+HTMLTest = SearchBasedHTMLTest # For resuming from old HTMLTest.*.test files
+
 class SearchBasedSSLTest(SearchBasedTest, BaseSSLTest):
   def __init__(self, wordlist):
     BaseSSLTest.__init__(self)
@@ -2073,6 +2080,8 @@ class SearchBasedSSLTest(SearchBasedTest, BaseSSLTest):
   def rewind(self):
     self.wordlist = load_wordlist(self.wordlist_file)
     Test.rewind(self)
+
+SSLTest = SearchBasedSSLTest # For resuming from old SSLTest.*.test files
 
 
 class POP3STest(Test):
@@ -2896,18 +2905,18 @@ def main(argv):
 
   # Initialize tests
   #XXX: Resume currently broken. New depickling routines required
-  #if do_resume:
-  #  plog("NOTICE", "Resuming previous SoaT run #"+str(resume_run))
-  #  if do_ssl:
-  #    tests["SSL"] = datahandler.loadTest("SSLTest", resume_run)
+  if do_resume:
+    plog("NOTICE", "Resuming previous SoaT run #"+str(resume_run))
+    if do_ssl:
+      tests["SSL"] = datahandler.loadTest("SSLTest", resume_run)
 
-  #  if do_http:
-  #    tests["HTTP"] = datahandler.loadTest("HTTPTest", resume_run)
+    if do_http:
+      tests["HTTP"] = datahandler.loadTest("HTTPTest", resume_run)
 
-  #  if do_html:
-  #    tests["HTML"] = datahandler.loadTest("HTMLTest", resume_run)
+    if do_html:
+      tests["HTML"] = datahandler.loadTest("HTMLTest", resume_run)
 
-  if fixed_targets:
+  elif fixed_targets:
     if do_ssl:
       tests["SSL"] = FixedTargetSSLTest(fixed_targets)
 
