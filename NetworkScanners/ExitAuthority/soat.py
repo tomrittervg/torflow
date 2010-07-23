@@ -1870,11 +1870,13 @@ class FixedTargetTest:
 class FixedTargetHTTPTest(FixedTargetTest, BaseHTTPTest):
   def __init__(self, targets):
     BaseHTTPTest.__init__(self)
+    utargets = [t for t in targets if self._is_useable_url(t, ['http'])]
     FixedTargetTest.__init__(self, targets)
 
 class FixedTargetHTMLTest(FixedTargetTest, BaseHTMLTest):
   def __init__(self, targets):
     BaseHTMLTest.__init__(self)
+    utargets = [t for t in targets if self._is_useable_url(t, ['http'])]
     FixedTargetTest.__init__(self, targets)
   def _add_recursive_targets(self, soup, orig_addr):
     # Don't recurse for FixedTarget tests
@@ -1883,6 +1885,7 @@ class FixedTargetHTMLTest(FixedTargetTest, BaseHTMLTest):
 class FixedTargetSSLTest(FixedTargetTest, BaseSSLTest):
   def __init__(self, targets):
     BaseSSLTest.__init__(self)
+    utargets = [t for t in targets if self._is_useable_url(t)]
     FixedTargetTest.__init__(self, targets)
 
 # Search Based Tests
