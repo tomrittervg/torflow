@@ -2993,11 +2993,15 @@ def main(argv):
       return
     plog("NOTICE", "Scanning only "+scan_exit)
     scanhdlr.new_exit()
-
-    while 1:
+    testsdone = 0
+    while testsdone < len(tests):
       for test in tests.values():
+        if test.finished():
+          testsdone += 1
+          continue
         result = test.run_test()
         plog("INFO", test.proto+" test via "+scan_exit+" has result "+str(result))
+    return
 
   # start testing
   while 1:
