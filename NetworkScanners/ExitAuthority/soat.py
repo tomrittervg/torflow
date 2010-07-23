@@ -2929,7 +2929,7 @@ def main(argv):
     dirsok &= datahandler.checkResultDir(d)
   if not dirsok:
     plog("ERROR", "Could not create result directories")
-    sys.exit(1)
+    return
 
   # Initialize tests
   #XXX: Resume currently broken. New depickling routines required
@@ -2964,11 +2964,10 @@ def main(argv):
     if do_html:
       tests["HTML"] = SearchBasedHTMLTest(html_wordlist_file)
 
-
   # maybe no tests could be initialized
   if not tests:
     plog('INFO', 'Done.')
-    sys.exit(0)
+    return
 
   # Make sure refetch_ip is valid rather than exploding mid-test
   global refetch_ip
@@ -3078,7 +3077,7 @@ def main(argv):
         all_finished = False
     if all_finished:
       plog("NOTICE", "All tests have finished. Exiting\n")
-      sys.exit(0)
+      return
 
 # initiate the program
 #
