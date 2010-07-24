@@ -424,7 +424,7 @@ def _ssl_request(address, method='TLSv1_METHOD'):
       rval = (E_MISC, None, e.__class__.__name__+str(e))
   except SSL.Error, e:
     signal.alarm(0) # Since we might recurse
-    for (lib, func, reason) in e.message: # e.message is always list of 3-tuples
+    for (lib, func, reason) in e[0]:
       if reason in ('wrong version number','sslv3 alert illegal parameter'):
         # Check if the server supports a different SSL version
         if method == 'TLSv1_METHOD':
