@@ -370,7 +370,12 @@ def http_request(address, cookie_jar=None, headers=firefox_headers):
       rval = (E_URL, None, [], "", e.__class__.__name__+str(e))
   except socks.Socks5Error, e:
     plog('WARN', 'A SOCKS5 error '+str(e.value[0])+' occured for '+address+": "+str(e))
-    rval = (-float(e.value[0]), None, [], "", e.__class__.__name__+str(e))
+    code = e.value[0]
+    if code < 9:
+      code = -float(code)
+    else:
+      code = E_MISC
+    rval = (code, None, [], "", e.__class__.__name__+str(e))
   except KeyboardInterrupt:
     raise KeyboardInterrupt
   except Exception, e:
@@ -420,7 +425,12 @@ def _ssl_request(address, method='TLSv1_METHOD'):
     rval = (E_TIMEOUT, None, "Socket timeout")
   except socks.Socks5Error, e:
     plog('WARN', 'A SOCKS5 error '+str(e.value[0])+' occured for '+address+": "+str(e))
-    rval = (-float(e.value[0]), None,  e.__class__.__name__+str(e))
+    code = e.value[0]
+    if code < 9:
+      code = -float(code)
+    else:
+      code = E_MISC
+    rval = (code, None,  e.__class__.__name__+str(e))
   except crypto.Error, e:
     traceback.print_exc()
     rval = (E_CRYPTO, None, e.__class__.__name__+str(e))
@@ -732,6 +742,7 @@ class Test:
     win_cnt = len(self.successes[result.site])
 
     plog("INFO", self.proto+" success at "+result.exit_node+". This makes "+str(win_cnt)+"/"+str(self.site_tests(result.site))+" node successes for "+result.site)
+    return TEST_SUCCESS
 
   def _register_site_connect_failure(self, result):
     if self.rescan_nodes:
@@ -746,6 +757,7 @@ class Test:
     err_cnt = len(self.connect_fails[result.site])
 
     plog("ERROR", self.proto+" connection fail of "+result.reason+" at "+result.exit_node+". This makes "+str(err_cnt)+"/"+str(self.site_tests(result.site))+" node failures for "+result.site)
+    return TEST_FAILURE
 
   def register_connect_failure(self, result):
     if self.rescan_nodes:
@@ -824,6 +836,7 @@ class Test:
     err_cnt = len(self.exit_fails[result.site])
 
     plog("ERROR", self.proto+" exit-only fail of "+result.reason+" at "+result.exit_node+". This makes "+str(err_cnt)+"/"+str(self.site_tests(result.site))+" node failures for "+result.site)
+    return TEST_FAILURE
 
   def register_dynamic_failure(self, result):
     if self.rescan_nodes:
@@ -838,6 +851,7 @@ class Test:
     err_cnt = len(self.dynamic_fails[result.site])
 
     plog("ERROR", self.proto+" dynamic fail of "+result.reason+" at "+result.exit_node+". This makes "+str(err_cnt)+"/"+str(self.site_tests(result.site))+" node failures for "+result.site)
+    return TEST_FAILURE
 
 
 class BaseHTTPTest(Test):
@@ -988,10 +1002,12 @@ class BaseHTTPTest(Test):
     except IOError:
       (code, resp_headers, new_cookies, mime_type, content) = http_request(address, self.cookie_jar, self.headers)
 
-      if code - (code % 100) == 300: # Redirection
+      if 300 <= code < 400: # Redirects
         plog("NOTICE", "Non-Tor HTTP "+str(code)+" redirect from "+str(address)+" to "+str(content))
+        # Remove the original target and add the redirected location
         self.remove_target(address, INCONCLUSIVE_REDIRECT)
         self.add_target(content)
+        # Restore cookie jar
         self.cookie_jar = orig_cookie_jar
         self.tor_cookie_jar = orig_cookie_jar
         return TEST_INCONCLUSIVE
@@ -1071,7 +1087,7 @@ class BaseHTTPTest(Test):
       BindingSocket.bind_to = None
 
       if code_new == pcode:
-        if pcode - (pcode % 100) == 300:
+        if 300 <= pcode < 400: # Redirects
           plog("NOTICE", "Non-Tor HTTP "+str(code_new)+" redirect from "+address+" to "+str(content_new))
           # Remove the original URL and add the redirect to our targets (if it's of the right type)
           self.remove_target(address, INCONCLUSIVE_REDIRECT)
@@ -1083,61 +1099,35 @@ class BaseHTTPTest(Test):
           self.remove_target(address, FALSEPOSITIVE_HTTPERRORS)
           return TEST_INCONCLUSIVE
 
-      if pcode < 0 and type(pcode) == float:
-        if pcode == E_SOCKS: # "General socks error"
-          fail_reason = FAILURE_CONNERROR
-        elif pcode == E_POLICY: # "connection not allowed aka ExitPolicy
-          fail_reason = FAILURE_EXITPOLICY
-        elif pcode == E_NETUNREACH: # "Net Unreach" ??
-          fail_reason = FAILURE_NETUNREACH
-        elif pcode == E_HOSTUNREACH: # "Host Unreach" aka RESOLVEFAILED
-          fail_reason = FAILURE_HOSTUNREACH
-          result = HttpTestResult(self.node_map[exit_node[1:]],
-                                 address, TEST_FAILURE, fail_reason)
-          return self.register_dns_failure(result)
-        elif pcode == E_REFUSED: # Connection refused
-          fail_reason = FAILURE_CONNREFUSED
-          result = HttpTestResult(self.node_map[exit_node[1:]],
-                              address, TEST_FAILURE, fail_reason)
-          self.register_exit_failure(result)
-          return TEST_FAILURE
-        elif pcode == E_TIMEOUT: # timeout
-          fail_reason = FAILURE_TIMEOUT
-          result = HttpTestResult(self.node_map[exit_node[1:]],
-                                 address, TEST_FAILURE, fail_reason)
-          return self.register_timeout_failure(result)
-        elif pcode == E_SLOWXFER: # Transfer too slow
-          # TODO: This still calls register_timeout_failure, I think that's ok
-          # but it should probably be discussed.
-          fail_reason = FAILURE_SLOWXFER
-          result = HttpTestResult(self.node_map[exit_node[1:]],
-                                 address, TEST_FAILURE, fail_reason)
-          return self.register_timeout_failure(result)
-        elif pcode == E_NOCONTENT:
-          fail_reason = FAILURE_NOEXITCONTENT
-          result = HttpTestResult(self.node_map[exit_node[1:]],
-                              address, TEST_FAILURE, fail_reason)
-          self.register_exit_failure(result)
-          return TEST_FAILURE
-        elif pcode == E_URL:
-          fail_reason = FAILURE_URLERROR
-        else:
-          fail_reason = FAILURE_MISCEXCEPTION
-      elif pcode - (pcode % 100) == 300:
+      #  Error code      Failure reason         Register method                Set extra_info to pcontent?
+      err_lookup = \
+        {E_SOCKS:       (FAILURE_CONNERROR,     self.register_connect_failure, True), # "General socks error"
+         E_POLICY:      (FAILURE_EXITPOLICY,    self.register_connect_failure, True), # "connection not allowed aka ExitPolicy
+         E_NETUNREACH:  (FAILURE_NETUNREACH,    self.register_connect_failure, True), # "Net Unreach" ??
+         E_HOSTUNREACH: (FAILURE_HOSTUNREACH,   self.register_dns_failure,     False), # "Host Unreach" aka RESOLVEFAILED
+         E_REFUSED:     (FAILURE_CONNREFUSED,   self.register_exit_failure,    False), # Connection refused
+         E_TIMEOUT:     (FAILURE_TIMEOUT,       self.register_timeout_failure, False), # timeout
+         E_SLOWXFER:    (FAILURE_SLOWXFER,      self.register_timeout_failure, False), # Transfer too slow
+         E_NOCONTENT:   (FAILURE_NOEXITCONTENT, self.register_exit_failure,    False),
+         E_URL:         (FAILURE_URLERROR,      self.register_connect_failure, True),
+         E_MISC:        (FAILURE_MISCEXCEPTION, self.register_connect_failure, True)
+        }
+      if pcode in err_lookup:
+        fail_reason, register, extra_info = err_lookup[pcode]
+      elif 300 <= pcode < 400: # Redirects
         plog("NOTICE", "Tor only HTTP "+str(pcode)+" redirect from "+address+" to "+str(pcontent))
         fail_reason = FAILURE_REDIRECT
-        result = HttpTestResult(self.node_map[exit_node[1:]],
-                            address, TEST_FAILURE, fail_reason)
-        result.extra_info = str(pcontent)
-        self.register_exit_failure(result)
-        return TEST_FAILURE
+        register = self.register_exit_failure
+        extra_info = False
       else:
         fail_reason = FAILURE_BADHTTPCODE+str(pcode)
+        register = self.register_exit_failure
+        extra_info = True
       result = HttpTestResult(self.node_map[exit_node[1:]],
                             address, TEST_FAILURE, fail_reason)
-      result.extra_info = str(pcontent)
-      self.register_connect_failure(result)
-      return TEST_FAILURE
+      if extra_info:
+        result.extra_info = str(pcontent)
+      return register(result)
 
     # if we have no content, we had a connection error
     if pcontent == "":
@@ -1810,51 +1800,35 @@ class BaseSSLTest(Test):
       self.results.append(result)
       datahandler.saveResult(result)
       return TEST_INCONCLUSIVE
-
     exit_node = "$"+exit_node.idhex
 
     if not cert:
-      if code < 0 and type(code) == float:
-        if code == E_SOCKS: # "General socks error"
-          fail_reason = FAILURE_CONNERROR
-        elif code == E_POLICY: # "connection not allowed" aka ExitPolicy
-          fail_reason = FAILURE_EXITPOLICY
-        elif code == E_NETUNREACH: # "Net Unreach" ??
-          fail_reason = FAILURE_NETUNREACH
-        elif code == E_HOSTUNREACH: # "Host Unreach" aka RESOLVEFAILED
-          fail_reason = FAILURE_HOSTUNREACH
-          result = SSLTestResult(self.node_map[exit_node[1:]], address,
-                                ssl_file_name, TEST_FAILURE, fail_reason)
-          return self.register_dns_failure(result)
-        elif code == E_REFUSED: # Connection refused
-          fail_reason = FAILURE_CONNREFUSED
-          result = SSLTestResult(self.node_map[exit_node[1:]],
-                       address, ssl_file_name, TEST_FAILURE, fail_reason)
-          self.extra_info=exc
-          self.register_exit_failure(result)
-          return TEST_FAILURE
-        elif code == E_TIMEOUT: # timeout
-          fail_reason = FAILURE_TIMEOUT
-          result = SSLTestResult(self.node_map[exit_node[1:]], address,
-                                ssl_file_name, TEST_FAILURE, fail_reason)
-          return self.register_timeout_failure(result)
-        elif code == E_CRYPTO:
-          fail_reason = FAILURE_CRYPTOERROR
-          result = SSLTestResult(self.node_map[exit_node[1:]],
-                       address, ssl_file_name, TEST_FAILURE, fail_reason)
-          self.extra_info=exc
-          self.register_exit_failure(result)
-          return TEST_FAILURE
-        else:
-          fail_reason = FAILURE_MISCEXCEPTION
+      #  Error code      Failure reason         Register method                Set extra_info to str(exc)?
+      err_lookup = \
+        {E_SOCKS:       (FAILURE_CONNERROR,     self.register_connect_failure, True), # "General socks error"
+         E_POLICY:      (FAILURE_EXITPOLICY,    self.register_connect_failure, True), # "connection not allowed aka ExitPolicy
+         E_NETUNREACH:  (FAILURE_NETUNREACH,    self.register_connect_failure, True), # "Net Unreach" ??
+         E_HOSTUNREACH: (FAILURE_HOSTUNREACH,   self.register_dns_failure,     False), # "Host Unreach" aka RESOLVEFAILED
+         E_REFUSED:     (FAILURE_CONNREFUSED,   self.register_exit_failure,    True), # Connection refused
+         E_TIMEOUT:     (FAILURE_TIMEOUT,       self.register_timeout_failure, False), # timeout
+         E_SLOWXFER:    (FAILURE_SLOWXFER,      self.register_timeout_failure, False), # Transfer too slow
+         E_NOCONTENT:   (FAILURE_NOEXITCONTENT, self.register_exit_failure,    False),
+         E_CRYPTO:      (FAILURE_CRYPTOERROR,   self.register_exit_failure,    True),
+         E_URL:         (FAILURE_URLERROR,      self.register_connect_failure, True),
+         E_MISC:        (FAILURE_MISCEXCEPTION, self.register_connect_failure, True)
+        }
+      if pcode in err_lookup:
+        fail_reason, register, extra_info = err_lookup[pcode]
       else:
-          fail_reason = FAILURE_MISCEXCEPTION
+        fail_reason = FAILURE_MISCEXCEPTION
+        register = self.register_connect_failure
+        extra_info = False
 
       result = SSLTestResult(self.node_map[exit_node[1:]],
                              address, ssl_file_name, TEST_FAILURE, fail_reason)
-      result.extra_info = exc
-      self.register_connect_failure(result)
-      return TEST_FAILURE
+      if extra_info:
+        result.extra_info = str(exc)
+      return register(result)
 
     try:
       # get an easily comparable representation of the certs
