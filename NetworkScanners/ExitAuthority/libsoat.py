@@ -684,10 +684,10 @@ class DataHandler:
 
   def __resultFilename(self, result):
     address = ''
-    if result.__class__.__name__ == 'HtmlTestResult' or result.__class__.__name__ == 'HttpTestResult':
-      address = DataHandler.safeFilename(result.site[7:])
+    if result.__class__.__name__ in ('HtmlTestResult', 'HttpTestResult'):
+      address = DataHandler.safeFilename(result.site.replace('http://',''))
     elif result.__class__.__name__ == 'SSLTestResult':
-      address = DataHandler.safeFilename(result.site[8:])
+      address = DataHandler.safeFilename(result.site.replace('https://','')
     elif 'TestResult' in result.__class__.__name__:
       address = DataHandler.safeFilename(result.site)
     else:

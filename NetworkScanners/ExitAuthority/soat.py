@@ -968,7 +968,7 @@ class BaseHTTPTest(Test):
     ''' check whether a http connection to a given address is molested '''
 
     # an address representation acceptable for a filename
-    address_file = DataHandler.safeFilename(address[7:])
+    address_file = DataHandler.safeFilename(address.replace('http://',''))
     content_prefix = http_content_dir+address_file
 
     # Keep a copy of the cookie jar before mods for refetch or
@@ -1274,7 +1274,7 @@ class BaseHTTPTest(Test):
   def _check_http_worker(self, address, http_ret):
     (mime_type,pcontent,psha1sum,content,sha1sum,content_new,sha1sum_new,exit_node) = http_ret
 
-    address_file = DataHandler.safeFilename(address[7:])
+    address_file = DataHandler.safeFilename(address.replace('http://',''))
     content_prefix = http_content_dir+address_file
     failed_prefix = http_failed_dir+address_file
 
@@ -1488,7 +1488,7 @@ class BaseHTMLTest(BaseHTTPTest):
       else:
         return self._check_http_worker(address, http_ret)
 
-    address_file = DataHandler.safeFilename(address[7:])
+    address_file = DataHandler.safeFilename(address.replace('http://',''))
     content_prefix = http_content_dir+address_file
     failed_prefix = http_failed_dir+address_file
 
@@ -1543,7 +1543,7 @@ class BaseHTMLTest(BaseHTTPTest):
         return self._check_http_worker(address, http_ret)
 
     # an address representation acceptable for a filename
-    address_file = DataHandler.safeFilename(address[7:])
+    address_file = DataHandler.safeFilename(address.replace('http://',''))
     content_prefix = http_content_dir+address_file
     failed_prefix = http_failed_dir+address_file
 
@@ -1718,7 +1718,7 @@ class BaseSSLTest(Test):
     plog('INFO', 'Conducting an ssl test with destination ' + address)
 
     # an address representation acceptable for a filename (first 20 chars excluding www.)
-    shortaddr = address.lstrip('www.')[:min(len(address), 20)]
+    shortaddr = address.replace('www.','',1)[:min(len(address), 20)]
     address_file = DataHandler.safeFilename(shortaddr)
     ssl_file_name = ssl_certs_dir + address_file + '.ssl'
 
