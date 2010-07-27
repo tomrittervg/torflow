@@ -174,6 +174,17 @@ class NoDNSHTTPHandler(urllib2.HTTPHandler):
   def http_open(self, req):
     return self.do_open(NoDNSHTTPConnection, req)
 
+class NullRedirectHandler(urllib2.HTTPRedirectHandler):
+  def http_error_301(self, req, fp, code, msg, headers):
+    if 'location' in headers:
+      newurl = headers.getheaders('location')[0]
+    elif 'uri' in headers:
+      newurl = headers.getheaders('uri')[0]
+    else:
+      return # pass through to http_error_default
+    raise RedirectException(code, req.get_full_url(), newurl)
+  http_error_302 = http_error_303 = http_error_307 = http_error_301
+
 class ExitScanHandler(ScanSupport.ScanHandler):
   def __init__(self, c, selmgr, strm_selector):
     ScanSupport.ScanHandler.__init__(self, c, selmgr,
@@ -310,13 +321,14 @@ def http_request(address, cookie_jar=None, headers=firefox_headers):
   try:
     plog("DEBUG", "Starting request for: "+address)
     if cookie_jar != None:
-      opener = urllib2.build_opener(NoDNSHTTPHandler, urllib2.HTTPCookieProcessor(cookie_jar))
+      opener = urllib2.build_opener(NoDNSHTTPHandler, NullRedirectHandler, urllib2.HTTPCookieProcessor(cookie_jar))
       reply = opener.open(request)
       if "__filename" in cookie_jar.__dict__:
         cookie_jar.save(cookie_jar.__filename, ignore_discard=True)
       new_cookies = cookie_jar.make_cookies(reply, request)
     else:
-      reply = urllib2.urlopen(request)
+      opener = urllib2.build_opener(NoDNSHTTPHandler, NullRedirectHandler)
+      reply = opener.open(request)
 
     length = reply.info().get("Content-Length")
     if length and int(length) > max_content_size:
@@ -333,6 +345,8 @@ def http_request(address, cookie_jar=None, headers=firefox_headers):
     rval = (E_TIMEOUT, None, [], "", e.__class__.__name__+str(e))
   except SlowXferException, e:
     rval = (E_SLOWXFER, None, [], "", e.__class__.__name__+str(e))
+  except RedirectException, e:
+    rval = (e.code, None, [], "", e.new_url)
   except httplib.BadStatusLine, e:
     plog('NOTICE', "HTTP Error during request of "+address+": "+str(e))
     if not e.line:
@@ -522,6 +536,9 @@ class Test:
       plog("DEBUG", "Bad filetype for "+url)
       return False
     return True
+
+  def add_target(self, target):
+    self.targets.append(target)
 
   def remove_target(self, target, reason="None"):
     self.banned_targets.add(target)
@@ -971,6 +988,14 @@ class BaseHTTPTest(Test):
     except IOError:
       (code, resp_headers, new_cookies, mime_type, content) = http_request(address, self.cookie_jar, self.headers)
 
+      if code - (code % 100) == 300: # Redirection
+        plog("NOTICE", "Non-Tor HTTP "+str(code)+" redirect from "+str(address)+" to "+str(content))
+        self.remove_target(address, INCONCLUSIVE_REDIRECT)
+        self.add_target(content)
+        self.cookie_jar = orig_cookie_jar
+        self.tor_cookie_jar = orig_cookie_jar
+        return TEST_INCONCLUSIVE
+
       if code - (code % 100) != 200:
         plog("NOTICE", "Non-tor HTTP error "+str(code)+" fetching content for "+address)
         # Just remove it
@@ -1046,10 +1071,17 @@ class BaseHTTPTest(Test):
       BindingSocket.bind_to = None
 
       if code_new == pcode:
-        plog("NOTICE", "Non-tor HTTP error "+str(code_new)+" fetching content for "+address)
-        # Just remove it
-        self.remove_target(address, FALSEPOSITIVE_HTTPERRORS)
-        return TEST_INCONCLUSIVE
+        if pcode - (pcode % 100) == 300:
+          plog("NOTICE", "Non-Tor HTTP "+str(code_new)+" redirect from "+address+" to "+str(content_new))
+          # Remove the original URL and add the redirect to our targets (if it's of the right type)
+          self.remove_target(address, INCONCLUSIVE_REDIRECT)
+          self.add_target(content)
+          return TEST_INCONCLUSIVE
+        else:
+          plog("NOTICE", "Non-tor HTTP error "+str(code_new)+" fetching content for "+address)
+          # Just remove it
+          self.remove_target(address, FALSEPOSITIVE_HTTPERRORS)
+          return TEST_INCONCLUSIVE
 
       if pcode < 0 and type(pcode) == float:
         if pcode == E_SOCKS: # "General socks error"
@@ -1091,6 +1123,14 @@ class BaseHTTPTest(Test):
           fail_reason = FAILURE_URLERROR
         else:
           fail_reason = FAILURE_MISCEXCEPTION
+      elif pcode - (pcode % 100) == 300:
+        plog("NOTICE", "Tor only HTTP "+str(pcode)+" redirect from "+address+" to "+str(pcontent))
+        fail_reason = FAILURE_REDIRECT
+        result = HttpTestResult(self.node_map[exit_node[1:]],
+                            address, TEST_FAILURE, fail_reason)
+        result.extra_info = str(pcontent)
+        self.register_exit_failure(result)
+        return TEST_FAILURE
       else:
         fail_reason = FAILURE_BADHTTPCODE+str(pcode)
       result = HttpTestResult(self.node_map[exit_node[1:]],
@@ -1856,6 +1896,9 @@ class FixedTargetTest:
   """ Mixin class. Must be mixed with a subclass of Test """
   def __init__(self, targets):
     self.fixed_targets = targets
+
+  def add_target(self, target):
+    pass
 
   def refill_targets(self):
     pass
@@ -2756,11 +2799,6 @@ def int2bin(n):
       bin += str(n % 2)
       n = n >> 1
     return bin[::-1]
-
-
-class NoURLsFound(Exception):
-  pass
-
 
 def cleanup(c, l, f):
   plog("INFO", "Resetting __LeaveStreamsUnattached=0 and FetchUselessDescriptors="+f)

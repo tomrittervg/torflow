@@ -45,18 +45,18 @@ __all__ = [ # Classes
            "TEST_SUCCESS", "TEST_INCONCLUSIVE", "TEST_FAILURE",
            "RESULT_STRINGS", "RESULT_CODES",
            "INCONCLUSIVE_NOLOCALCONTENT", "INCONCLUSIVE_DYNAMICSSL",
-           "INCONCLUSIVE_TORBREAKAGE", "INCONCLUSIVE_NOEXIT",
+           "INCONCLUSIVE_TORBREAKAGE", "INCONCLUSIVE_NOEXIT", "INCONCLUSIVE_REDIRECT",
            "FAILURE_EXITONLY", "FAILURE_DYNAMIC", "FAILURE_COOKIEMISMATCH", "FAILURE_BADHTTPCODE",
            "FAILURE_NOEXITCONTENT", "FAILURE_EXITTRUNCATION", "FAILURE_SOCKSERROR",
-           "FAILURE_HOSTUNREACH", "FAILURE_NETUNREACH", "FAILURE_EXITPOLICY",
-           "FAILURE_CONNREFUSED", "FAILURE_CONNERROR", "FAILURE_URLERROR", "FAILURE_CRYPTOERROR",
+           "FAILURE_HOSTUNREACH", "FAILURE_NETUNREACH", "FAILURE_EXITPOLICY", "FAILURE_CONNREFUSED",
+           "FAILURE_CONNERROR", "FAILURE_URLERROR", "FAILURE_REDIRECT", "FAILURE_CRYPTOERROR",
            "FAILURE_TIMEOUT", "FAILURE_SLOWXFER", "FAILURE_HEADERCHANGE", "FAILURE_MISCEXCEPTION",
            "FALSEPOSITIVE_HTTPERRORS", "FALSEPOSITIVE_DYNAMIC", "FALSEPOSITIVE_DYNAMIC_TOR",
            "FALSEPOSITIVE_DEADSITE",
            "E_SOCKS", "E_POLICY", "E_NETUNREACH", "E_HOSTUNREACH", "E_REFUSED",
            "E_TIMEOUT", "E_SLOWXFER", "E_NOCONTENT", "E_CRYPTO", "E_URL", "E_MISC",
            # Exception classes
-           "SlowXferException",
+           "SlowXferException", "RedirectException", "NoURLsFound",
           ]
 
 
@@ -90,6 +90,7 @@ INCONCLUSIVE_NOLOCALCONTENT = "InconclusiveNoLocalContent"
 INCONCLUSIVE_DYNAMICSSL = "InconclusiveDynamicSSL"
 INCONCLUSIVE_TORBREAKAGE = "InconclusiveTorBreakage"
 INCONCLUSIVE_NOEXIT = "InconclusiveNoExit"
+INCONCLUSIVE_REDIRECT = "InconclusiveRedirect"
 
 # Failed reasons
 FAILURE_EXITONLY = "FailureExitOnly"
@@ -105,6 +106,7 @@ FAILURE_EXITPOLICY = "FailureExitPolicy"
 FAILURE_CONNREFUSED = "FailureConnRefused"
 FAILURE_CONNERROR = "FailureConnError"
 FAILURE_URLERROR = "FailureURLError"
+FAILURE_REDIRECT = "FailureRedirect"
 FAILURE_CRYPTOERROR = "FailureCryptoError"
 FAILURE_TIMEOUT = "FailureTimeout"
 FAILURE_SLOWXFER = "FailureSlowXfer"
@@ -1144,4 +1146,16 @@ class JSSoupDiffer(JSDiffer):
 
 
 class SlowXferException(Exception):
+  pass
+
+class RedirectException(Exception):
+  def __init__(self, code, orig, new):
+    self.code = code
+    self.orig_url = orig
+    self.new_url = new
+
+  def __str__(self):
+    return "HTTP %d Redirect: %s --> %s" % (self.code, self.orig_url, self.new_url)
+
+class NoURLsFound(Exception):
   pass
