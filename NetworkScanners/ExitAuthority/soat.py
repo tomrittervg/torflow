@@ -519,6 +519,11 @@ class Test:
       self.timeout_fails_per_exit = self.timeout_fails
       self.connect_fails_per_exit = {}
       self._pickle_revision = 6
+    if self._pickle_revision < 7:
+      self.exit_fails_per_exit = {}
+      self.timeout_fails = {}
+      self.dns_fails = {}
+      self._pickle_revision = 7
 
   def _is_useable_url(self, url, valid_schemes=None, filetypes=None):
     (scheme, netloc, path, params, query, fragment) = urlparse.urlparse(url)
@@ -563,6 +568,10 @@ class Test:
       del self.exit_fails[target]
     if target in self.connect_fails:
       del self.connect_fails[target]
+    if target in self.dns_fails:
+      del self.dns_fails[target]
+    if target in self.timeout_fails:
+      del self.timeout_fails[target]
     kill_results = []
     for r in self.results:
       if r.site == target:
@@ -681,6 +690,12 @@ class Test:
     self._remove_false_positive_type(self.connect_fails,
                                      FALSEPOSITIVE_DEADSITE,
                                      max_connect_fail_pct)
+    self._remove_false_positive_type(self.dns_fails,
+                                     FALSEPOSITIVE_DEADSITE,
+                                     max_connect_fail_pct)
+    self._remove_false_positive_type(self.timeout_fails,
+                                     FALSEPOSITIVE_DEADSITE,
+                                     max_connect_fail_pct)
     for r in self.results:
       if not r.confirmed and not r.false_positive and r.status == TEST_FAILURE:
         r.confirmed=True # only save confirmed stuff once.
@@ -696,9 +711,12 @@ class Test:
     self.connect_fails_per_exit = {}
     self.timeout_fails_per_exit = {}
     self.dns_fails_per_exit = {}
+    self.exit_fails_per_exit = {}
     self.node_results = {}
     # These are indexed by site url:
     self.connect_fails = {}
+    self.timeout_fails = {}
+    self.dns_fails = {}
     self.exit_fails = {}
     self.successes = {}
     self.dynamic_fails = {}
@@ -728,129 +746,128 @@ class Test:
       tot_cnt += len(self.dynamic_fails[site])
     if site in self.connect_fails:
       tot_cnt += len(self.connect_fails[site])
+    if site in self.dns_fails:
+      tot_cnt += len(self.dns_fails[site])
+    if site in self.timeout_fails:
+      tot_cnt += len(self.timeout_fails[site])
     return tot_cnt
+
+  def record_site_stats(self, result, stat):
+    if result.site in stat:
+      stat[result.site].add(result.exit_node)
+    else:
+      stat[result.site] = set([result.exit_node])
+    result.site_result_rate = (len(stat[result.site]), self.site_tests(result.site))
+    return result.site_result_rate
+
+  def record_exit_stats(self, result, stat_per_exit):
+    if result.exit_node in stat_per_exit:
+      stat_per_exit[result.exit_node] += 1
+    else:
+      stat_per_exit[result.exit_node] = 1
+    result.exit_result_rate = (stat_per_exit[result.exit_node], len(self.node_results.get(result.exit_node,[]))+1)
+    return result.exit_result_rate
 
   def register_success(self, result):
     if self.rescan_nodes:
       result.from_rescan = True
     #datahandler.saveResult(result)
-    if result.site in self.successes:
-      self.successes[result.site].add(result.exit_node)
-    else:
-      self.successes[result.site]=set([result.exit_node])
-
-    win_cnt = len(self.successes[result.site])
-
-    plog("INFO", self.proto+" success at "+result.exit_node+". This makes "+str(win_cnt)+"/"+str(self.site_tests(result.site))+" node successes for "+result.site)
+    (win_cnt, total) = self.record_site_stats(result, self.successes)
+    plog("INFO", self.proto+" success at "+result.exit_node+". This makes "+str(win_cnt)+"/"+str(total)+" node successes for "+result.site)
     return TEST_SUCCESS
 
-  def _register_site_connect_failure(self, result):
+  def register_connect_failure(self, result):
+    plog("NOTICE", "Registering connect failure")
     if self.rescan_nodes:
       result.from_rescan = True
     self.results.append(result)
-    datahandler.saveResult(result)
-    if result.site in self.connect_fails:
-      self.connect_fails[result.site].add(result.exit_node)
-    else:
-      self.connect_fails[result.site] = set([result.exit_node])
 
-    err_cnt = len(self.connect_fails[result.site])
+    (similar, exit_count) = self.record_site_stats(result, self.connect_fails)
+    (fails, result_count) = self.record_exit_stats(result, self.connect_fails_per_exit)
 
-    plog("ERROR", self.proto+" connection fail of "+result.reason+" at "+result.exit_node+". This makes "+str(err_cnt)+"/"+str(self.site_tests(result.site))+" node failures for "+result.site)
-    return TEST_FAILURE
-
-  def register_connect_failure(self, result):
-    if self.rescan_nodes:
-      result.from_rescan = True
-    if result.exit_node not in self.connect_fails_per_exit:
-      self.connect_fails_per_exit[result.exit_node] = 0
-    self.connect_fails_per_exit[result.exit_node] += 1
-
-    c_cnt = self.connect_fails_per_exit[result.exit_node]
-
-    if c_cnt > num_connfails_per_node:
-      if result.extra_info:
-        result.extra_info = str(result.extra_info) + " count: "+str(c_cnt)
-      else:
-        result.extra_info = str(c_cnt)
-      self._register_site_connect_failure(result)
-      del self.connect_fails_per_exit[result.exit_node]
+    if fails > num_connfails_per_node:
+      result.exit_result_rate = (fails, result_count + num_connfails_per_node)
+      plog("ERROR", self.proto+" connection fail of "+result.reason+" at "+result.exit_node+ \
+           ". This makes "+str(similar)+"/"+str(exit_count)+" node failures for "+result.site+ \
+           ", and "+str(fails)+" "+result.reason+"s for "+result.exit_node+" out of "+ \
+           str(result_count)+" results.")
+      # XXX: This throws off the statistics collection
+      # del self.connect_fails_per_exit[result.exit_node]
+      datahandler.saveResult(result)
       return TEST_FAILURE
     else:
-      plog("NOTICE", self.proto+" connect fail at "+result.exit_node+". This makes "+str(c_cnt)+" fails")
+      plog("NOTICE", self.proto+" connect fail at "+result.exit_node+". This makes "+str(fails)+" fails")
       return TEST_INCONCLUSIVE
 
   def register_dns_failure(self, result):
+    plog("NOTICE", "Registering dns failure")
     if self.rescan_nodes:
       result.from_rescan = True
-    if result.exit_node not in self.dns_fails_per_exit:
-      self.dns_fails_per_exit[result.exit_node] = 0
-    self.dns_fails_per_exit[result.exit_node] += 1
+    self.results.append(result)
 
-    d_cnt = self.dns_fails_per_exit[result.exit_node]
+    (similar, exit_count) = self.record_site_stats(result, self.dns_fails)
+    (fails, result_count) = self.record_exit_stats(result, self.dns_fails_per_exit)
 
-    if d_cnt > num_dnsfails_per_node:
-      if result.extra_info:
-        result.extra_info = str(result.extra_info) + " count: "+str(d_cnt)
-      else:
-        result.extra_info = str(d_cnt)
-      self._register_site_connect_failure(result)
-      del self.dns_fails_per_exit[result.exit_node]
+    if fails > num_dnsfails_per_node:
+      result.exit_result_rate = (fails, result_count + num_dnsfails_per_node)
+      plog("ERROR", self.proto+" DNS fail of "+result.reason+" at "+result.exit_node+ \
+           ". This makes "+str(similar)+"/"+str(exit_count)+" node failures for "+result.site+ \
+           ", and "+str(fails)+" "+result.reason+"s for "+result.exit_node+" out of "+ \
+           str(result_count)+" results.")
+      # XXX: This throws off the statistics collection
+      # del self.dns_fails_per_exit[result.exit_node]
+      datahandler.saveResult(result)
       return TEST_FAILURE
     else:
-      plog("NOTICE", self.proto+" dns fail at "+result.exit_node+". This makes "+str(d_cnt)+" fails")
+      plog("NOTICE", self.proto+" dns fail at "+result.exit_node+". This makes "+str(fails)+" fails")
       return TEST_INCONCLUSIVE
 
   def register_timeout_failure(self, result):
+    plog("NOTICE", "Registering timeout failure")
     if self.rescan_nodes:
       result.from_rescan = True
-    if result.exit_node not in self.timeout_fails_per_exit:
-      self.timeout_fails_per_exit[result.exit_node] = 0
-    self.timeout_fails_per_exit[result.exit_node] += 1
+    self.results.append(result)
 
-    t_cnt = self.timeout_fails_per_exit[result.exit_node]
+    (similar, exit_count) = self.record_site_stats(result, self.timeout_fails)
+    (fails, result_count) = self.record_exit_stats(result, self.timeout_fails_per_exit)
 
-    if t_cnt > num_timeouts_per_node:
-      if result.extra_info:
-        result.extra_info = str(result.extra_info) + " count: "+str(t_cnt)
-      else:
-        result.extra_info = str(t_cnt)
-      self._register_site_connect_failure(result)
-      del self.timeout_fails_per_exit[result.exit_node]
+    if fails > num_timeouts_per_node:
+      result.exit_result_rate = (fails, result_count + num_timeouts_per_node)
+      plog("ERROR", self.proto+" timeout fail of "+result.reason+" at "+result.exit_node+ \
+           ". This makes "+str(similar)+"/"+str(exit_count)+" node failures for "+result.site+ \
+           ", and "+str(fails)+" "+result.reason+"s for "+result.exit_node+" out of "+ \
+           str(result_count)+" results.")
+      # XXX: This throws off the statistics collection
+      # del self.timeout_fails_per_exit[result.exit_node]
+      datahandler.saveResult(result)
       return TEST_FAILURE
     else:
-      plog("NOTICE", self.proto+" timeout at "+result.exit_node+". This makes "+str(t_cnt)+" timeouts")
+      plog("NOTICE", self.proto+" timeout at "+result.exit_node+". This makes "+str(fails)+" timeouts")
       return TEST_INCONCLUSIVE
 
   def register_exit_failure(self, result):
+    plog("NOTICE", "Registering exit failure")
     if self.rescan_nodes:
       result.from_rescan = True
-    datahandler.saveResult(result)
     self.results.append(result)
 
-    if result.site in self.exit_fails:
-      self.exit_fails[result.site].add(result.exit_node)
-    else:
-      self.exit_fails[result.site] = set([result.exit_node])
+    (similar, exit_count) = self.record_site_stats(result, self.exit_fails)
+    (fails, result_count) = self.record_exit_stats(result, self.exit_fails_per_exit)
 
-    err_cnt = len(self.exit_fails[result.site])
-
-    plog("ERROR", self.proto+" exit-only fail of "+result.reason+" at "+result.exit_node+". This makes "+str(err_cnt)+"/"+str(self.site_tests(result.site))+" node failures for "+result.site)
+    plog("ERROR", self.proto+" exit-only fail of "+result.reason+" at "+result.exit_node+". This makes "+str(similar)+"/"+str(exit_count)+" node failures for "+result.site)
+    datahandler.saveResult(result)
     return TEST_FAILURE
 
   def register_dynamic_failure(self, result):
+    plog("NOTICE", "Registering dynamic failure")
     if self.rescan_nodes:
       result.from_rescan = True
     self.results.append(result)
+
+    (similar, exit_count) = self.record_site_stats(result, self.dynamic_fails)
+
+    plog("ERROR", self.proto+" dynamic fail of "+result.reason+" at "+result.exit_node+". This makes "+str(similar)+"/"+str(exit_count)+" node failures for "+result.site)
     datahandler.saveResult(result)
-    if result.site in self.dynamic_fails:
-      self.dynamic_fails[result.site].add(result.exit_node)
-    else:
-      self.dynamic_fails[result.site] = set([result.exit_node])
-
-    err_cnt = len(self.dynamic_fails[result.site])
-
-    plog("ERROR", self.proto+" dynamic fail of "+result.reason+" at "+result.exit_node+". This makes "+str(err_cnt)+"/"+str(self.site_tests(result.site))+" node failures for "+result.site)
     return TEST_FAILURE
 
 
@@ -861,7 +878,13 @@ class BaseHTTPTest(Test):
     self.save_name = "HTTPTest"
     self.fetch_targets = urls_per_filetype
     self.httpcode_fails = {}
+    self.httpcode_fails_per_exit = {}
     self.scan_filetypes = filetypes
+
+  def depickle_upgrade(self):
+    if self._pickle_revision < 7:
+      self.httpcode_fails_per_exit = {}
+    Test.depickle_upgrade(self)
 
   def check_cookies(self):
     # FIXME: This test is badly broken..
@@ -947,20 +970,20 @@ class BaseHTTPTest(Test):
       tot_cnt += len(self.httpcode_fails[site])
     return tot_cnt
 
-  def register_http_failure(self, result): # XXX: Currently deadcode
+  def register_http_failure(self, result):
     if self.rescan_nodes:
       result.from_rescan = True
     self.results.append(result)
+
+    (similar, exit_count) = self.record_site_stats(result, self.httpcode_fails)
+    (fails, result_count) = self.record_exit_stats(result, self.httpcode_fails_per_exit)
+
+    plog("ERROR", self.proto+" "+result.reason+" at "+result.exit_node+ \
+         ". This makes "+str(similar)+"/"+str(exit_count)+" node failures for "+result.site+ \
+         ", and "+str(fails)+" "+result.reason+"s for "+result.exit_node+" out of "+ \
+         str(result_count)+" results.")
     datahandler.saveResult(result)
-    if result.site in self.httpcode_fails:
-      self.httpcode_fails[result.site].add(result.exit_node)
-    else:
-      self.httpcode_fails[result.site] = set([result.exit_node])
-
-    err_cnt = len(self.httpcode_fails[result.site])
-
-    plog("ERROR", self.proto+" http error code fail of "+result.reason+" at "+result.exit_node+". This makes "+str(err_cnt)+"/"+str(self.site_tests(result.site))+" node failures for "+result.site)
-
+    return TEST_FAILURE
 
   def check_http_nodynamic(self, address, nocontent=False):
     # TODO: use nocontent to cause us to not load content into memory.

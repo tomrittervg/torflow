@@ -162,7 +162,9 @@ class TestResult(object):
     self.verbose=0
     self.from_rescan = False
     self.filename=None
-    self._pickle_revision = 6
+    self.exit_result_rate=(0,0) # (Number of times self.exit_node has returned self.reason, total number of results for self.exit_node)
+    self.site_result_rate=(0,0) # (Number of exits which have self.reason for self.site, total number of exits that have tested self.site)
+    self._pickle_revision = 7
 
   def depickle_upgrade(self):
     if not "_pickle_revision" in self.__dict__: # upgrade to v0
@@ -185,6 +187,10 @@ class TestResult(object):
     if self._pickle_revision < 6:
       self._pickle_revision = 6
       self.confirmed=False
+    if self._pickle_revision < 7:
+      self._pickle_revision = 7
+      self.exit_result_rate = (0,0)
+      self.site_result_rate = (0,0)
 
   def _rebase(self, filename, new_data_root):
     if not filename: return filename
@@ -221,6 +227,10 @@ class TestResult(object):
     ret += " "+str(RESULT_STRINGS[self.status])
     if self.reason:
       ret += " Reason: "+self.reason
+    if self.exit_result_rate != (0,0):
+      ret += "\n This exit has had this result %d times for %d targets" % self.exit_result_rate
+    if self.site_result_rate != (0,0):
+      ret += "\n %d out of %d exit nodes share this result for this target" % self.site_result_rate
     if self.extra_info:
       ret += "\n Extra info: "+self.extra_info 
     if self.false_positive:
