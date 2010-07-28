@@ -2031,20 +2031,19 @@ class SearchBasedHTTPTest(SearchBasedTest, BaseHTTPTest):
     self.targets_by_type = dict.fromkeys(self.scan_filetypes, [])
 
   def depickle_upgrade(self):
-    Test.depickle_upgrade(self)
     if self._pickle_revision < 7:
       self.result_filetypes = self.scan_filetypes
       self.result_protocol = "http"
       self.results_per_type = self.fetch_targets
       self.targets_by_type = self.targets
       self.targets = reduce(list.__add__, self.targets.values(), [])
-      self._pickle_revision = 7
+    BaseHTTPTest.depickle_upgrade(self)
 
   def rewind(self):
     self.wordlist = load_wordlist(self.wordlist_file)
     self.httpcode_fails = {}
     self.targets_by_type = {}
-    Test.rewind(self)
+    BaseHTTPTest.rewind(self)
 
   def refill_targets(self):
     for ftype in self.targets_by_type:
@@ -2095,15 +2094,15 @@ class SearchBasedHTMLTest(SearchBasedTest, BaseHTMLTest):
     self.results_per_type = self.fetch_targets
 
   def depickle_upgrade(self):
-    Test.depickle_upgrade(self)
     if self._pickle_revision < 7:
       self.result_filetypes = "html"
       self.result_protocol = "http"
       self.results_per_type = self.fetch_targets
+    BaseHTMLTest.depickle_upgrade(self)
 
   def rewind(self):
     self.wordlist = load_wordlist(self.wordlist_file)
-    Test.rewind(self)
+    BaseHTMLTest.rewind(self)
 
 HTMLTest = SearchBasedHTMLTest # For resuming from old HTMLTest.*.test files
 
@@ -2116,15 +2115,15 @@ class SearchBasedSSLTest(SearchBasedTest, BaseSSLTest):
     self.search_mode=google_search_mode
 
   def depickle_upgrade(self):
-    Test.depickle_upgrade(self)
     if self._pickle_revision < 7:
       self.host_only = True
       self.result_protocol = 'https'
       self.search_mode=google_search_mode
+    BaseSSLTest.depickle_upgrade(self)
 
   def rewind(self):
     self.wordlist = load_wordlist(self.wordlist_file)
-    Test.rewind(self)
+    BaseSSLTest.rewind(self)
 
 SSLTest = SearchBasedSSLTest # For resuming from old SSLTest.*.test files
 
