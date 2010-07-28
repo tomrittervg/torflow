@@ -724,17 +724,12 @@ class Test:
   def rewind(self):
     self._reset()
     self.update_nodes()
-    self.targets = self.get_targets()
+    map(self.add_target, self.get_targets())
     if not self.targets:
       raise NoURLsFound("No URLS found for protocol "+self.proto)
-    if type(self.targets) == dict:
-      for subtype in self.targets.iterkeys():
-        targets = "\n\t".join(self.targets[subtype])
-        plog("INFO", "Using the following urls for "+self.proto+"/"+subtype+" scan:\n\t"+targets)
 
-    else:
-      targets = "\n\t".join(self.targets)
-      plog("INFO", "Using the following urls for "+self.proto+" scan:\n\t"+targets)
+    targets = "\n\t".join(self.targets)
+    plog("INFO", "Using the following urls for "+self.proto+" scan:\n\t"+targets)
 
   def site_tests(self, site):
     tot_cnt = 0
@@ -874,16 +869,22 @@ class Test:
 class BaseHTTPTest(Test):
   def __init__(self, filetypes=scan_filetypes):
     # FIXME: Handle http urls w/ non-80 ports..
+    self.scan_filetypes = filetypes
     Test.__init__(self, "HTTP", 80)
     self.save_name = "HTTPTest"
     self.fetch_targets = urls_per_filetype
+
+  def _reset(self):
     self.httpcode_fails = {}
     self.httpcode_fails_per_exit = {}
-    self.scan_filetypes = filetypes
+    self.targets_by_type = dict.fromkeys(self.scan_filetypes, [])
+    Test._reset(self)
 
   def depickle_upgrade(self):
     if self._pickle_revision < 7:
       self.httpcode_fails_per_exit = {}
+      self.targets_by_type = self.targets
+      self.targets = reduce(list.__add__, self.targets.values(), [])
     Test.depickle_upgrade(self)
 
   def check_cookies(self):
@@ -919,22 +920,15 @@ class BaseHTTPTest(Test):
 
     self.tests_run += 1
 
-    typed_targets = {}
-    for target in self.targets:
-      for ftype in self.scan_filetypes:
-        if target[-len(ftype):] == ftype:
-          typed_targets.setdefault(ftype,[])
-          typed_targets[ftype].append(target)
-
-    n_tests = random.choice(xrange(1,len(typed_targets)+1))
-    filetypes = random.sample(typed_targets.keys(), n_tests)
+    n_tests = random.choice(xrange(1,len(self.targets_by_type)+1))
+    filetypes = random.sample(self.targets_by_type.keys(), n_tests)
 
     plog("INFO", "HTTPTest decided to fetch "+str(n_tests)+" urls of types: "+str(filetypes))
 
     n_success = n_fail = n_inconclusive = 0
     for ftype in filetypes:
       # FIXME: Set referrer to random or none for each of these
-      address = random.choice(typed_targets[ftype])
+      address = random.choice(self.targets_by_type[ftype])
       result = self.check_http(address)
       if result == TEST_INCONCLUSIVE:
         n_inconclusive += 1
@@ -954,10 +948,17 @@ class BaseHTTPTest(Test):
     else:
       return TEST_SUCCESS
 
-  def remove_target(self, address, reason):
-    Test.remove_target(self, address, reason)
-    if address in self.httpcode_fails:
-      del self.httpcode_fails[address]
+  def remove_target(self, target, reason="None"):
+    # Remove from targets list and targets by type dictionary
+    if target in self.targets:
+      self.targets.remove(target)
+    for k,v in self.targets_by_type.items():
+      if target in v:
+        v.remove(target)
+    # Delete results in httpcode_fails
+    if target in self.httpcode_fails:
+      del self.httpcode_fails[target]
+    Test.remove_target(self, target, reason)
 
   def remove_false_positives(self):
     Test.remove_false_positives(self)
@@ -1943,7 +1944,7 @@ class SearchBasedTest:
   def refill_targets(self):
     if len(self.targets) < self.min_targets:
       plog("NOTICE", self.proto+" scanner short on targets. Adding more")
-      self.targets.extend(self.get_targets())
+      map(self.add_target, self.get_targets())
 
   def get_targets(self):
     return self.get_search_urls()
@@ -2051,21 +2052,16 @@ class SearchBasedHTTPTest(SearchBasedTest, BaseHTTPTest):
     self.result_filetypes = self.scan_filetypes
     self.result_protocol = "http"
     self.results_per_type = self.fetch_targets
-    self.targets_by_type = dict.fromkeys(self.scan_filetypes, [])
 
   def depickle_upgrade(self):
     if self._pickle_revision < 7:
       self.result_filetypes = self.scan_filetypes
       self.result_protocol = "http"
       self.results_per_type = self.fetch_targets
-      self.targets_by_type = self.targets
-      self.targets = reduce(list.__add__, self.targets.values(), [])
     BaseHTTPTest.depickle_upgrade(self)
 
   def rewind(self):
     self.wordlist = load_wordlist(self.wordlist_file)
-    self.httpcode_fails = {}
-    self.targets_by_type = {}
     BaseHTTPTest.rewind(self)
 
   def refill_targets(self):
@@ -2075,25 +2071,19 @@ class SearchBasedHTTPTest(SearchBasedTest, BaseHTTPTest):
         # :-\ - This swapping out result_filetypes thing is a hack.
         tmp = self.result_filetypes
         self.result_filetypes = [ftype]
-        self.targets.extend(self.get_search_urls())
+        map(self.add_target, self.get_search_urls())
         self.result_filetypes = tmp
 
+  #XXX: add_target has a confusing lineage, is it more properly part of
+  # Test->BaseHTTPTest->SearchBasedHTTPTest or SearchBasedTest->SearchBasedHTTPTest?
   def add_target(self, target, type=None):
     if type is None:
-      type = target.rsplit('.',1)[-1]
+      split = target.rsplit('.',1)
+      if len(split) > 1:
+        type = split[-1]
     if type in self.scan_filetypes:
       self.targets.append(target)
       self.targets_by_type[type].append(target)
-
-  def remove_target(self, target, reason="None"):
-    if target in self.targets:
-      self.targets.remove(target)
-    # I'm not trusting the target's extension here. Should
-    # give us a little more flexibility w/o much overhead.
-    for k,v in self.targets_by_type.items():
-      if target in v:
-        v.remove(target)
-    Test.remove_target(self, target)
 
   def get_targets(self):
     raw_urls = self.get_search_urls()
