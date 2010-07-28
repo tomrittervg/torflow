@@ -1091,7 +1091,7 @@ class BaseHTTPTest(Test):
           plog("NOTICE", "Non-Tor HTTP "+str(code_new)+" redirect from "+address+" to "+str(content_new))
           # Remove the original URL and add the redirect to our targets (if it's of the right type)
           self.remove_target(address, INCONCLUSIVE_REDIRECT)
-          self.add_target(content)
+          self.add_target(content_new)
           return TEST_INCONCLUSIVE
         else:
           plog("NOTICE", "Non-tor HTTP error "+str(code_new)+" fetching content for "+address)
@@ -1775,16 +1775,16 @@ class BaseSSLTest(Test):
         return TEST_INCONCLUSIVE
 
     if not ssl_domain.num_certs():
-        plog("NOTICE", "No non-tor certs available for "+address)
-        result = SSLTestResult("NoExit", "NoStored!", address, ssl_file_name,
-                               TEST_INCONCLUSIVE,
-                               INCONCLUSIVE_NOLOCALCONTENT)
-        if self.rescan_nodes:
-          result.from_rescan = True
-        datahandler.saveResult(result)
-        self.results.append(result)
-        self.remove_target(address, FALSEPOSITIVE_DEADSITE)
-        return TEST_INCONCLUSIVE
+      plog("NOTICE", "No non-tor certs available for "+address)
+      result = SSLTestResult("NoExit", "NoStored!", address, ssl_file_name,
+                             TEST_INCONCLUSIVE,
+                             INCONCLUSIVE_NOLOCALCONTENT)
+      if self.rescan_nodes:
+        result.from_rescan = True
+      datahandler.saveResult(result)
+      self.results.append(result)
+      self.remove_target(address, FALSEPOSITIVE_DEADSITE)
+      return TEST_INCONCLUSIVE
 
     # get the cert via tor
     (code, cert, exc) = torify(ssl_request, address)
@@ -1817,8 +1817,8 @@ class BaseSSLTest(Test):
          E_URL:         (FAILURE_URLERROR,      self.register_connect_failure, True),
          E_MISC:        (FAILURE_MISCEXCEPTION, self.register_connect_failure, True)
         }
-      if pcode in err_lookup:
-        fail_reason, register, extra_info = err_lookup[pcode]
+      if code in err_lookup:
+        fail_reason, register, extra_info = err_lookup[code]
       else:
         fail_reason = FAILURE_MISCEXCEPTION
         register = self.register_connect_failure
@@ -3007,11 +3007,11 @@ def main(argv):
       return
     plog("NOTICE", "Scanning only "+scan_exit)
     scanhdlr.new_exit()
-    testsdone = 0
-    while testsdone < len(tests):
+    tests_done = 0
+    while tests_done < len(tests):
       for test in tests.values():
         if test.finished():
-          testsdone += 1
+          tests_done += 1
           continue
         result = test.run_test()
         plog("INFO", test.proto+" test via "+scan_exit+" has result "+str(result))

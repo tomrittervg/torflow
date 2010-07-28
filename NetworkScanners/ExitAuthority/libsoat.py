@@ -687,7 +687,7 @@ class DataHandler:
     if result.__class__.__name__ in ('HtmlTestResult', 'HttpTestResult'):
       address = DataHandler.safeFilename(result.site.replace('http://',''))
     elif result.__class__.__name__ == 'SSLTestResult':
-      address = DataHandler.safeFilename(result.site.replace('https://','')
+      address = DataHandler.safeFilename(result.site.replace('https://',''))
     elif 'TestResult' in result.__class__.__name__:
       address = DataHandler.safeFilename(result.site)
     else:
