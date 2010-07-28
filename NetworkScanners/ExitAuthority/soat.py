@@ -2125,7 +2125,9 @@ class SearchBasedSSLTest(SearchBasedTest, BaseSSLTest):
     SearchBasedTest.__init__(self, wordlist)
     self.host_only = True
     self.result_protocol = 'https'
-    self.search_mode=google_search_mode
+    if default_search_mode == yahoo_search_mode:
+      plog('WARNING', 'Yahoo search mode is not suitable for SSLTests. Continuing anyway.')
+    self.search_mode=default_search_mode
 
   def depickle_upgrade(self):
     if self._pickle_revision < 7:
