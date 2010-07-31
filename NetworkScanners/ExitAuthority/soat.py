@@ -29,6 +29,7 @@ import cookielib
 import copy
 import getopt
 import httplib
+import mimetypes
 import os
 import random
 import re
@@ -1293,6 +1294,15 @@ class BaseHTTPTest(Test):
         mime_type = "text/disk"
       plog("WARN", "Mime type change: 1st: "+mime_type+", 2nd: "+mime_type_new+", Tor: "+pmime_type)
       # TODO: If this actually happens, store a result.
+    else:
+      # Mime types match.. Are they sensible?
+      guess = mimetypes.guess_type(address, strict=False)[0]
+      if guess and not is_html_mimetype(guess) and is_html_mimetype(str(pmime_type)):
+        # We're not expecting html and we got (seemingly dynamic) html content
+        # This causes a lot of false positives, let's just remove the target
+        plog("NOTICE", "Got HTML content for non-HTML request, removing target "+address)
+        self.remove_target(address, FALSEPOSITIVE_DYNAMIC)
+        return TEST_INCONCLUSIVE
 
     # Dirty dirty dirty...
     return (mime_type_new, pcontent, psha1sum, content, sha1sum, content_new,
@@ -1346,6 +1356,22 @@ class BaseHTTPTest(Test):
     self.remove_target(address, FALSEPOSITIVE_DYNAMIC)
     return TEST_FAILURE
 
+# TODO move these somewhere sensible
+def is_html_mimetype(mime_type):
+  is_html = False
+  for type_match in html_mime_types:
+    if re.match(type_match, mime_type.lower()):
+      is_html = True
+      break
+  return is_html
+
+def is_script_mimetype(mime_type):
+  is_script = False
+  for type_match in script_mime_types:
+    if re.match(type_match, mime_type.lower()):
+      is_script = True
+      break
+  return is_script
 
 class BaseHTMLTest(BaseHTTPTest):
   def __init__(self, recurse_filetypes=scan_filetypes):
@@ -1449,7 +1475,7 @@ class BaseHTMLTest(BaseHTTPTest):
                     plog("INFO", "Adding favicon of: "+str(t))
                     found_favicon = True
                     targets.append(("image", urlparse.urljoin(orig_addr, attr_tgt)))
-                  elif a[0] == "type" and self.is_script(a[1], ""):
+                  elif a[0] == "type" and is_script_mimetype(a[1]):
                     plog("INFO", "Adding link script of: "+str(t))
                     targets.append(("js", urlparse.urljoin(orig_addr, attr_tgt)))
               else:
@@ -1495,29 +1521,13 @@ class BaseHTMLTest(BaseHTTPTest):
       return ret
     return self._check_js_worker(address, ret)
 
-  def is_html(self, mime_type, content):
-    is_html = False
-    for type_match in html_mime_types:
-      if re.match(type_match, mime_type.lower()):
-        is_html = True
-        break
-    return is_html
-
-  def is_script(self, mime_type, content):
-    is_script = False
-    for type_match in script_mime_types:
-      if re.match(type_match, mime_type.lower()):
-        is_script = True
-        break
-    return is_script
-
   def _check_js_worker(self, address, http_ret):
     (mime_type, tor_js, tsha, orig_js, osha, new_js, nsha, exit_node) = http_ret
 
-    if not self.is_script(mime_type, orig_js):
+    if not is_script_mimetype(mime_type):
       plog("WARN", "Non-script mime type "+mime_type+" fed to JS test for "+address)
 
-      if self.is_html(mime_type, orig_js):
+      if is_html_mimetype(mime_type):
         return self._check_html_worker(address, http_ret)
       else:
         return self._check_http_worker(address, http_ret)
@@ -1568,10 +1578,10 @@ class BaseHTMLTest(BaseHTTPTest):
   def _check_html_worker(self, address, http_ret):
     (mime_type,tor_html,tsha,orig_html,osha,new_html,nsha,exit_node)=http_ret
 
-    if not self.is_html(mime_type, orig_html):
+    if not is_html_mimetype(mime_type):
       # XXX: Keep an eye on this logline.
       plog("WARN", "Non-html mime type "+mime_type+" fed to HTML test for "+address)
-      if self.is_script(mime_type, orig_html):
+      if is_script_mimetype(mime_type):
         return self._check_js_worker(address, http_ret)
       else:
         return self._check_http_worker(address, http_ret)
