@@ -363,7 +363,6 @@ def http_request(address, cookie_jar=None, headers=firefox_headers):
       traceback.print_exc()
       rval = (e.code, None, [], "", e.__class__.__name__+str(e))
   except (ValueError, urllib2.URLError), e:
-    plog('WARN', 'The http-request address ' + address + ' is malformed')
     if str(e) == "<urlopen error timed out>": # Yah, super ghetto...
       rval = (E_TIMEOUT, None, [], "", e.__class__.__name__+str(e))
     else:
@@ -1082,7 +1081,7 @@ class BaseHTTPTest(Test):
         added_cookie_jar.save(content_prefix+'.cookies', ignore_discard=True)
       except:
         traceback.print_exc()
-        plog("WARN", "Error saving cookies in "+str(self.cookie_jar)+" to "+content_prefix+".cookies")
+        plog("WARN", "Error saving cookies in "+str(added_cookie_jar)+" to "+content_prefix+".cookies")
 
     except TypeError, e:
       plog('ERROR', 'Failed obtaining the shasum for ' + address)
