@@ -212,8 +212,10 @@ class ExitScanHandler(ScanSupport.ScanHandler):
     cond = threading.Condition()
     def notlambda(this):
       cond.acquire()
-      restriction = NodeRestrictionList([FlagsRestriction(["Running", "Valid",
-"Fast"]), MinBWRestriction(min_node_bw), ExitPolicyRestriction('255.255.255.255', port)])
+      restriction = NodeRestrictionList(\
+                     [FlagsRestriction(["Running", "Valid", "Fast"], ["BadExit"]),
+                      MinBWRestriction(min_node_bw),
+                      ExitPolicyRestriction('255.255.255.255', port)])
       cond._result = [x for x in self.sorted_r if restriction.r_is_ok(x)]
       self._sanity_check(cond._result)
       cond.notify()
