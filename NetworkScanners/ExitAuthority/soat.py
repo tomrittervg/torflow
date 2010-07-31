@@ -1152,7 +1152,7 @@ class BaseHTTPTest(Test):
         plog("NOTICE", "Tor only HTTP "+str(pcode)+" redirect from "+address+" to "+str(pcontent))
         fail_reason = FAILURE_REDIRECT
         register = self.register_http_failure
-        extra_info = False
+        extra_info = True
       else:
         fail_reason = FAILURE_BADHTTPCODE+str(pcode)
         register = self.register_exit_failure
