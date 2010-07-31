@@ -877,7 +877,7 @@ class BaseHTTPTest(Test):
   def _reset(self):
     self.httpcode_fails = {}
     self.httpcode_fails_per_exit = {}
-    self.targets_by_type = dict.fromkeys(self.scan_filetypes, [])
+    self.targets_by_type = {}
     Test._reset(self)
 
   def depickle_upgrade(self):
@@ -947,6 +947,16 @@ class BaseHTTPTest(Test):
       return TEST_INCONCLUSIVE
     else:
       return TEST_SUCCESS
+
+  def add_target(self, target, type=None):
+    # HTTP Tests keep an additional dictionary of targets keyed by filetype
+    if type is None:
+      split = target.rsplit('.',1)
+      if len(split) > 1:
+        type = split[-1]
+    if type in self.scan_filetypes:
+      self.targets.append(target)
+      self.targets_by_type.setdefault(type, []).append(target)
 
   def remove_target(self, target, reason="None"):
     # Remove from targets list and targets by type dictionary
@@ -1895,9 +1905,6 @@ class FixedTargetTest:
   def __init__(self, targets):
     self.fixed_targets = targets
 
-  def add_target(self, target):
-    pass
-
   def refill_targets(self):
     pass
 
@@ -2065,8 +2072,8 @@ class SearchBasedHTTPTest(SearchBasedTest, BaseHTTPTest):
     BaseHTTPTest.rewind(self)
 
   def refill_targets(self):
-    for ftype in self.targets_by_type:
-      if len(self.targets_by_type[ftype]) < self.fetch_targets:
+    for ftype in self.scan_filetypes:
+      if not ftype in self.targets_by_type or len(self.targets_by_type[ftype]) < self.fetch_targets:
         plog("NOTICE", self.proto+" scanner short on "+ftype+" targets. Adding more")
         # :-\ - This swapping out result_filetypes thing is a hack.
         tmp = self.result_filetypes
@@ -2074,26 +2081,15 @@ class SearchBasedHTTPTest(SearchBasedTest, BaseHTTPTest):
         map(self.add_target, self.get_search_urls())
         self.result_filetypes = tmp
 
-  #XXX: add_target has a confusing lineage, is it more properly part of
-  # Test->BaseHTTPTest->SearchBasedHTTPTest or SearchBasedTest->SearchBasedHTTPTest?
-  def add_target(self, target, type=None):
-    if type is None:
-      split = target.rsplit('.',1)
-      if len(split) > 1:
-        type = split[-1]
-    if type in self.scan_filetypes:
-      self.targets.append(target)
-      self.targets_by_type[type].append(target)
-
   def get_targets(self):
     raw_urls = self.get_search_urls()
     new = {}
     for url in raw_urls:
       split = url.rsplit('.',1) # Try to get filetype
-      if len(split) > 1 and split[-1] in self.targets_by_type:
+      if len(split) > 1 and split[-1] in self.scan_filetypes:
         new.setdefault(split[-1],[]).append(url)
     for k,v in new.items():
-      self.targets_by_type[k].extend(v)
+      self.targets_by_type.setdefault(k, []).extend(v)
     return raw_urls
 
 HTTPTest = SearchBasedHTTPTest # For resuming from old HTTPTest.*.test files
