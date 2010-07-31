@@ -227,10 +227,10 @@ class TestResult(object):
     ret += " "+str(RESULT_STRINGS[self.status])
     if self.reason:
       ret += " Reason: "+self.reason
-    if self.exit_result_rate != (0,0):
-      ret += "\n This exit has had this result %d times for %d targets" % self.exit_result_rate
-    if self.site_result_rate != (0,0):
-      ret += "\n %d out of %d exit nodes share this result for this target" % self.site_result_rate
+      if self.exit_result_rate != (0,0):
+        ret += "\n %s rate for this exit: %d/%d results" % (self.reason, self.exit_result_rate[0], self.exit_result_rate[1])
+      if self.site_result_rate != (0,0):
+        ret += "\n %s rate for this site: %d/%d exits" % (self.reason, self.site_result_rate[0], self.site_result_rate[1])
     if self.extra_info:
       ret += "\n Extra info: "+self.extra_info 
     if self.false_positive:
