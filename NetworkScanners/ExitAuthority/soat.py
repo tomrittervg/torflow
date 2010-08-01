@@ -1104,7 +1104,6 @@ class BaseHTTPTest(Test):
       if self.rescan_nodes:
         result.from_rescan = True
       self.results.append(result)
-      datahandler.saveResult(result)
 
       # Restore cookie jars
       self.cookie_jar = orig_cookie_jar
