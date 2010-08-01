@@ -39,6 +39,8 @@ def usage(argv):
   print "  --proto <protocol>"
   print "  --resultfilter <TestResult class name>"
   print "  --statuscode <'Failure' or 'Inconclusive'>"
+  print "  --siterate <integer n; print result if <n% of exits failed that site>"
+  print "  --exitrate <integer n; print result if the exit failed >n% of sites>"
   print "  --sortby <'proto' or 'url' or 'exit' or 'reason'>"
   print "  --falsepositives"
   print "  --verbose"
@@ -59,6 +61,8 @@ class SIConf(object):
     self.before = 0xffffffff
     self.after = 0
     self.sortby="proto"
+    self.siterate = 100
+    self.exitrate = 0
     self.falsepositives=False
     self.send_email = False
     self.confirmed = False
@@ -69,7 +73,7 @@ class SIConf(object):
     try:
       opts,args = getopt.getopt(argv[1:],"d:f:x:r:n:a:b:t:p:o:s:Fmcv",
                ["dir=", "file=", "exit=", "reason=", "resultfilter=", "proto=",
-                "verbose", "statuscode=", "sortby=",
+                "verbose", "statuscode=", "siterate=", "exitrate=", "sortby=",
                 "noreason=", "after=", "before=", "falsepositives", "email",
                 "confirmed"])
     except getopt.GetoptError,err:
@@ -94,6 +98,10 @@ class SIConf(object):
         self.resultfilter = a
       elif o == '-p' or o == '--proto':
         self.proto = a
+      elif o == '--siterate':
+        self.siterate = int(a)
+      elif o == '--exitrate':
+        self.exitrate = int(a)
       elif o == '-F' or o == '--falsepositives':
         self.falsepositives = True
       elif o == '-m' or o == '--email':
@@ -165,6 +173,8 @@ def main(argv):
     if r.timestamp < conf.after or conf.before < r.timestamp: continue
     if (conf.falsepositives) ^ r.false_positive: continue
     if conf.confirmed != r.confirmed: continue
+    if r.site_result_rate[1] != 0 and conf.siterate < (100*r.site_result_rate[0]/r.site_result_rate[1]): continue
+    if r.exit_result_rate[1] != 0 and conf.exitrate > (100*r.exit_result_rate[0]/r.exit_result_rate[1]): continue
     if (not conf.statuscode or r.status == conf.statuscode) and \
        (not conf.proto or r.proto == conf.proto) and \
        (not conf.resultfilter or r.__class__.__name__ == conf.resultfilter):
