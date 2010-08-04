@@ -2132,7 +2132,7 @@ class SearchBasedSSLTest(SearchBasedTest, BaseSSLTest):
     self.host_only = True
     self.result_protocol = 'https'
     if default_search_mode == yahoo_search_mode:
-      plog('WARNING', 'Yahoo search mode is not suitable for SSLTests. Continuing anyway.')
+      plog('WARN', 'Yahoo search mode is not suitable for SSLTests. Continuing anyway.')
     self.search_mode=default_search_mode
 
   def depickle_upgrade(self):
