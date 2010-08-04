@@ -2108,13 +2108,13 @@ class SearchBasedHTMLTest(SearchBasedTest, BaseHTMLTest):
   def __init__(self, wordlist):
     BaseHTMLTest.__init__(self)
     SearchBasedTest.__init__(self, wordlist)
-    self.result_filetypes = "html"
+    self.result_filetypes = ["any"]
     self.result_protocol = "http"
     self.results_per_type = self.fetch_targets
 
   def depickle_upgrade(self):
     if self._pickle_revision < 7:
-      self.result_filetypes = "html"
+      self.result_filetypes = ["any"]
       self.result_protocol = "http"
       self.results_per_type = self.fetch_targets
     BaseHTMLTest.depickle_upgrade(self)
