@@ -125,11 +125,14 @@ search_cookie_file="./search_cookies.lwp"
 # XXX: Make a bing search mode.
 yahoo_search_mode = {"host" : "search.yahoo.com", "query":"p", "filetype": "originurlextension:", "inurl":None, "class":"yschttl", "realtgt":"ourl", "useragent":False}
 google_search_mode = {"host" : "www.google.com", "query":"q", "filetype":"filetype:", "inurl":"inurl:", "class" : "l", "realtgt":"href", "useragent":True}
+ixquick_search_mode = {"host" : "ixquick.com/do/metasearch.pl", "query":"all_terms", "filetype":"title:", \
+                      "inurl":"url:", "class" : "title2", "realtgt":"href", "useragent":False}
  
 # FIXME: This does not affect the ssl search.. Only Google has 
 # a working "inurl:" that allows you to pick the scheme to be https 
 #default_search_mode = google_search_mode
-default_search_mode = yahoo_search_mode
+#default_search_mode = yahoo_search_mode
+default_search_mode = ixquick_search_mode
 
 # Regex of characters we consider unsafe to write to the filesystem
 unsafe_filechars = "[^a-zA-Z0-9-\.+]"
