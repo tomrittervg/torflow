@@ -245,12 +245,17 @@ class TestResult(object):
 class SSLTestResult(TestResult):
   ''' Represents the result of an openssl test '''
   def __init__(self, exit_obj, ssl_site, ssl_file, status, 
-               reason=None, exit_ip=None, exit_cert_pem=None):
+               reason=None, resolved_ip=0, exit_cert_pem=None):
     super(SSLTestResult, self).__init__(exit_obj, ssl_site, status, reason)
     self.ssl_file = ssl_file
     self.exit_cert = exit_cert_pem # Meh, not that much space
-    self.exit_ip = exit_ip # XXX: Wrong!
+    self.resolved_ip = resolved_ip
     self.proto = "ssl"
+
+  def depickle_upgrade(self):
+    TestResult.depickle_upgrade(self)
+    if self.exit_ip is None:
+      self.exit_ip = 0
 
   def rebase(self, new_data_root):
     self.ssl_file = self._rebase(self.ssl_file, new_data_root)
@@ -277,8 +282,8 @@ class SSLTestResult(TestResult):
           ret += "\nCert for "+ssl_domain.cert_map[cert]+":\n"
           if self.verbose > 1: ret += cert
           ret += self._dump_cert(cert)
-        if self.exit_ip: 
-          ret += "\nExit node's cert for "+self.exit_ip+":\n"
+        if self.resolved_ip: 
+          ret += "\nExit node's cert for "+self.resolved_ip+":\n"
         else:
           ret += "\nExit node's cert:\n"
         if self.verbose > 1: ret += self.exit_cert
