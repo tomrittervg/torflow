@@ -1386,6 +1386,22 @@ class BaseHTMLTest(BaseHTTPTest):
     self.recurse_filetypes = recurse_filetypes
     self.fetch_queue = []
 
+  def _reset(self):
+    self.httpcode_fails = {}
+    self.httpcode_fails_per_exit = {}
+    Test._reset(self)
+
+  def depickle_upgrade(self):
+    if self._pickle_revision < 7:
+      self.httpcode_fails_per_exit = {}
+    Test.depickle_upgrade(self)
+
+  def add_target(self, target):
+    Test.add_target(self, target)
+
+  def remove_target(self, target, reason="None"):
+    Test.remove_target(self, target, reason)
+
   def run_test(self):
     # A single test should have a single cookie jar
     self.tor_cookie_jar = cookielib.MozillaCookieJar()
