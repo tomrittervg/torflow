@@ -123,10 +123,15 @@ search_cookie_file="./search_cookies.lwp"
 # Leave these maps alone. Change the default_search_mode variable 
 # to what you want.
 # XXX: Make a bing search mode.
-yahoo_search_mode = {"host" : "search.yahoo.com", "query":"p", "filetype": "originurlextension:", "inurl":None, "class":"yschttl", "realtgt":"ourl", "useragent":False}
-google_search_mode = {"host" : "www.google.com", "query":"q", "filetype":"filetype:", "inurl":"inurl:", "class" : "l", "realtgt":"href", "useragent":True}
+yahoo_search_mode = {"host" : "search.yahoo.com", "query":"p", "filetype": "originurlextension:", \
+                      "inurl":None, "class":"yschttl", "realtgt":"ourl", "useragent":False, \
+                      "extra":[]}
+google_search_mode = {"host" : "www.google.com", "query":"q", "filetype":"filetype:", \
+                      "inurl":"inurl:", "class" : "l", "realtgt":"href", "useragent":True, \
+                      "extra":[]}
 ixquick_search_mode = {"host" : "ixquick.com/do/metasearch.pl", "query":"all_terms", "filetype":"title:", \
-                      "inurl":"url:", "class" : "title2", "realtgt":"href", "useragent":False}
+                      "inurl":"url:", "class" : "title2", "realtgt":"href", "useragent":False, \
+                      "extra":[("prfh","disable_family_filterEEE1N1Nnum_of_resultsEEE50N1Ndisable_video_family_filterEEE1N1N")]}
  
 # FIXME: This does not affect the ssl search.. Only Google has 
 # a working "inurl:" that allows you to pick the scheme to be https 

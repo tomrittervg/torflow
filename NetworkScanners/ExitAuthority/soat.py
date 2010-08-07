@@ -2007,7 +2007,10 @@ class SearchBasedTest:
       # search google for relevant pages
       # note: google only accepts requests from idenitified browsers
       host = self.search_mode["host"]
-      params = urllib.urlencode({self.search_mode["query"] : query})
+      qdict = {self.search_mode["query"] : query}
+      if "extra" in self.search_mode:
+        qdict.update(self.search_mode["extra"])
+      params = urllib.urlencode(qdict)
       search_path = '?' + params
       search_url = "http://"+host+search_path
 
