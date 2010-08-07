@@ -954,15 +954,12 @@ class BaseHTTPTest(Test):
     else:
       return TEST_SUCCESS
 
-  def add_target(self, target, type=None):
+  def add_target(self, target):
     # HTTP Tests keep an additional dictionary of targets keyed by filetype
-    if type is None:
-      split = target.rsplit('.',1)
-      if len(split) > 1:
-        type = split[-1]
-    if type in self.scan_filetypes:
+    split = target.rsplit('.',1)
+    if len(split) > 1 and split[-1] in self.scan_filetypes:
       self.targets.append(target)
-      self.targets_by_type.setdefault(type, []).append(target)
+      self.targets_by_type.setdefault(split[-1], []).append(target)
 
   def remove_target(self, target, reason="None"):
     # Remove from targets list and targets by type dictionary
