@@ -488,8 +488,9 @@ class Test:
     self.scan_nodes = 0
     self.nodes_to_mark = 0
     self.tests_per_node = num_tests_per_node
+    self.url_reserve = {}
     self._reset()
-    self._pickle_revision = 7 # Will increment as fields are added
+    self._pickle_revision = 8 # Will increment as fields are added
 
   def run_test(self):
     raise NotImplementedError()
@@ -526,6 +527,9 @@ class Test:
       self.timeout_fails = {}
       self.dns_fails = {}
       self._pickle_revision = 7
+    if self._pickle_revision < 8:
+      self.url_reserve = {}
+      self._pickle_revision = 8
 
   def _is_useable_url(self, url, valid_schemes=None, filetypes=None):
     (scheme, netloc, path, params, query, fragment) = urlparse.urlparse(url)
@@ -1977,7 +1981,12 @@ class SearchBasedTest:
       type_urls = self.get_search_urls_for_filetype(filetype)
       # make sure we don't get more urls than needed
       if len(type_urls) > self.results_per_type:
-        type_urls = set(random.sample(type_urls, self.results_per_type))
+        chosen_urls = set(random.sample(type_urls, self.results_per_type))
+        if filetype in self.url_reserve:
+          self.url_reserve[filetype].extend(list(type_urls - chosen_urls))
+        else:
+          self.url_reserve[filetype] = list(type_urls - chosen_urls)
+        type_urls = chosen_urls
       urllist.update(type_urls)
 
     return list(urllist)
