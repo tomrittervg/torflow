@@ -24,6 +24,9 @@ num_ssl_hosts = 10
 # Number of HTML urls to scan
 num_html_urls = 10
 
+# Maximum number of searches per filetype before giving up
+max_search_retry = 3
+
 # Hrmm.. Too many of these and Google really h8s us..
 scan_filetypes = ['pdf','exe']
 
