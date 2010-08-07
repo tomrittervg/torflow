@@ -1974,86 +1974,7 @@ class SearchBasedTest:
 
     urllist = set([])
     for filetype in self.result_filetypes:
-      type_urls = set([])
-
-      while len(type_urls) < self.results_per_type:
-        query = random.choice(self.wordlist)
-        if filetype != 'any':
-          query += " "+self.search_mode["filetype"]+filetype
-        plog("WARN", "RESULTPROTOCOL IS:" + self.result_protocol)
-        if self.result_protocol != 'any' and self.search_mode["inurl"]:
-          query += " "+self.search_mode["inurl"]+self.result_protocol # this isn't too reliable, but we'll re-filter results later
-        #query += '&num=' + `g_results_per_page`
-
-        # search google for relevant pages
-        # note: google only accepts requests from idenitified browsers
-        host = self.search_mode["host"]
-        params = urllib.urlencode({self.search_mode["query"] : query})
-        search_path = '/search' + '?' + params
-        search_url = "http://"+host+search_path
-
-        plog("INFO", "Search url: "+search_url)
-        try:
-          if self.search_mode["useragent"]:
-            (code, resp_headers, new_cookies, mime_type, content) = http_request(search_url, search_cookies)
-          else:
-            headers = filter(lambda h: h[0] != "User-Agent",
-                             copy.copy(firefox_headers))
-            (code, resp_headers, new_cookies, mime_type, content) = http_request(search_url, search_cookies, headers)
-        except socket.gaierror:
-          plog('ERROR', 'Scraping of http://'+host+search_path+" failed")
-          traceback.print_exc()
-          return list(urllist)
-        except:
-          plog('ERROR', 'Scraping of http://'+host+search_path+" failed")
-          traceback.print_exc()
-          # Bloody hack just to run some tests overnight
-          return [self.result_protocol+"://www.eff.org", self.result_protocol+"://www.fastmail.fm", self.result_protocol+"://www.torproject.org", self.result_protocol+"://secure.wikileaks.org/"]
-
-        links = SoupStrainer('a')
-        try:
-          soup = TheChosenSoup(content, parseOnlyThese=links)
-        except Exception:
-          plog('ERROR', 'Soup-scraping of http://'+host+search_path+" failed")
-          traceback.print_exc()
-          print "Content is: "+str(content)
-          return [self.result_protocol+"://www.eff.org", self.result_protocol+"://www.fastmail.fm", self.result_protocol+"://www.torproject.org", self.result_protocol+"://secure.wikileaks.org/"]
-        # get the links and do some additional filtering
-        for link in soup.findAll('a'):
-          skip = True
-          for a in link.attrs:
-            if a[0] == "class" and self.search_mode["class"] in a[1]:
-              skip = False
-              break
-          if skip:
-            continue
-          if link.has_key(self.search_mode['realtgt']):
-            url = link[self.search_mode['realtgt']]
-          else:
-            url = link['href']
-          if self.result_protocol == 'any':
-            prot_list = None
-          else:
-            prot_list = [self.result_protocol]
-          if filetype == 'any':
-            file_list = None
-          else:
-            file_list = self.result_filetypes
-
-          if self._is_useable_url(url, prot_list, file_list):
-            if self.host_only:
-              # FIXME: %-encoding, @'s, etc?
-              plog("INFO", url)
-              host = urlparse.urlparse(url)[1]
-              # Have to check again here after parsing the url:
-              if host not in self.banned_targets:
-                type_urls.add(host)
-            else:
-              type_urls.add(url)
-          else:
-            pass
-        plog("INFO", "Have "+str(len(type_urls))+"/"+str(self.results_per_type)+" google urls so far..")
-
+      type_urls = self.get_search_urls_for_filetype(filetype)
       # make sure we don't get more urls than needed
       if len(type_urls) > self.results_per_type:
         type_urls = set(random.sample(type_urls, self.results_per_type))
@@ -2061,6 +1982,92 @@ class SearchBasedTest:
 
     return list(urllist)
 
+  def get_search_urls_for_filetype(self, filetype):
+    type_urls = set(self.url_reserve.get(filetype, []))
+    count = 0
+    while len(type_urls) < self.results_per_type and count < max_search_retry:
+      count += 1
+      query = random.choice(self.wordlist)
+      if filetype != 'any':
+        query += " "+self.search_mode["filetype"]+filetype
+      plog("WARN", "RESULTPROTOCOL IS:" + self.result_protocol)
+      if self.result_protocol != 'any' and self.search_mode["inurl"]:
+        query += " "+self.search_mode["inurl"]+self.result_protocol # this isn't too reliable, but we'll re-filter results later
+      #query += '&num=' + `g_results_per_page`
+
+      # search google for relevant pages
+      # note: google only accepts requests from idenitified browsers
+      host = self.search_mode["host"]
+      params = urllib.urlencode({self.search_mode["query"] : query})
+      search_path = '?' + params
+      search_url = "http://"+host+search_path
+
+      plog("INFO", "Search url: "+search_url)
+      try:
+        if self.search_mode["useragent"]:
+          (code, resp_headers, new_cookies, mime_type, content) = http_request(search_url, search_cookies)
+        else:
+          headers = filter(lambda h: h[0] != "User-Agent",
+                           copy.copy(firefox_headers))
+          (code, resp_headers, new_cookies, mime_type, content) = http_request(search_url, search_cookies, headers)
+      except socket.gaierror:
+        plog('ERROR', 'Scraping of http://'+host+search_path+" failed")
+        traceback.print_exc()
+        break
+      except:
+        plog('ERROR', 'Scraping of http://'+host+search_path+" failed")
+        traceback.print_exc()
+        # Bloody hack just to run some tests overnight
+        break
+
+      if (400 <= code < 500):
+        plog('ERROR', 'Scraping of http://'+host+search_path+' failed. HTTP '+str(code))
+        break
+
+      links = SoupStrainer('a')
+      try:
+        soup = TheChosenSoup(content, parseOnlyThese=links)
+      except Exception:
+        plog('ERROR', 'Soup-scraping of http://'+host+search_path+" failed")
+        traceback.print_exc()
+        print "Content is: "+str(content)
+        break
+      # get the links and do some additional filtering
+      for link in soup.findAll('a'):
+        skip = True
+        for a in link.attrs:
+          if a[0] == "class" and self.search_mode["class"] in a[1]:
+            skip = False
+            break
+        if skip:
+          continue
+        if link.has_key(self.search_mode['realtgt']):
+          url = link[self.search_mode['realtgt']]
+        else:
+          url = link['href']
+        if self.result_protocol == 'any':
+          prot_list = None
+        else:
+          prot_list = [self.result_protocol]
+        if filetype == 'any':
+          file_list = None
+        else:
+          file_list = self.result_filetypes
+
+        if self._is_useable_url(url, prot_list, file_list):
+          if self.host_only:
+            # FIXME: %-encoding, @'s, etc?
+            plog("INFO", url)
+            host = urlparse.urlparse(url)[1]
+            # Have to check again here after parsing the url:
+            if host not in self.banned_targets:
+              type_urls.add(host)
+          else:
+            type_urls.add(url)
+        else:
+          pass
+      plog("INFO", "Have "+str(len(type_urls))+"/"+str(self.results_per_type)+" urls from search so far..")
+      return type_urls
 
 class SearchBasedHTTPTest(SearchBasedTest, BaseHTTPTest):
   def __init__(self, wordlist):
@@ -2085,11 +2092,7 @@ class SearchBasedHTTPTest(SearchBasedTest, BaseHTTPTest):
     for ftype in self.scan_filetypes:
       if not ftype in self.targets_by_type or len(self.targets_by_type[ftype]) < self.fetch_targets:
         plog("NOTICE", self.proto+" scanner short on "+ftype+" targets. Adding more")
-        # :-\ - This swapping out result_filetypes thing is a hack.
-        tmp = self.result_filetypes
-        self.result_filetypes = [ftype]
-        map(self.add_target, self.get_search_urls())
-        self.result_filetypes = tmp
+        map(self.add_target, self.get_search_urls_for_filetype(ftype))
 
   def get_targets(self):
     raw_urls = self.get_search_urls()
