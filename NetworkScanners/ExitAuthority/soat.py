@@ -2847,9 +2847,9 @@ def main(argv):
   if len(argv) < 2:
     print ''
     print 'Please provide at least one test option:'
-    print '--pernode <n>'
-    print '--resume [<n>]'
-    print '--rescan [<n>]'
+    print '--pernode=<n>'
+    print '--resume=<n>'
+    print '--rescan=<n>'
     print '--ssl'
     print '--http'
     print '--html'
@@ -2859,8 +2859,8 @@ def main(argv):
 #    print '--imap (~works)'
     print '--dnsrebind (use with one or more of above tests)'
     print '--policies'
-    print '--exit <exit>'
-    print '--target <ip or url>'
+    print '--exit=<exit>'
+    print '--target=<ip or url>'
     print ''
     return
 
