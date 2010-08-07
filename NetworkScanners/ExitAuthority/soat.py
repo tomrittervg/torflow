@@ -2895,10 +2895,7 @@ def main(argv):
       num_rescan_tests_per_node = int(flag[1])
     if flag[0] == "--resume":
       do_resume = True
-      if flag[1]:
-        resume_run=int(flag[1])
-      else:
-        resume_run=-1
+      resume_run=int(flag[1])
 
   TorUtil.read_config(data_dir+"/torctl.cfg")
 
@@ -2976,17 +2973,18 @@ def main(argv):
     return
 
   # Initialize tests
-  #XXX: Resume currently broken. New depickling routines required
   if do_resume:
-    plog("NOTICE", "Resuming previous SoaT run #"+str(resume_run))
     if do_ssl:
       tests["SSL"] = datahandler.loadTest("SSLTest", resume_run)
+      plog("NOTICE", "Resuming previous SSL run "+os.path.split(tests["SSL"].filename)[-1])
 
     if do_http:
       tests["HTTP"] = datahandler.loadTest("HTTPTest", resume_run)
+      plog("NOTICE", "Resuming previous HTTP run "+os.path.split(tests["HTTP"].filename)[-1])
 
     if do_html:
       tests["HTML"] = datahandler.loadTest("HTMLTest", resume_run)
+      plog("NOTICE", "Resuming previous HTML run "+os.path.split(tests["HTML"].filename)[-1])
 
   elif fixed_targets:
     if do_ssl:
