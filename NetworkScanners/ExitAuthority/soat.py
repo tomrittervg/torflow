@@ -971,6 +971,8 @@ class BaseHTTPTest(Test):
     for k,v in self.targets_by_type.items():
       if target in v:
         v.remove(target)
+        if not v:
+          del self.targets_by_type[k]
     # Delete results in httpcode_fails
     if target in self.httpcode_fails:
       del self.httpcode_fails[target]
