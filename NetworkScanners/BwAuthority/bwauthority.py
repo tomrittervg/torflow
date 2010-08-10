@@ -175,10 +175,12 @@ class BwScanHandler(ScanSupport.SQLScanHandler):
              cond._finished = False
       cond.notify()
       cond.release()
+    plog("DEBUG", "Checking if scan count is met...")
     cond.acquire()
     self.schedule_low_prio(notlambda)
     cond.wait()
     cond.release()
+    plog("DEBUG", "Scan count met: "+str(cond._finished))
     return cond._finished
 
 def speedrace(hdlr, start_pct, stop_pct, circs_per_node, save_every, out_dir,
