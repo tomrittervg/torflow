@@ -288,6 +288,7 @@ def main(argv):
     plog('INFO', 'Beginning time loop')
     slice_num = 0 
     while pct < stop_pct:
+      hdlr.wait_for_consensus()
       pct_step = hdlr.rank_to_percent(nodes_per_slice)
       hdlr.reset_stats()
       hdlr.commit()
