@@ -54,7 +54,7 @@ __all__ = [ # Classes
            "FALSEPOSITIVE_HTTPERRORS", "FALSEPOSITIVE_DYNAMIC", "FALSEPOSITIVE_DYNAMIC_TOR",
            "FALSEPOSITIVE_DEADSITE",
            "E_SOCKS", "E_POLICY", "E_NETUNREACH", "E_HOSTUNREACH", "E_REFUSED",
-           "E_TIMEOUT", "E_SLOWXFER", "E_NOCONTENT", "E_CRYPTO", "E_URL", "E_MISC",
+           "E_TIMEOUT", "E_SLOWXFER", "E_NOCONTENT", "E_CRYPTO", "E_URL", "E_MISC", "SOCKS_ERRS",
            # Exception classes
            "SlowXferException", "RedirectException", "NoURLsFound",
           ]
@@ -135,6 +135,7 @@ E_CRYPTO = -14.0
 E_URL = -15.0
 E_MISC = -99.0
 
+SOCKS_ERRS = (E_SOCKS, E_POLICY, E_NETUNREACH, E_HOSTUNREACH, E_REFUSED, E_TIMEOUT, E_SOCKSIPY1, E_SOCKSIPY2, E_SOCKSIPY3)
 # classes to use with pickle to dump test results into files
 
 class TestResult(object):

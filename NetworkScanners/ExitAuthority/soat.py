@@ -1116,28 +1116,30 @@ class BaseHTTPTest(Test):
     exit_node = "$"+exit_node.idhex
     if pcode - (pcode % 100) != 200:
       plog("NOTICE", exit_node+" had error "+str(pcode)+" fetching content for "+address)
-      # Restore cookie jars
-      # XXX: This is odd and possibly wrong for the refetch
-      self.cookie_jar = orig_cookie_jar
-      self.tor_cookie_jar = orig_tor_cookie_jar
-      BindingSocket.bind_to = refetch_ip
-      (code_new, resp_headers_new, new_cookies_new, mime_type_new, content_new) = http_request(address, orig_tor_cookie_jar, self.headers)
-      BindingSocket.bind_to = None
 
-      if code_new == pcode:
-        if 300 <= pcode < 400: # Redirects
+      if pcode not in SOCKS_ERRS: # Do a refetch for non-SOCKS errors only
+        # Restore cookie jars
+        # XXX: This is odd and possibly wrong for the refetch
+        self.cookie_jar = orig_cookie_jar
+        self.tor_cookie_jar = orig_tor_cookie_jar
+        BindingSocket.bind_to = refetch_ip
+        (code_new, resp_headers_new, new_cookies_new, mime_type_new, content_new) = http_request(address, orig_tor_cookie_jar, self.headers)
+        BindingSocket.bind_to = None
+
+        if code_new == pcode and 300 <= pcode < 400: # Target introduced a redirect
           plog("NOTICE", "Non-Tor HTTP "+str(code_new)+" redirect from "+address+" to "+str(content_new))
           # Remove the original URL and add the redirect to our targets (if it's of the right type)
           self.remove_target(address, INCONCLUSIVE_REDIRECT)
           self.add_target(content_new)
           return TEST_INCONCLUSIVE
-        else:
+        elif code_new == pcode: # Target introduced some other change
           plog("NOTICE", "Non-tor HTTP error "+str(code_new)+" fetching content for "+address)
           # Just remove it
           self.remove_target(address, FALSEPOSITIVE_HTTPERRORS)
           return TEST_INCONCLUSIVE
 
-      #  Error code      Failure reason         Register method                Set extra_info to pcontent?
+      # Error => behavior lookup table
+      #  Error code     (Failure reason,        Register method,               Set extra_info to pcontent?)
       err_lookup = \
         {E_SOCKS:       (FAILURE_CONNERROR,     self.register_connect_failure, True), # "General socks error"
          E_POLICY:      (FAILURE_EXITPOLICY,    self.register_connect_failure, True), # "connection not allowed aka ExitPolicy
@@ -1152,15 +1154,16 @@ class BaseHTTPTest(Test):
         }
       if pcode in err_lookup:
         fail_reason, register, extra_info = err_lookup[pcode]
-      elif 300 <= pcode < 400: # Redirects
+      elif 300 <= pcode < 400: # Exit node introduced a redirect
         plog("NOTICE", "Tor only HTTP "+str(pcode)+" redirect from "+address+" to "+str(pcontent))
         fail_reason = FAILURE_REDIRECT
         register = self.register_http_failure
         extra_info = True
-      else:
+      else: # Exit node introduced some other change
         fail_reason = FAILURE_BADHTTPCODE+str(pcode)
         register = self.register_exit_failure
         extra_info = True
+
       result = HttpTestResult(self.node_map[exit_node[1:]],
                             address, TEST_FAILURE, fail_reason)
       if extra_info:
