@@ -44,6 +44,8 @@ class Tester:
   exit_ip = None # By default 
 
 class HTTPTester(BaseHTTPRequestHandler, Tester):
+  server=HTTPServer
+  port=80
   def do_GET(self):
     if self.client_address[0] == self.direct_ip:
       self.direct_GET()
@@ -72,21 +74,12 @@ class HTTPTester(BaseHTTPRequestHandler, Tester):
 
 
 class HTTPSTester(HTTPTester):
-
+  server=SSLServer
+  port=443
   def setup(self):
     self.connection = self.request
     self.rfile = socket._fileobject(self.connection, "rb", self.rbufsize)
     self.wfile = socket._fileobject(self.connection, "wb", self.wbufsize)
-
-def run_HTTPTester():
-  serv = HTTPServer(('', 80), HTTPTester)
-  print "Serving HTTP on port 80"
-  serv.serve_forever()
-
-def run_HTTPSTester():
-  serv = SSLServer(('', 443), HTTPSTester)
-  print "Serving HTTP on port 443"
-  serv.serve_forever()
 
 def usage(argv):
   print "Usage: %s --exit=<exit ip> [options]" % argv[0]
@@ -100,19 +93,21 @@ if __name__ == '__main__':
     print err
     usage(sys.argv)
 
-  run = run_HTTPTester
+  test = "HTTP"
   for flag, val in flags:
     if flag == "--exit":
       Tester.exit_ip = val
     elif flag == "--direct":
       Tester.direct_ip = val
     elif flag == "--test":
-      if val.lower() == "http":
-        run = run_HTTPTester
-      elif val.lower() == "https":
-        run = run_HTTPSTester
+      test = val
 
+  tester = globals().get(test+"Tester")
+  if not tester:
+    print "No such test, " + test
+    sys.exit(1)
+  print "Serving %s on %d" % (test, tester.port)
   try:
-    run()
+    tester.server(('', tester.port), tester).serve_forever()
   except KeyboardInterrupt:
     print "Done"
