@@ -3104,10 +3104,12 @@ def main(argv):
         common_nodes &= test.nodes
       scanhdlr._sanity_check(map(lambda id: test.node_map[id],
                                              test.nodes))
+    if common_nodes is None:
+      common_nodes = set([])
 
-    any_avail = bool(common_nodes)
+    current_exit_idhex = scanhdlr.select_exit_from_set(common_nodes)
+    any_avail = bool(current_exit_idhex is not None)
     if any_avail:
-      current_exit_idhex = scanhdlr.select_exit_from_set(common_nodes)
       plog("DEBUG", "Chose to run "+str(n_tests)+" tests via "+str(current_exit_idhex)+" (tests share "+str(len(common_nodes))+" exit nodes)")
       for test in to_run:
         result = test.run_test()
