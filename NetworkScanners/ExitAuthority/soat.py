@@ -187,11 +187,15 @@ class NullRedirectHandler(urllib2.HTTPRedirectHandler):
   http_error_302 = http_error_303 = http_error_307 = http_error_301
 
 class ExitScanHandler(ScanSupport.ScanHandler):
-  def __init__(self, c, selmgr, strm_selector):
+  def __init__(self, c, selmgr, strm_selector, fixed_exits=[]):
     ScanSupport.ScanHandler.__init__(self, c, selmgr,
                                      strm_selector=strm_selector)
     self.rlock = threading.Lock()
     self.new_nodes=True
+    self.fixed_exits = set([])
+    for f in fixed_exits:
+      x = self.name_to_key.get(f, f)
+      self.fixed_exits.add(x.lstrip("$"))
 
   def has_new_nodes(self):
     # XXX: Hrmm.. could do this with conditions instead..
@@ -216,7 +220,10 @@ class ExitScanHandler(ScanSupport.ScanHandler):
                      [FlagsRestriction(["Running", "Valid", "Fast"], ["BadExit"]),
                       MinBWRestriction(min_node_bw),
                       ExitPolicyRestriction('255.255.255.255', port)])
-      cond._result = [x for x in self.sorted_r if restriction.r_is_ok(x)]
+      if self.fixed_exits: # XXX: Can this be done with NodeRestrictions?
+        cond._result = [x for x in self.sorted_r if restriction.r_is_ok(x) and x.idhex in self.fixed_exits]
+      else:
+        cond._result = [x for x in self.sorted_r if restriction.r_is_ok(x)]
       self._sanity_check(cond._result)
       cond.notify()
       cond.release()
@@ -246,6 +253,25 @@ class ExitScanHandler(ScanSupport.ScanHandler):
     finally:
       self.rlock.release()
     plog("DEBUG", "newdesc_event end")
+
+  def select_exit_from_set(self, exits):
+    # Randomly selects from exits until a valid one is found
+    # Returns exit idhex or None if no exit is found
+    current_exit_idhex = None
+    rand_ord_exits = list(exits)
+    random.shuffle(rand_ord_exits)
+    for e in rand_ord_exits:
+      current_exit_idhex = e
+      plog("DEBUG", "Requesting $"+current_exit_idhex+" for next set of tests.")
+      self.set_exit_node("$"+current_exit_idhex)
+      if self.selmgr.bad_restrictions:
+        plog("DEBUG", "$"+current_exit_idhex+" is not available.")
+        exits.remove(current_exit_idhex)
+        current_exit_idhex = None
+      else:
+        self.new_exit()
+        break
+    return current_exit_idhex
 
   # FIXME: Hrmm is this in the right place?
   def check_all_exits_port_consistency(self):
@@ -2835,7 +2861,7 @@ def cleanup(c, l, f):
   except TorCtl.TorCtlClosed:
     pass
 
-def setup_handler(out_dir, cookie_file):
+def setup_handler(out_dir, cookie_file, fixed_exits=[]):
   plog('INFO', 'Connecting to Tor at '+TorUtil.control_host+":"+str(TorUtil.control_port))
   s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
   s.connect((TorUtil.control_host,TorUtil.control_port))
@@ -2843,7 +2869,7 @@ def setup_handler(out_dir, cookie_file):
   c.debug(file(out_dir+"/control.log", "w", buffering=0))
   c.authenticate_cookie(file(cookie_file, "r"))
   l = c.get_option("__LeaveStreamsUnattached")[0][1]
-  h = ExitScanHandler(c, __selmgr, PathSupport.SmartSocket.StreamSelector)
+  h = ExitScanHandler(c, __selmgr, PathSupport.SmartSocket.StreamSelector, fixed_exits)
 
   c.set_event_handler(h)
   #c.set_periodic_timer(2.0, "PULSE")
@@ -2901,11 +2927,11 @@ def main(argv):
   do_dns_rebind = ('--dnsrebind','') in flags
   do_consistency = ('--policies','') in flags
 
-  scan_exit=None
+  fixed_exits=[]
   fixed_targets=[]
   for flag in flags:
     if flag[0] == "--exit":
-      scan_exit = flag[1]
+      fixed_exits.append(flag[1])
     if flag[0] == "--target":
       fixed_targets.append(flag[1])
     if flag[0] == "--pernode":
@@ -2929,7 +2955,8 @@ def main(argv):
   try:
     global scanhdlr
     (c,scanhdlr) = setup_handler(data_dir,
-                                 data_dir+"tor/control_auth_cookie")
+                                 data_dir+"tor/control_auth_cookie",
+                                 fixed_exits)
   except Exception, e:
     traceback.print_exc()
     plog("WARN", "Can't connect to Tor: "+str(e))
@@ -3051,23 +3078,6 @@ def main(argv):
     for test in tests.itervalues():
       test.rewind()
 
-  if scan_exit:
-    scanhdlr.set_exit_node(scan_exit)
-    if scanhdlr.selmgr.bad_restrictions:
-      plog("NOTICE", "Requested exit node, %s, is not available. Exiting." % scan_exit)
-      return
-    plog("NOTICE", "Scanning only "+scan_exit)
-    scanhdlr.new_exit()
-    tests_done = 0
-    while tests_done < len(tests):
-      for test in tests.values():
-        if test.finished():
-          tests_done += 1
-          continue
-        result = test.run_test()
-        plog("INFO", test.proto+" test via "+scan_exit+" has result "+str(result))
-    return
-
   # start testing
   while 1:
     avail_tests = tests.values()
@@ -3095,12 +3105,10 @@ def main(argv):
       scanhdlr._sanity_check(map(lambda id: test.node_map[id],
                                              test.nodes))
 
-    if common_nodes:
-      current_exit_idhex = random.choice(list(common_nodes))
-      plog("DEBUG", "Chose to run "+str(n_tests)+" tests via "+current_exit_idhex+" (tests share "+str(len(common_nodes))+" exit nodes)")
-
-      scanhdlr.set_exit_node("$"+current_exit_idhex)
-      scanhdlr.new_exit()
+    any_avail = bool(common_nodes)
+    if any_avail:
+      current_exit_idhex = scanhdlr.select_exit_from_set(common_nodes)
+      plog("DEBUG", "Chose to run "+str(n_tests)+" tests via "+str(current_exit_idhex)+" (tests share "+str(len(common_nodes))+" exit nodes)")
       for test in to_run:
         result = test.run_test()
         if result != TEST_INCONCLUSIVE:
@@ -3108,20 +3116,23 @@ def main(argv):
         datahandler.saveTest(test)
         plog("INFO", test.proto+" test via "+current_exit_idhex+" has result "+str(result))
         plog("INFO", test.proto+" attempts: "+str(test.tests_run)+".  Completed: "+str(test.total_nodes - test.scan_nodes)+"/"+str(test.total_nodes)+" ("+str(test.percent_complete())+"%)")
-    else:
+    elif len(to_run) > 1:
       plog("NOTICE", "No nodes in common between "+", ".join(map(lambda t: t.proto, to_run)))
       for test in to_run:
         if test.finished():
           continue
-        current_exit = test.get_node()
-        scanhdlr.set_exit_node("$"+current_exit_idhex)
-        scanhdlr.new_exit()
-        result = test.run_test()
-        if result != TEST_INCONCLUSIVE:
-          test.mark_chosen(current_exit_idhex, result)
-        datahandler.saveTest(test)
-        plog("INFO", test.proto+" test via "+current_exit_idhex+" has result "+str(result))
-        plog("INFO", test.proto+" attempts: "+str(test.tests_run)+".  Completed: "+str(test.total_nodes - test.scan_nodes)+"/"+str(test.total_nodes)+" ("+str(test.percent_complete())+"%)")
+        current_exit_idhex = scanhdlr.select_exit_from_set(test.nodes().copy())
+        if current_exit_idhex:
+          any_avail = True
+          result = test.run_test()
+          if result != TEST_INCONCLUSIVE:
+            test.mark_chosen(current_exit_idhex, result)
+          datahandler.saveTest(test)
+          plog("INFO", test.proto+" test via "+current_exit_idhex+" has result "+str(result))
+          plog("INFO", test.proto+" attempts: "+str(test.tests_run)+".  Completed: "+str(test.total_nodes - test.scan_nodes)+"/"+str(test.total_nodes)+" ("+str(test.percent_complete())+"%)")
+        else:
+          plog("INFO", "No available exits for "+test.proto+" test.")
+          continue
 
     # Check each test for rewind
     for test in tests.itervalues():
@@ -3140,6 +3151,9 @@ def main(argv):
         all_finished = False
     if all_finished:
       plog("NOTICE", "All tests have finished. Exiting\n")
+      return
+    if not any_avail:
+      plog("NOTICE", "Not enough exits were available to complete the tests. Exiting")
       return
 
 # initiate the program
