@@ -2122,8 +2122,8 @@ class SearchBasedTest:
             type_urls.add(url)
         else:
           pass
-      plog("INFO", "Have "+str(len(type_urls))+"/"+str(self.results_per_type)+" urls from search so far..")
-      return type_urls
+    plog("INFO", "Have "+str(len(type_urls))+"/"+str(self.results_per_type)+" urls from search so far..")
+    return type_urls
 
 class SearchBasedHTTPTest(SearchBasedTest, BaseHTTPTest):
   def __init__(self, wordlist):
