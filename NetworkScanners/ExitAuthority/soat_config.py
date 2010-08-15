@@ -55,7 +55,7 @@ mail_server = "127.0.0.1"
 mail_auth = False
 mail_user = "user@example.com"
 mail_password = "password"
-mail_tls = False
+mail_tls = False # Requires Python >= 2.6
 mail_starttls = False
 
 # What percentage of tested nodes must disagree with our local fetches before

@@ -157,7 +157,10 @@ def send_mail(fro, to, subject, text, files=[]):
 
   try:
     if mail_tls:
-      smtp = smtplib.SMTP_SSL(host=mail_server)
+      if sys.version_info >= (2, 6):
+        smtp = smtplib.SMTP_SSL(host=mail_server)
+      else:
+        print "mail_tls requires Python >= 2.6"
     else:
       smtp = smtplib.SMTP(host=mail_server)
     if mail_starttls:
