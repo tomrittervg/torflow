@@ -121,7 +121,7 @@ class SIConf(object):
         except ValueError:
           self.statuscode = RESULT_CODES[a]
 
-def send_mail(fro, to, subject, text, server, files=[]):
+def send_mail(fro, to, subject, text, files=[]):
   assert type(to)==list
   assert type(files)==list
 
@@ -141,9 +141,25 @@ def send_mail(fro, to, subject, text, server, files=[]):
                    % os.path.basename(f))
     msg.attach(part)
 
-  smtp = smtplib.SMTP(server)
-  smtp.sendmail(fro, to, msg.as_string() )
-  smtp.close()
+  if mail_auth and not (mail_tls or mail_starttls):
+    print "You've requested authentication but have not set"
+    print "mail_tls or mail_starttls to True. As a friend,"
+    print "I just can't let you do that to yourself."
+    return
+
+  try:
+    if mail_tls:
+      smtp = smtplib.SMTP_SSL(host=mail_server)
+    else:
+      smtp = smtplib.SMTP(host=mail_server)
+    if mail_starttls:
+      smtp.starttls()
+    if mail_auth:
+      smtp.login(mail_user, mail_password)
+    smtp.sendmail(fro, to, msg.as_string() )
+    smtp.close()
+  except smtplib.SMTPException, e:
+    print e
 
 def main(argv):
   now = time.time()
@@ -204,7 +220,7 @@ def main(argv):
           text += traceback.format_exc()
       # TODO: Attach files? Or is that too much.. Maybe serve
       # them via http and include links?
-      send_mail(from_email, to_email, subject, text, mail_server)
+      send_mail(from_email, to_email, subject, text)
 
 if __name__ == "__main__":
   main(sys.argv)

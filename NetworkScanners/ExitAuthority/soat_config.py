@@ -46,8 +46,17 @@ refetch_ip = "4.4.4.4"
 # Email settings for email scans.
 from_email = "Tor Exit Scanner <noreply@torproject.org>"
 to_email = ["Tor Exit Scanner List <root@localhost>"]
-mail_server = "127.0.0.1"
 mail_interval = 24*60*60 # Remember to change your crontab too!
+mail_server = "127.0.0.1"
+# Email authentication
+# If your smtp server requires a username and password, set
+# mail_auth to True. In this case, one of mail_tls or
+# mail_starttls must also be set to True.
+mail_auth = False
+mail_user = "user@example.com"
+mail_password = "password"
+mail_tls = False
+mail_starttls = False
 
 # What percentage of tested nodes must disagree with our local fetches before
 # we ignore the target site/url
