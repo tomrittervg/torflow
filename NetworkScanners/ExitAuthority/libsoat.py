@@ -195,7 +195,7 @@ class TestResult(object):
       self.site_result_rate = (0,0)
     if self._pickle_revision < 8:
       self._pickle_revision = 8
-      self.finish_timestamp = None
+      self.finish_timestamp = self.timestamp
 
   def _rebase(self, filename, new_data_root):
     if not filename: return filename
