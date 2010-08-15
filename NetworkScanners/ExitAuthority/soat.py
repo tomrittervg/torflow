@@ -3137,20 +3137,21 @@ def main(argv):
           continue
 
     # Check each test for rewind
+    all_finished = True
     for test in tests.itervalues():
-      if test.finished():
+      if not test.finished():
+        all_finished = False
+      else:
         plog("NOTICE", test.proto+" test has finished all nodes.")
         datahandler.saveTest(test)
         test.remove_false_positives()
         if not do_rescan and rescan_at_finish:
           test.toggle_rescan()
           test.rewind()
+          all_finished = False
         elif restart_at_finish:
           test.rewind()
-    all_finished = True
-    for test in tests.itervalues():
-      if not test.finished():
-        all_finished = False
+          all_finished = False
     if all_finished:
       plog("NOTICE", "All tests have finished. Exiting\n")
       return
