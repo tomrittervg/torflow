@@ -628,7 +628,7 @@ class Test:
     for r in results:
       if r.status == type:
         if not since or r.timestamp >= since:
-          self.rescan_nodes.add(r.exit_node[1:])
+          self.rescan_nodes.add(r.exit_node)
     plog("INFO", "Loaded "+str(len(self.rescan_nodes))+" nodes to rescan")
     if self.nodes and self.rescan_nodes:
       self.nodes &= self.rescan_nodes
