@@ -72,6 +72,12 @@ class HTTPTester(BaseHTTPRequestHandler, Tester):
     self.end_headers()
     self.wfile.write(TOR_RESP)
 
+class HTTPRedirectTester(BaseHTTPRequestHandler, HTTPTester):
+  def tor_GET(self):
+    self.send_response(302)
+    self.send_header("Location", "torproject.org")
+    self.end_headers()
+    self.wfile.write(TOR_RESP)
 
 class HTTPSTester(HTTPTester):
   server=SSLServer
