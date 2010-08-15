@@ -154,6 +154,7 @@ class TestResult(object):
     self.exit_obj = exit_obj
     self.site = site
     self.timestamp = time.time()
+    self.finish_timestamp = None
     self.status = status
     self.reason = reason
     self.extra_info = None
@@ -165,7 +166,7 @@ class TestResult(object):
     self.filename=None
     self.exit_result_rate=(0,0) # (Number of times self.exit_node has returned self.reason, total number of results for self.exit_node)
     self.site_result_rate=(0,0) # (Number of exits which have self.reason for self.site, total number of exits that have tested self.site)
-    self._pickle_revision = 7
+    self._pickle_revision = 8
 
   def depickle_upgrade(self):
     if not "_pickle_revision" in self.__dict__: # upgrade to v0
@@ -192,6 +193,9 @@ class TestResult(object):
       self._pickle_revision = 7
       self.exit_result_rate = (0,0)
       self.site_result_rate = (0,0)
+    if self._pickle_revision < 8:
+      self._pickle_revision = 8
+      self.finish_timestamp = None
 
   def _rebase(self, filename, new_data_root):
     if not filename: return filename
@@ -223,6 +227,8 @@ class TestResult(object):
   def __str__(self):
     ret = self.__class__.__name__+" for "+self.site+"\n"
     ret += " Time: "+time.ctime(self.timestamp)+"\n"
+    if self.finish_timestamp:
+      ret += " Test Completed: "+time.ctime(self.finish_timestamp)+"\n"
     ret += " Exit: "+socket.inet_ntoa(struct.pack(">I",self.exit_ip))+" "+self.exit_node+" ("+self.exit_name+")\n"
     ret += " Contact: "+str(self.contact)+"\n"  
     ret += " "+str(RESULT_STRINGS[self.status])
@@ -740,7 +746,8 @@ class DataHandler:
 
   def saveResult(self, result):
     ''' generic method for saving test results '''
-    result.filename = self.__resultFilename(result)
+    if result.filename is None:
+      result.filename = self.__resultFilename(result)
     SnakePickler.dump(result, result.filename)
 
   def __testFilename(self, test, position=-1):

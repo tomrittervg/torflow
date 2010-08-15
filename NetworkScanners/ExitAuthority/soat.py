@@ -689,6 +689,15 @@ class Test:
     else:
       plog("DEBUG", "Keeping node "+node+". "+str(len(self.nodes))+" nodes remain. Tests: "+str(len(self.node_results[node]))+"/"+str(self.tests_per_node))
 
+  def timestamp_results(self, ts=None):
+    # Mark the result with the time at which the test finished
+    if ts is None:
+      ts = time.time()
+    for result in self.results:
+      # Only modify results which are already saved to disk
+      if result.filename is not None:
+        result.finish_timestamp = ts
+        datahandler.saveResult(result)
 
   def finished(self):
     return not self.nodes
@@ -3148,6 +3157,7 @@ def main(argv):
           test.remove_false_positives()
         else:
           plog("NOTICE", "Not removing false positives for fixed-exit scan")
+        test.timestamp_results(time.time())
         if not do_rescan and rescan_at_finish:
           test.toggle_rescan()
           test.rewind()
