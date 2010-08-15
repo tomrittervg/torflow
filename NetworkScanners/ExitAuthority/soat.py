@@ -3144,7 +3144,10 @@ def main(argv):
       else:
         plog("NOTICE", test.proto+" test has finished all nodes.")
         datahandler.saveTest(test)
-        test.remove_false_positives()
+        if not fixed_exits:
+          test.remove_false_positives()
+        else:
+          plog("NOTICE", "Not removing false positives for fixed-exit scan")
         if not do_rescan and rescan_at_finish:
           test.toggle_rescan()
           test.rewind()
