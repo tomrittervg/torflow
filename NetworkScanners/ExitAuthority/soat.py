@@ -2046,6 +2046,8 @@ class SearchBasedTest:
 
   def get_search_urls_for_filetype(self, filetype):
     type_urls = set(self.url_reserve.get(filetype, []))
+    if type_urls: # Clear urls from the reserve
+      self.url_reserve[filetype] = []
     count = 0
     while len(type_urls) < self.results_per_type and count < max_search_retry:
       count += 1
