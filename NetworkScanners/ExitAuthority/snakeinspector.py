@@ -34,6 +34,8 @@ def usage(argv):
   print "  --exit <idhex>"
   print "  --after <timestamp as string (eg. \"Thu Jan 1 00:00:00 1970\")>"
   print "  --before <timestamp as string (eg. \"Mon Jan 19 03:14:07 2038\")>"
+  print "  --finishedafter <timestamp as string>"
+  print "  --finishedbefore <timestamp as string>"
   print "  --reason <soat failure reason>    # may be repeated"
   print "  --noreason <soat failure reason>  # may be repeated"
   print "  --proto <protocol>"
@@ -60,6 +62,8 @@ class SIConf(object):
     self.resultfilter=None
     self.before = 0xffffffff
     self.after = 0
+    self.finishedbefore = 0xffffffff
+    self.finishedafter = 0
     self.sortby="proto"
     self.siterate = 100
     self.exitrate = 0
@@ -74,8 +78,8 @@ class SIConf(object):
       opts,args = getopt.getopt(argv[1:],"d:f:x:r:n:a:b:t:p:o:s:Fmcv",
                ["dir=", "file=", "exit=", "reason=", "resultfilter=", "proto=",
                 "verbose", "statuscode=", "siterate=", "exitrate=", "sortby=",
-                "noreason=", "after=", "before=", "falsepositives", "email",
-                "confirmed"])
+                "noreason=", "after=", "before=", "finishedafter=",
+                "finishedbefore=","falsepositives", "email", "confirmed"])
     except getopt.GetoptError,err:
       print str(err)
       usage(argv)
@@ -94,6 +98,10 @@ class SIConf(object):
         self.after = time.mktime(time.strptime(a))
       elif o == '-b' or o == '--before':
         self.before = time.mktime(time.strptime(a))
+      elif o == '--finishedbefore':
+        self.finishedbefore = time.mktime(time.strptime(a))
+      elif o == '--finishedafter':
+        self.finishedafter = time.mktime(time.strptime(a))
       elif o == '-t' or o == '--resultfilter':
         self.resultfilter = a
       elif o == '-p' or o == '--proto':
@@ -187,6 +195,8 @@ def main(argv):
     if r.reason in conf.noreasons: continue
     if conf.reasons and r.reason not in conf.reasons: continue
     if r.timestamp < conf.after or conf.before < r.timestamp: continue
+    if r.finish_timestamp < conf.finishedafter: continue
+    if conf.finishedbefore < r.finish_timestamp: continue
     if (conf.falsepositives) ^ r.false_positive: continue
     if conf.confirmed != r.confirmed: continue
     if r.site_result_rate[1] != 0 and conf.siterate < (100*r.site_result_rate[0]/r.site_result_rate[1]): continue
