@@ -198,8 +198,8 @@ def main(argv):
     if r.reason in conf.noreasons: continue
     if conf.reasons and r.reason not in conf.reasons: continue
     if r.timestamp < conf.after or conf.before < r.timestamp: continue
-    if r.finish_timestamp < conf.finishedafter: continue
-    if conf.finishedbefore < r.finish_timestamp: continue
+    if r.finish_timestamp and r.finish_timestamp < conf.finishedafter: continue
+    if r.finish_timestamp and conf.finishedbefore < r.finish_timestamp: continue
     if (conf.falsepositives) ^ r.false_positive: continue
     if conf.confirmed != r.confirmed: continue
     if r.site_result_rate[1] != 0 and \
