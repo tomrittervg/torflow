@@ -3134,7 +3134,7 @@ def main(argv):
       for test in to_run:
         if test.finished():
           continue
-        current_exit_idhex = scanhdlr.select_exit_from_set(test.nodes().copy())
+        current_exit_idhex = scanhdlr.select_exit_from_set(test.nodes.copy())
         if current_exit_idhex:
           any_avail = True
           result = test.run_test()
