@@ -46,7 +46,13 @@ refetch_ip = "4.4.4.4"
 # Email settings for email scans.
 from_email = "Tor Exit Scanner <noreply@torproject.org>"
 to_email = ["Tor Exit Scanner List <root@localhost>"]
-mail_interval = 24*60*60 # Remember to change your crontab too!
+
+# If you're running snakeinspector.py with cron you'll want to set
+# mail_interval to the number of seconds between runs.
+# eg.
+# mail_interval = 24*60*60 # Daily email
+mail_interval = None
+
 mail_server = "127.0.0.1"
 # Email authentication
 # If your smtp server requires a username and password, set
