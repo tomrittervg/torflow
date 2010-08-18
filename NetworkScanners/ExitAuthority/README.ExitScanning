@@ -14,11 +14,9 @@ document. This document concerns itself only with running the scanner.
 
 II. Prerequisites
 
-Python 2.4+
+Python 2.5+
 Tor 0.2.1.13 (r18556 or later)
 py-openssl/pyOpenSSL
-python-sqlalchemy
-python-elixir
 Bonus: Secondary external IP address
 
 Having a second external IP address will allow your scanner to filter
@@ -51,17 +49,18 @@ large enough to support these filetypes. However, you should balance
 this with our more immediate need for the scanner to run quickly so that
 the code is exercised and can stabilize quickly.
 
-You'll also want to edit ./wordlist.txt and change its contents to be a
-smattering of random and/or commonly censored words. If you speak other
-languages (especially any that have unicode characters), using keywords
-from them would be especially useful for testing and scanning. Note that
-these queries WILL be issued in plaintext via non-Tor, and the resulting
-urls fetched via non-Tor as well, so bear that and your server's legal
-jurisdiction in mind when choosing keywords.
+If you plan on doing search-based tests, you'll also want to edit
+./wordlist.txt and change its contents to be a smattering of random
+and/or commonly censored words. If you speak other languages (especially
+any that have unicode characters), using keywords from them would be
+especially useful for testing and scanning. Note that these queries WILL
+be issued in plaintext via non-Tor, and the resulting urls fetched via
+non-Tor as well, so bear that and your server's legal jurisdiction in
+mind when choosing keywords.
 
 You can also separate out the wordlist.txt file into three files by
-changing the soat_config.py settings 'filetype_wordlist_file',
-'filetype_wordlist_file', and 'filetype_wordlist_file'. This will allow
+changing the soat_config.py settings 'ssl_wordlist_file',
+'html_wordlist_file', and 'filetype_wordlist_file'. This will allow
 you to use separate keywords for obtaining SSL, HTML, and Filetype
 urls. This can be useful if you believe it likely for an adversary to
 target only certain keywords/concepts/sites in a particular context.
@@ -82,39 +81,76 @@ TorFlow svn root:
 
 # ~/src/tor-git/src/or/tor -f ./data/tor/torrc &
 
-Then, start up SoaT:
+Now you're ready to run SoaT. The next section describes SoaT's different
+tests and operating modes, but if you'd like to get started immediately,
+you may choose to run a search based SSL and HTTP test. These are the most
+complete of the currently implemented tests, and have very low false
+positive rates.
 
-# ./soat.py --ssl --html --http --dnsrebind >& ./data/soat.log &
+# ./soat.py --ssl --http >& ./data/soat.log &
 
 
-V. Monitoring and Results
+V. Tests and Operating Modes
 
-A. Watching for Captcha Problems
+Currently, SoaT's most developed tests are those for SSL and HTTP requests.
+But SoaT is also capable of doing HTML, and DNS Rebind tests. Any
+combination of these tests may be performed during a SoaT run, although
+DNS Rebind requires at least one other test to be performed in parallel. To
+enable a test, simply pass SoaT its flag: --ssl, --http, --html, or
+--dnsrebind.
 
-You'll need to keep an eye on the beginning of the soat.log to make sure
-it is actually retrieving urls from Google. Google's servers can
-periodically decide that you are not worthy to query them, especially if
-you restart soat several times in a row. If this happens, open up
-soat_config.py and change the line:
+By default the tests are run in search based mode, this means that the URLs
+to be requested during the run are gathered by querying search engines for
+the terms in your ./wordlist.txt file. An alternative, and potentially less
+false positive prone, operating mode is the fixed target mode. Fixed target
+mode is enabled by passing SoaT one or more --target=<URL> flags. Only the
+URLs referenced by the target flags will be requested. This operating mode
+has several attractive features, for instance, you can reduce false positive
+rates by selecting static content, and you can shorten the duration of runs
+by selecting small files on highly responsive servers.
 
-default_search_mode = google_search_mode
+It should be noted that, despite their attractive features, fixed target
+scans are likely to miss many of the results which search based scans
+detect. Principally this is because it is difficult as a SoaT operator
+to pick a diverse set of targets. Consider, for example, that if in
+selecting your targets you neglect to include a site on one of OpenDNS'
+blacklists, then you're going to miss one of the most common configuration
+issues that SoaT detects. Another issue is that it's quite likely some
+malicious exit nodes limit their activity to a small set of sites. As
+such, any reduction in your search space limits the likelihood that you'll
+make a request through such an exit which triggers its malicious behavior.
+
+
+VI. Monitoring and Results
+
+A. Issues with automated search engine queries
+
+SoaT can use Ixquick, Google, or Yahoo to perform its search queries. The
+current default is Ixquick, and for most purposes this should be fine. If
+you do find that you're having trouble discovering URLs (particularly for
+the SSL test), then you may wish to switch to Google or Yahoo. To do so, 
+open your soat_config.py and change:
+
+default_search_mode = ixquick_search_mode
 
 to
 
+default_search_mode = google_search_mode
+
+or
+
 default_search_mode = yahoo_search_mode
 
-and remove the --ssl from the soat command line until Google decides it
-hates you a little less (this usually takes less than a day). The SSL
-scanner is hardcoded to use google_search_mode regardless of the
-default_search_mode because Yahoo's "inurl:" modifier does not apply to
-the scheme of the url, which we need in order to obtain fresh https
-urls.
+Regardless of the engine used, you'll need to keep an eye on the beginning
+of the soat.log to make sure it is actually retrieving URLs. Google's
+servers can periodically decide that you are not worthy to query them,
+especially if you restart soat several times in a row. If this happens,
+you'll need to temporarily switch search engines.
 
-It is possible changing that default_search_mode to yahoo_search_mode
-BEFORE Google starts to hate you while still using --ssl will allow you
-to restart soat more times than with just Google alone, but then if both
-Yahoo and Google begin to hate you, you can't scan at all.
-
+Be warned that the Yahoo search mode is not acceptable for conducting SSL
+tests as Yahoo lacks the necessary query terms. If neither Ixquick nor
+Google are working, you'll either need to stop your SSL tests or
+switch to a fixed target scan.
 
 B. Handling Crashes
 
@@ -127,7 +163,7 @@ soat.log.
 If/When SoaT crashes, you should be able to resume it exactly where it
 left off with:
 
-# ./soat.py --resume --ssl --html --http --dnsrebind >& soat.log &
+# ./soat.py --resume=-1 --ssl --html --http --dnsrebind >& soat.log &
 
 Keeping the same options during a --resume is a Really Good Idea.
 
@@ -136,8 +172,9 @@ without --resume, so you can suspend and resume arbitrary runs by
 specifying their number:
 
 # ls ./data/soat/
-# ./soat.py --resume 2 --ssl --html --http --dnsrebind >& soat.log &
+# ./soat.py --resume=2 --ssl --html --http --dnsrebind >& soat.log &
 
+Using --resume=-1 indicates that SoaT should resume its most recent run.
 
 C. Handling Results
 
@@ -156,18 +193,25 @@ failures to your screen in a semi-human readable format. You can add a
 filter on specific Test Result types with --resultfilter, and on
 specific exit idhexes with --exit. Ex:
 
-# ./snakeinspector.py --verbose --exit 80972D30FE33CB8AD60726C5272AFCEBB05CD6F7
-   --resultfilter SSLTestResult 
+# ./snakeinspector.py --verbose --exit=80972D30FE33CB8AD60726C5272AFCEBB05CD6F7
+   --resultfilter=SSLTestResult 
 
-or just:
+Other useful filters are --after, --before, --finishedafter, and
+--finishedbefore. These each take a timestamp such as
+"Thu Jan 1 00:00:00 1970". --after and --before are useful while a test
+is in progress to see what's been discovered so far. The finishedafter
+and finishedbefore flags filter results based on when the test during
+which they were discovered was completed, and provide a nice way
+to group all results from the same test together. If you wanted to
+see all results from tests completed the week of August 9, 2010, you
+could run:
 
-# ./snakeinspector.py | less
+# ./snakeinspector.py --verbose --finishedafter="Mon Aug 9 00:00:00 2010"
+    --finishedbefore="Mon Aug 16 00:00:00 2010"
 
-At some point in the future, I hope to have a script prepared that will
-mail false positives and actual results to me when you run it. Later
-still, soat will automatically mail these results to an email list we
-are all subscribed to as they happen.
+You can see the full list of available filters by running:
 
+# ./snakeinspector.py --help
 
 D. Verifying Results
 
@@ -187,7 +231,30 @@ Note that rescanning does not prune out geolocated URLs that differ
 across the majority of exit nodes. It can thus cause many more false
 positives to accumulate than a regular scan.
 
+E. Reporting Results
 
+You'll notice in your soat_config.py that there are several variables
+prefixed by "mail_". Set appropriately, these allow you to automatically
+email results to us through snakeinspector (you'll also have to add
+our email address to the to_email list).
+If you have a gmail account, you can set these variables as follows:
+
+mail_server = "smtp.gmail.com"
+mail_auth = True
+mail_tls = False
+mail_starttls = True
+mail_user = "your_username@example.com"
+mail_password = "your_password"
+
+If you're wary of leaving your email password in plaintext in the
+soat_config, you can set mail_password = None, and you'll be
+prompted to provide it when snakeinspector is run.
+
+Also note you should either use the --after or --finishedafter flag
+to ensure you don't email results which you've already reported. Or,
+if you've automated the running snakeinspector, you should set the
+mail_interval variable in your soat_config.py to the length of time,
+in seconds, between your snakeinspector runs.
 
 Alright that covers the basics. Let's get those motherfuckin snakes off
 this motherfuckin Tor!
