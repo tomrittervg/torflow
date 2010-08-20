@@ -219,7 +219,9 @@ def main(argv):
        (not conf.proto or r.proto == conf.proto) and \
        (not conf.resultfilter or r.__class__.__name__ == conf.resultfilter):
       if conf.send_email:
-        if r.timestamp > now - mail_interval - 60:
+        if mail_interval and r.timestamp > now - mail_interval - 60:
+          by_proto.setdefault(r.proto, []).append(r)
+        elif not mail_interval:
           by_proto.setdefault(r.proto, []).append(r)
         continue
       try:
