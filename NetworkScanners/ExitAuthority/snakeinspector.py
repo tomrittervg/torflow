@@ -27,86 +27,109 @@ if TorCtl.TorUtil.loglevels[TorCtl.TorUtil.loglevel] > TorCtl.TorUtil.loglevels[
   # Kill stderr (jsdiffer and exception noise) if our loglevel is above INFO
   sys.stderr = file("/dev/null", "w")
 
-
 def usage(argv):
   print "Usage: "+argv[0]+" with 0 or more of the following filters: "
   print "  --dir <datadir>"
   print "  --file <.result file>"
   print "  --exit <idhex>"
-  print "  --before <timestamp as string>"
-  print "  --after <timestamp as string>"
+  print "  --after <timestamp as string (eg. \"Thu Jan 1 00:00:00 1970\")>"
+  print "  --before <timestamp as string (eg. \"Mon Jan 19 03:14:07 2038\")>"
+  print "  --finishedafter <timestamp as string>"
+  print "  --finishedbefore <timestamp as string>"
   print "  --reason <soat failure reason>    # may be repeated"
   print "  --noreason <soat failure reason>  # may be repeated"
   print "  --proto <protocol>"
   print "  --resultfilter <TestResult class name>"
   print "  --statuscode <'Failure' or 'Inconclusive'>"
+  print "  --siterate <integer n; print result if <n% of exits failed that site>"
+  print "  --exitrate <integer n; print result if the exit failed >n% of sites>"
   print "  --sortby <'proto' or 'url' or 'exit' or 'reason'>"
   print "  --falsepositives"
   print "  --verbose"
   sys.exit(1)
 
-def getargs(argv):
-  try:
-    opts,args = getopt.getopt(argv[1:],"d:f:e:r:vt:p:s:o:n:a:b:Fmc",
-             ["dir=", "file=", "exit=", "reason=", "resultfilter=", "proto=",
-              "verbose", "statuscode=", "sortby=", "noreason=", "after=",
-              "before=", "falsepositives", "email", "confirmed"])
-  except getopt.GetoptError,err:
-    print str(err)
-    usage(argv)
-  # FIXME: make all these repeatable
-  use_dir="./data/"
-  use_file=None
-  node=None
-  reasons=[]
-  noreasons=[]
-  result=2
-  verbose=1
-  proto=None
-  resultfilter=None
-  before = 0xffffffff
-  after = 0
-  sortby="proto"
-  falsepositives=False
-  send_email = False
-  confirmed = False
-  for o,a in opts:
-    if o == '-d' or o == '--dir':
-      use_dir = a
-    elif o == '-e' or o == '--email':
-      send_email = True
-    elif o == '-f' or o == '--file':
-      use_file = a
-    elif o == '-b' or o == '--before':
-      before = time.mktime(time.strptime(a))
-    elif o == '-a' or o == '--after': 
-      after = time.mktime(time.strptime(a))
-    elif o == '-r' or o == '--reason': 
-      reasons.append(a)
-    elif o == '-r' or o == '--noreason': 
-      noreasons.append(a)
-    elif o == '-v' or o == '--verbose': 
-      verbose += 1
-    elif o == '-t' or o == '--resultfilter':
-      resultfilter = a
-    elif o == '-p' or o == '--proto':
-      proto = a
-    elif o == '-F' or o == '--falsepositives':
-      falsepositives = True
-    elif o == '-c' or o == '--confirmed':
-      confirmed = True
-    elif o == '-s' or o == '--sortby': 
-      if a not in ["proto", "site", "exit", "reason"]:
-        usage(argv)
-      else: sortby = a 
-    elif o == '-s' or o == '--statuscode': 
-      try:
-        result = int(a)
-      except ValueError:
-        result = RESULT_CODES[a]
-  return use_dir,use_file,node,reasons,noreasons,result,verbose,resultfilter,proto,sortby,before,after,falsepositives,send_email,confirmed
+class SIConf(object):
+  def __init__(self, argv=None):
+    # FIXME: make all these repeatable
+    self.use_dir="./data/"
+    self.use_file=None
+    self.node=None
+    self.reasons=[]
+    self.noreasons=[]
+    self.statuscode=2
+    self.verbose=1
+    self.proto=None
+    self.resultfilter=None
+    self.before = 0xffffffff
+    self.after = 0
+    self.finishedbefore = 0xffffffff
+    self.finishedafter = 0
+    self.sortby="proto"
+    self.siterate = 100
+    self.exitrate = 0
+    self.falsepositives=False
+    self.send_email = False
+    self.confirmed = False
+    if argv:
+      self.getargs(argv)
 
-def send_mail(fro, to, subject, text, server, files=[]):
+  def getargs(self, argv):
+    try:
+      opts,args = getopt.getopt(argv[1:],"d:f:x:r:n:a:b:t:p:o:s:Fmcv",
+               ["dir=", "file=", "exit=", "reason=", "resultfilter=", "proto=",
+                "verbose", "statuscode=", "siterate=", "exitrate=", "sortby=",
+                "noreason=", "after=", "before=", "finishedafter=",
+                "finishedbefore=","falsepositives", "email", "confirmed"])
+    except getopt.GetoptError,err:
+      print str(err)
+      usage(argv)
+    for o,a in opts:
+      if o == '-d' or o == '--dir':
+        self.use_dir = a
+      elif o == '-f' or o == '--file':
+        self.use_file = a
+      elif o == '-x' or o == '--exit':
+        self.node = a
+      elif o == '-r' or o == '--reason':
+        self.reasons.append(a)
+      elif o == '-n' or o == '--noreason':
+        self.noreasons.append(a)
+      elif o == '-a' or o == '--after':
+        self.after = time.mktime(time.strptime(a))
+      elif o == '-b' or o == '--before':
+        self.before = time.mktime(time.strptime(a))
+      elif o == '--finishedbefore':
+        self.finishedbefore = time.mktime(time.strptime(a))
+      elif o == '--finishedafter':
+        self.finishedafter = time.mktime(time.strptime(a))
+      elif o == '-t' or o == '--resultfilter':
+        self.resultfilter = a
+      elif o == '-p' or o == '--proto':
+        self.proto = a
+      elif o == '--siterate':
+        self.siterate = int(a)
+      elif o == '--exitrate':
+        self.exitrate = int(a)
+      elif o == '-F' or o == '--falsepositives':
+        self.falsepositives = True
+      elif o == '-m' or o == '--email':
+        self.send_email = True
+      elif o == '-c' or o == '--confirmed':
+        self.confirmed = True
+      elif o == '-v' or o == '--verbose':
+        self.verbose += 1
+      elif o == '-o' or o == '--sortby':
+        if a not in ["proto", "site", "exit", "reason"]:
+          usage(argv)
+        else:
+          sortby = a
+      elif o == '-s' or o == '--statuscode':
+        try:
+          self.statuscode = int(a)
+        except ValueError:
+          self.statuscode = RESULT_CODES[a]
+
+def send_mail(fro, to, subject, text, files=[]):
   assert type(to)==list
   assert type(files)==list
 
@@ -126,59 +149,83 @@ def send_mail(fro, to, subject, text, server, files=[]):
                    % os.path.basename(f))
     msg.attach(part)
 
-  smtp = smtplib.SMTP(server)
-  smtp.sendmail(fro, to, msg.as_string() )
-  smtp.close()
+  if mail_auth and not (mail_tls or mail_starttls):
+    print "You've requested authentication but have not set"
+    print "mail_tls or mail_starttls to True. As a friend,"
+    print "I just can't let you do that to yourself."
+    return
 
+  try:
+    if mail_tls:
+      if sys.version_info >= (2, 6):
+        smtp = smtplib.SMTP_SSL(host=mail_server)
+      else:
+        print "mail_tls requires Python >= 2.6"
+    else:
+      smtp = smtplib.SMTP(host=mail_server)
+    if mail_starttls:
+      smtp.starttls()
+    if mail_auth:
+      smtp.login(mail_user, mail_password)
+    smtp.sendmail(fro, to, msg.as_string() )
+    smtp.close()
+  except smtplib.SMTPException, e:
+    print e
 
 def main(argv):
   now = time.time()
-  use_dir,use_file,node,reasons,noreasons,result,verbose,resultfilter,proto,sortby,before,after,falsepositives,send_email,confirmed=getargs(argv)
-  dh = DataHandler(use_dir)
+  conf=SIConf(argv)
+  dh = DataHandler(conf.use_dir)
 
-  if use_file:
-    results = [dh.getResult(use_file)]
-  elif node:
-    results = dh.filterByNode(dh.getAll(), "$"+node)
+  if conf.use_file:
+    results = [dh.getResult(conf.use_file)]
+  elif conf.node:
+    results = dh.filterByNode(dh.getAll(), conf.node)
   else:
     results = dh.getAll()
 
-  if sortby == "url":
+  if conf.sortby == "url":
     results.sort(lambda x, y: cmp(x.site, y.site))
-  elif sortby == "reason":
+  elif conf.sortby == "reason":
     results.sort(lambda x, y: cmp(x.reason, y.reason))
-  elif sortby == "exit":
+  elif conf.sortby == "exit":
     results.sort(lambda x, y: cmp(x.exit_node, y.exit_node))
 
   by_proto = {}
 
   for r in results:
-    r.verbose = verbose
-    if r.reason in noreasons: continue
-    if reasons and r.reason not in reasons: continue
-    if r.timestamp < after or before < r.timestamp: continue
-    if (falsepositives) ^ r.false_positive: continue
-    if confirmed != r.confirmed: continue
-    if (not result or r.status == result) and \
-       (not proto or r.proto == proto) and \
-       (not resultfilter or r.__class__.__name__ == resultfilter):
-      if send_email:
+    r.verbose = conf.verbose
+    if r.reason in conf.noreasons: continue
+    if conf.reasons and r.reason not in conf.reasons: continue
+    if r.timestamp < conf.after or conf.before < r.timestamp: continue
+    if r.finish_timestamp and r.finish_timestamp < conf.finishedafter: continue
+    if r.finish_timestamp and conf.finishedbefore < r.finish_timestamp: continue
+    if (conf.falsepositives) ^ r.false_positive: continue
+    if conf.confirmed != r.confirmed: continue
+    if r.site_result_rate[1] != 0 and \
+        conf.siterate < (100.0*r.site_result_rate[0])/r.site_result_rate[1]:
+      continue
+    if r.exit_result_rate[1] != 0 and \
+        conf.exitrate > (100.0*r.exit_result_rate[0])/r.exit_result_rate[1]:
+      continue
+    if (not conf.statuscode or r.status == conf.statuscode) and \
+       (not conf.proto or r.proto == conf.proto) and \
+       (not conf.resultfilter or r.__class__.__name__ == conf.resultfilter):
+      if conf.send_email:
         if r.timestamp > now - mail_interval - 60:
-          if r.proto not in by_proto:
-            by_proto[r.proto]=[]
-          by_proto[r.proto].append(r)
+          by_proto.setdefault(r.proto, []).append(r)
         continue
       try:
         print r
       except KeyboardInterrupt:
         raise KeyboardInterrupt
-      except IOError, e:
+      except (Exception, IOError), e:
         traceback.print_exc()
-      except Exception, e:
-        traceback.print_exc()
-      print "\n-----------------------------\n"
+        sys.stderr.write("\n-----------------------------\n")
+      else:
+          print "\n-----------------------------\n"
 
-  if send_email:
+  if conf.send_email:
     for p in by_proto.iterkeys():
       print "Mailing "+str(len(by_proto[p]))+" "+p+" results..."
       subject = p+" scan found "+str(len(by_proto[p]))+" snakes"
@@ -190,7 +237,7 @@ def main(argv):
           text += traceback.format_exc()
       # TODO: Attach files? Or is that too much.. Maybe serve
       # them via http and include links?
-      send_mail(from_email, to_email, subject, text, mail_server)
+      send_mail(from_email, to_email, subject, text)
 
 if __name__ == "__main__":
   main(sys.argv)

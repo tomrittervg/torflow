@@ -45,14 +45,18 @@ __all__ = [ # Classes
            "TEST_SUCCESS", "TEST_INCONCLUSIVE", "TEST_FAILURE",
            "RESULT_STRINGS", "RESULT_CODES",
            "INCONCLUSIVE_NOLOCALCONTENT", "INCONCLUSIVE_DYNAMICSSL",
-           "INCONCLUSIVE_TORBREAKAGE", "INCONCLUSIVE_NOEXIT",
+           "INCONCLUSIVE_TORBREAKAGE", "INCONCLUSIVE_NOEXIT", "INCONCLUSIVE_REDIRECT",
            "FAILURE_EXITONLY", "FAILURE_DYNAMIC", "FAILURE_COOKIEMISMATCH", "FAILURE_BADHTTPCODE",
            "FAILURE_NOEXITCONTENT", "FAILURE_EXITTRUNCATION", "FAILURE_SOCKSERROR",
-           "FAILURE_HOSTUNREACH", "FAILURE_NETUNREACH", "FAILURE_EXITPOLICY",
-           "FAILURE_CONNREFUSED", "FAILURE_CONNERROR", "FAILURE_URLERROR", "FAILURE_CRYPTOERROR",
-           "FAILURE_TIMEOUT", "FAILURE_HEADERCHANGE", "FAILURE_MISCEXCEPTION",
+           "FAILURE_HOSTUNREACH", "FAILURE_NETUNREACH", "FAILURE_EXITPOLICY", "FAILURE_CONNREFUSED",
+           "FAILURE_CONNERROR", "FAILURE_URLERROR", "FAILURE_REDIRECT", "FAILURE_CRYPTOERROR",
+           "FAILURE_TIMEOUT", "FAILURE_SLOWXFER", "FAILURE_HEADERCHANGE", "FAILURE_MISCEXCEPTION",
            "FALSEPOSITIVE_HTTPERRORS", "FALSEPOSITIVE_DYNAMIC", "FALSEPOSITIVE_DYNAMIC_TOR",
-           "FALSEPOSITIVE_DEADSITE"
+           "FALSEPOSITIVE_DEADSITE",
+           "E_SOCKS", "E_POLICY", "E_NETUNREACH", "E_HOSTUNREACH", "E_REFUSED",
+           "E_TIMEOUT", "E_SLOWXFER", "E_NOCONTENT", "E_CRYPTO", "E_URL", "E_MISC", "SOCKS_ERRS",
+           # Exception classes
+           "SlowXferException", "RedirectException", "NoURLsFound",
           ]
 
 
@@ -86,6 +90,7 @@ INCONCLUSIVE_NOLOCALCONTENT = "InconclusiveNoLocalContent"
 INCONCLUSIVE_DYNAMICSSL = "InconclusiveDynamicSSL"
 INCONCLUSIVE_TORBREAKAGE = "InconclusiveTorBreakage"
 INCONCLUSIVE_NOEXIT = "InconclusiveNoExit"
+INCONCLUSIVE_REDIRECT = "InconclusiveRedirect"
 
 # Failed reasons
 FAILURE_EXITONLY = "FailureExitOnly"
@@ -101,8 +106,10 @@ FAILURE_EXITPOLICY = "FailureExitPolicy"
 FAILURE_CONNREFUSED = "FailureConnRefused"
 FAILURE_CONNERROR = "FailureConnError"
 FAILURE_URLERROR = "FailureURLError"
+FAILURE_REDIRECT = "FailureRedirect"
 FAILURE_CRYPTOERROR = "FailureCryptoError"
 FAILURE_TIMEOUT = "FailureTimeout"
+FAILURE_SLOWXFER = "FailureSlowXfer"
 FAILURE_HEADERCHANGE = "FailureHeaderChange"
 FAILURE_MISCEXCEPTION = "FailureMiscException"
 
@@ -112,6 +119,23 @@ FALSEPOSITIVE_DYNAMIC = "FalsePositiveDynamic"
 FALSEPOSITIVE_DYNAMIC_TOR = "FalsePositiveDynamicTor"
 FALSEPOSITIVE_DEADSITE = "FalsePositiveDeadSite"
 
+# Error Codes (Negative floats so as to distinguish from positive int HTTP resp. codes)
+E_SOCKS = -1.0
+E_POLICY = -2.0
+E_NETUNREACH = -3.0
+E_HOSTUNREACH = -4.0
+E_REFUSED = -5.0
+E_TIMEOUT = -6.0
+E_SOCKSIPY1 = -7.0 #
+E_SOCKSIPY2 = -8.0 # Reserved for SocksiPy
+E_SOCKSIPY3 = -9.0 #
+E_SLOWXFER = -10.0
+E_NOCONTENT = -13.0
+E_CRYPTO = -14.0
+E_URL = -15.0
+E_MISC = -99.0
+
+SOCKS_ERRS = (E_SOCKS, E_POLICY, E_NETUNREACH, E_HOSTUNREACH, E_REFUSED, E_TIMEOUT, E_SOCKSIPY1, E_SOCKSIPY2, E_SOCKSIPY3)
 # classes to use with pickle to dump test results into files
 
 class TestResult(object):
@@ -130,6 +154,7 @@ class TestResult(object):
     self.exit_obj = exit_obj
     self.site = site
     self.timestamp = time.time()
+    self.finish_timestamp = None
     self.status = status
     self.reason = reason
     self.extra_info = None
@@ -139,7 +164,9 @@ class TestResult(object):
     self.verbose=0
     self.from_rescan = False
     self.filename=None
-    self._pickle_revision = 6
+    self.exit_result_rate=(0,0) # (Number of times self.exit_node has returned self.reason, total number of results for self.exit_node)
+    self.site_result_rate=(0,0) # (Number of exits which have self.reason for self.site, total number of exits that have tested self.site)
+    self._pickle_revision = 8
 
   def depickle_upgrade(self):
     if not "_pickle_revision" in self.__dict__: # upgrade to v0
@@ -162,6 +189,13 @@ class TestResult(object):
     if self._pickle_revision < 6:
       self._pickle_revision = 6
       self.confirmed=False
+    if self._pickle_revision < 7:
+      self._pickle_revision = 7
+      self.exit_result_rate = (0,0)
+      self.site_result_rate = (0,0)
+    if self._pickle_revision < 8:
+      self._pickle_revision = 8
+      self.finish_timestamp = self.timestamp
 
   def _rebase(self, filename, new_data_root):
     if not filename: return filename
@@ -193,11 +227,17 @@ class TestResult(object):
   def __str__(self):
     ret = self.__class__.__name__+" for "+self.site+"\n"
     ret += " Time: "+time.ctime(self.timestamp)+"\n"
-    ret += " Exit: "+socket.inet_ntoa(struct.pack(">I",self.exit_obj.ip))+" "+self.exit_node+" ("+self.exit_name+")\n"
+    if self.finish_timestamp:
+      ret += " Test Completed: "+time.ctime(self.finish_timestamp)+"\n"
+    ret += " Exit: "+socket.inet_ntoa(struct.pack(">I",self.exit_ip))+" "+self.exit_node+" ("+self.exit_name+")\n"
     ret += " Contact: "+str(self.contact)+"\n"  
     ret += " "+str(RESULT_STRINGS[self.status])
     if self.reason:
       ret += " Reason: "+self.reason
+      if self.exit_result_rate != (0,0):
+        ret += "\n %s rate for this exit: %d/%d results" % (self.reason, self.exit_result_rate[0], self.exit_result_rate[1])
+      if self.site_result_rate != (0,0):
+        ret += "\n %s rate for this site: %d/%d exits" % (self.reason, self.site_result_rate[0], self.site_result_rate[1])
     if self.extra_info:
       ret += "\n Extra info: "+self.extra_info 
     if self.false_positive:
@@ -212,12 +252,17 @@ class TestResult(object):
 class SSLTestResult(TestResult):
   ''' Represents the result of an openssl test '''
   def __init__(self, exit_obj, ssl_site, ssl_file, status, 
-               reason=None, exit_ip=None, exit_cert_pem=None):
+               reason=None, resolved_ip=0, exit_cert_pem=None):
     super(SSLTestResult, self).__init__(exit_obj, ssl_site, status, reason)
     self.ssl_file = ssl_file
     self.exit_cert = exit_cert_pem # Meh, not that much space
-    self.exit_ip = exit_ip # XXX: Wrong!
+    self.resolved_ip = resolved_ip
     self.proto = "ssl"
+
+  def depickle_upgrade(self):
+    TestResult.depickle_upgrade(self)
+    if self.exit_ip is None:
+      self.exit_ip = 0
 
   def rebase(self, new_data_root):
     self.ssl_file = self._rebase(self.ssl_file, new_data_root)
@@ -244,8 +289,8 @@ class SSLTestResult(TestResult):
           ret += "\nCert for "+ssl_domain.cert_map[cert]+":\n"
           if self.verbose > 1: ret += cert
           ret += self._dump_cert(cert)
-        if self.exit_ip: 
-          ret += "\nExit node's cert for "+self.exit_ip+":\n"
+        if self.resolved_ip: 
+          ret += "\nExit node's cert for "+self.resolved_ip+":\n"
         else:
           ret += "\nExit node's cert:\n"
         if self.verbose > 1: ret += self.exit_cert
@@ -661,10 +706,10 @@ class DataHandler:
 
   def __resultFilename(self, result):
     address = ''
-    if result.__class__.__name__ == 'HtmlTestResult' or result.__class__.__name__ == 'HttpTestResult':
-      address = DataHandler.safeFilename(result.site[7:])
+    if result.__class__.__name__ in ('HtmlTestResult', 'HttpTestResult'):
+      address = DataHandler.safeFilename(result.site.replace('http://',''))
     elif result.__class__.__name__ == 'SSLTestResult':
-      address = DataHandler.safeFilename(result.site[8:])
+      address = DataHandler.safeFilename(result.site.replace('https://',''))
     elif 'TestResult' in result.__class__.__name__:
       address = DataHandler.safeFilename(result.site)
     else:
@@ -686,16 +731,34 @@ class DataHandler:
 
     return DataHandler.uniqueFilename(str((rdir+address+'.'+result.exit_node[1:]+".result").decode('ascii', 'ignore')))
 
+  def checkResultDir(self, dir):
+    if not dir.startswith(self.data_dir):
+      return False
+    if not os.path.exists(dir):
+      try:
+        os.makedirs(dir, 0700)
+      except OSError, e:
+        plog("WARN", "Unable to create results directory %s. %s" % (dir, e))
+        return False
+    elif not os.access(dir, os.R_OK|os.W_OK):
+      return False
+    return True
+
   def saveResult(self, result):
     ''' generic method for saving test results '''
-    result.filename = self.__resultFilename(result)
+    if result.filename is None:
+      result.filename = self.__resultFilename(result)
     SnakePickler.dump(result, result.filename)
 
   def __testFilename(self, test, position=-1):
-    if position == -1:
-      return DataHandler.uniqueFilename(self.data_dir+test.__class__.__name__+".test")
+    if hasattr(test, "save_name"):
+      name = test.save_name
     else:
-      return self.data_dir+test.__class__.__name__+"."+str(position)+".test"
+      name = test.__class__.__name__
+    if position == -1:
+      return DataHandler.uniqueFilename(self.data_dir+name+".test")
+    else:
+      return self.data_dir+name+"."+str(position)+".test"
 
   def loadTest(self, testname, position=-1):
     filename = self.data_dir+testname
@@ -775,7 +838,7 @@ class SnakePickler:
           pickle.dump(obj, f)
           f.close()
           finished = True
-        except KeyboardIterrupt:
+        except KeyboardInterrupt:
           pass
       raise KeyboardInterrupt
     except Exception, e:
@@ -1107,3 +1170,18 @@ class JSSoupDiffer(JSDiffer):
         ast_cnts = JSSoupDiffer._add_cnts(tag_cnts, ast_cnts)
     return ast_cnts
 
+
+class SlowXferException(Exception):
+  pass
+
+class RedirectException(Exception):
+  def __init__(self, code, orig, new):
+    self.code = code
+    self.orig_url = orig
+    self.new_url = new
+
+  def __str__(self):
+    return "HTTP %d Redirect: %s --> %s" % (self.code, self.orig_url, self.new_url)
+
+class NoURLsFound(Exception):
+  pass

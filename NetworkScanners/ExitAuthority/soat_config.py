@@ -24,6 +24,9 @@ num_ssl_hosts = 10
 # Number of HTML urls to scan
 num_html_urls = 10
 
+# Maximum number of searches per filetype before giving up
+max_search_retry = 3
+
 # Hrmm.. Too many of these and Google really h8s us..
 scan_filetypes = ['pdf','exe']
 
@@ -43,8 +46,23 @@ refetch_ip = "4.4.4.4"
 # Email settings for email scans.
 from_email = "Tor Exit Scanner <noreply@torproject.org>"
 to_email = ["Tor Exit Scanner List <root@localhost>"]
+
+# If you're running snakeinspector.py with cron you'll want to set
+# mail_interval to the number of seconds between runs.
+# eg.
+# mail_interval = 24*60*60 # Daily email
+mail_interval = None
+
 mail_server = "127.0.0.1"
-mail_interval = 24*60*60 # Remember to change your crontab too!
+# Email authentication
+# If your smtp server requires a username and password, set
+# mail_auth to True. In this case, one of mail_tls or
+# mail_starttls must also be set to True.
+mail_auth = False
+mail_user = "user@example.com"
+mail_password = "password"
+mail_tls = False # Requires Python >= 2.6
+mail_starttls = False
 
 # What percentage of tested nodes must disagree with our local fetches before
 # we ignore the target site/url
@@ -123,13 +141,21 @@ search_cookie_file="./search_cookies.lwp"
 # Leave these maps alone. Change the default_search_mode variable 
 # to what you want.
 # XXX: Make a bing search mode.
-yahoo_search_mode = {"host" : "search.yahoo.com", "query":"p", "filetype": "originurlextension:", "inurl":None, "class":"yschttl", "realtgt":"ourl", "useragent":False}
-google_search_mode = {"host" : "www.google.com", "query":"q", "filetype":"filetype:", "inurl":"inurl:", "class" : "l", "realtgt":"href", "useragent":True}
+yahoo_search_mode = {"host" : "search.yahoo.com", "query":"p", "filetype": "originurlextension:", \
+                      "inurl":None, "class":"yschttl", "realtgt":"ourl", "useragent":False, \
+                      "extra":[]}
+google_search_mode = {"host" : "www.google.com", "query":"q", "filetype":"filetype:", \
+                      "inurl":"inurl:", "class" : "l", "realtgt":"href", "useragent":True, \
+                      "extra":[]}
+ixquick_search_mode = {"host" : "ixquick.com/do/metasearch.pl", "query":"all_terms", "filetype":"title:", \
+                      "inurl":"url:", "class" : "title2", "realtgt":"href", "useragent":False, \
+                      "extra":[("prfh","disable_family_filterEEE1N1Nnum_of_resultsEEE50N1Ndisable_video_family_filterEEE1N1N")]}
  
 # FIXME: This does not affect the ssl search.. Only Google has 
 # a working "inurl:" that allows you to pick the scheme to be https 
 #default_search_mode = google_search_mode
-default_search_mode = yahoo_search_mode
+#default_search_mode = yahoo_search_mode
+default_search_mode = ixquick_search_mode
 
 # Regex of characters we consider unsafe to write to the filesystem
 unsafe_filechars = "[^a-zA-Z0-9-\.+]"
