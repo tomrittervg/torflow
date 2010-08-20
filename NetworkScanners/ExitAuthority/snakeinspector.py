@@ -14,6 +14,7 @@ import time
 import traceback
 
 import getopt
+import getpass
 
 from libsoat import *
 from soat_config_real import *
@@ -166,7 +167,8 @@ def send_mail(fro, to, subject, text, files=[]):
     if mail_starttls:
       smtp.starttls()
     if mail_auth:
-      smtp.login(mail_user, mail_password)
+      passwd = mail_password or getpass.getpass()
+      smtp.login(mail_user, passwd)
     smtp.sendmail(fro, to, msg.as_string() )
     smtp.close()
   except smtplib.SMTPException, e:
