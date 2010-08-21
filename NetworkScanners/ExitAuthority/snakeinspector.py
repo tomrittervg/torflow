@@ -14,6 +14,7 @@ import time
 import traceback
 
 import getopt
+import getpass
 
 from libsoat import *
 from soat_config_real import *
@@ -64,6 +65,7 @@ class SIConf(object):
     self.after = 0
     self.finishedbefore = 0xffffffff
     self.finishedafter = 0
+    self.finished = False
     self.sortby="proto"
     self.siterate = 100
     self.exitrate = 0
@@ -100,8 +102,10 @@ class SIConf(object):
         self.before = time.mktime(time.strptime(a))
       elif o == '--finishedbefore':
         self.finishedbefore = time.mktime(time.strptime(a))
+        self.finished = True
       elif o == '--finishedafter':
         self.finishedafter = time.mktime(time.strptime(a))
+        self.finished = True
       elif o == '-t' or o == '--resultfilter':
         self.resultfilter = a
       elif o == '-p' or o == '--proto':
@@ -166,7 +170,8 @@ def send_mail(fro, to, subject, text, files=[]):
     if mail_starttls:
       smtp.starttls()
     if mail_auth:
-      smtp.login(mail_user, mail_password)
+      passwd = mail_password or getpass.getpass()
+      smtp.login(mail_user, passwd)
     smtp.sendmail(fro, to, msg.as_string() )
     smtp.close()
   except smtplib.SMTPException, e:
@@ -198,8 +203,10 @@ def main(argv):
     if r.reason in conf.noreasons: continue
     if conf.reasons and r.reason not in conf.reasons: continue
     if r.timestamp < conf.after or conf.before < r.timestamp: continue
-    if r.finish_timestamp and r.finish_timestamp < conf.finishedafter: continue
-    if r.finish_timestamp and conf.finishedbefore < r.finish_timestamp: continue
+    if conf.finished:
+      if not r.finish_timestamp: continue
+      if r.finish_timestamp < conf.finishedafter: continue
+      if conf.finishedbefore < r.finish_timestamp: continue
     if (conf.falsepositives) ^ r.false_positive: continue
     if conf.confirmed != r.confirmed: continue
     if r.site_result_rate[1] != 0 and \
@@ -212,7 +219,9 @@ def main(argv):
        (not conf.proto or r.proto == conf.proto) and \
        (not conf.resultfilter or r.__class__.__name__ == conf.resultfilter):
       if conf.send_email:
-        if r.timestamp > now - mail_interval - 60:
+        if mail_interval and r.timestamp > now - mail_interval - 60:
+          by_proto.setdefault(r.proto, []).append(r)
+        elif not mail_interval:
           by_proto.setdefault(r.proto, []).append(r)
         continue
       try:
