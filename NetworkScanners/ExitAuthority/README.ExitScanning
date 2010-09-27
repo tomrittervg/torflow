@@ -250,11 +250,11 @@ If you're wary of leaving your email password in plaintext in the
 soat_config, you can set mail_password = None, and you'll be
 prompted to provide it when snakeinspector is run.
 
-Also note you should either use the --after or --finishedafter flag
-to ensure you don't email results which you've already reported. Or,
-if you've automated the running snakeinspector, you should set the
-mail_interval variable in your soat_config.py to the length of time,
-in seconds, between your snakeinspector runs.
+In this current directory is a cron.sh script that calls snakeinspector to
+email results that completed in the last 24 hours, or since the last time
+you've run it. Add it to `crontab -e` like so:
+
+0 3 * * * ~/code/torflow.git/NetworkScanners/ExitAuthority/cron.sh
 
 Alright that covers the basics. Let's get those motherfuckin snakes off
 this motherfuckin Tor!

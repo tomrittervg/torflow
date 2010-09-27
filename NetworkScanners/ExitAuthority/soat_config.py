@@ -45,13 +45,7 @@ refetch_ip = "4.4.4.4"
 
 # Email settings for email scans.
 from_email = "Tor Exit Scanner <noreply@torproject.org>"
-to_email = ["Tor Exit Scanner List <root@localhost>"]
-
-# If you're running snakeinspector.py with cron you'll want to set
-# mail_interval to the number of seconds between runs.
-# eg.
-# mail_interval = 24*60*60 # Daily email
-mail_interval = None
+to_email = ["Tor Exit Scanner List <flynn@torproject.org>"]
 
 mail_server = "127.0.0.1"
 # Email authentication
@@ -59,29 +53,29 @@ mail_server = "127.0.0.1"
 # mail_auth to True. In this case, one of mail_tls or
 # mail_starttls must also be set to True.
 mail_auth = False
-mail_user = "user@example.com"
+mail_user = "soat@fscked.org"
 mail_password = "password"
 mail_tls = False # Requires Python >= 2.6
 mail_starttls = False
 
 # What percentage of tested nodes must disagree with our local fetches before
 # we ignore the target site/url
-max_exit_fail_pct = 10
+max_exit_fail_pct = 5
 
 # What percentage of tested nodes must get a non 2xx response 
 # (including timeouts and DNS resolution failures) to a request
 # before we ignore the target site/url
 # XXX: current unused
-max_httpcode_fail_pct = 35
+max_httpcode_fail_pct = 10
 
 # What percentage of tested nodes must get a bad http response
 # or other connection issue (including timeouts and DNS resolution 
 # failures) to a request # before we ignore the target site/url
-max_connect_fail_pct = 35
+max_connect_fail_pct = 10
 
-# What percentage of tests can fail that diffet between all 3 fetches
+# What percentage of tests can fail that differ between all 3 fetches
 # fetches (Tor and two non-tor), AFTER applying HTML false positive filters
-max_dynamic_fail_pct = 10
+max_dynamic_fail_pct = 5
 
 # We fetch more target sites/urls if discarding them causes us to fall
 # below this many:

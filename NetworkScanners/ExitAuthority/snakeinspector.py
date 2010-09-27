@@ -72,6 +72,7 @@ class SIConf(object):
     self.falsepositives=False
     self.send_email = False
     self.confirmed = False
+    self.cron_interval = 0
     if argv:
       self.getargs(argv)
 
@@ -81,7 +82,8 @@ class SIConf(object):
                ["dir=", "file=", "exit=", "reason=", "resultfilter=", "proto=",
                 "verbose", "statuscode=", "siterate=", "exitrate=", "sortby=",
                 "noreason=", "after=", "before=", "finishedafter=",
-                "finishedbefore=","falsepositives", "email", "confirmed"])
+                "finishedbefore=", "croninterval=", "falsepositives",
+                "email", "confirmed"])
     except getopt.GetoptError,err:
       print str(err)
       usage(argv)
@@ -106,6 +108,8 @@ class SIConf(object):
       elif o == '--finishedafter':
         self.finishedafter = time.mktime(time.strptime(a))
         self.finished = True
+      elif o == '--croninterval':
+        self.cron_interval = int(a)*3600
       elif o == '-t' or o == '--resultfilter':
         self.resultfilter = a
       elif o == '-p' or o == '--proto':
@@ -126,7 +130,7 @@ class SIConf(object):
         if a not in ["proto", "site", "exit", "reason"]:
           usage(argv)
         else:
-          sortby = a
+          self.sortby = a
       elif o == '-s' or o == '--statuscode':
         try:
           self.statuscode = int(a)
@@ -209,6 +213,12 @@ def main(argv):
       if conf.finishedbefore < r.finish_timestamp: continue
     if (conf.falsepositives) ^ r.false_positive: continue
     if conf.confirmed != r.confirmed: continue
+    if conf.confirmed:
+      if conf.cron_interval and r.finish_timestamp < now-conf.cron_interval-60:
+        continue
+    else:
+      if conf.cron_interval and r.timestamp < now-conf.cron_interval-60:
+        continue
     if r.site_result_rate[1] != 0 and \
         conf.siterate < (100.0*r.site_result_rate[0])/r.site_result_rate[1]:
       continue
@@ -219,10 +229,7 @@ def main(argv):
        (not conf.proto or r.proto == conf.proto) and \
        (not conf.resultfilter or r.__class__.__name__ == conf.resultfilter):
       if conf.send_email:
-        if mail_interval and r.timestamp > now - mail_interval - 60:
-          by_proto.setdefault(r.proto, []).append(r)
-        elif not mail_interval:
-          by_proto.setdefault(r.proto, []).append(r)
+        by_proto.setdefault(r.proto, []).append(r)
         continue
       try:
         print r

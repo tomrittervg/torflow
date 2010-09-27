@@ -642,9 +642,11 @@ class Test:
       self.rescan_nodes = set([])
       self.tests_per_node = num_tests_per_node
       self.update_nodes()
+      return 0
     else:
       plog("NOTICE", self.proto+" switching to recan mode.")
       self.load_rescan(TEST_FAILURE, self.run_start)
+      return 1
 
   def get_node(self):
     return random.choice(list(self.nodes))
@@ -3159,14 +3161,18 @@ def main(argv):
           test.remove_false_positives()
         else:
           plog("NOTICE", "Not removing false positives for fixed-exit scan")
-        test.timestamp_results(time.time())
         if not do_rescan and rescan_at_finish:
-          test.toggle_rescan()
+          if not test.toggle_rescan():
+            # Only timestamp as finished after the rescan
+            test.timestamp_results(time.time())
           test.rewind()
           all_finished = False
         elif restart_at_finish:
+          test.timestamp_results(time.time())
           test.rewind()
           all_finished = False
+        else:
+          test.timestamp_results(time.time())
     if all_finished:
       plog("NOTICE", "All tests have finished. Exiting\n")
       return
