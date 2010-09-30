@@ -410,6 +410,7 @@ def http_request(address, cookie_jar=None, headers=firefox_headers):
     plog('WARN', 'An unknown HTTP error occured for '+address+": "+str(e))
     traceback.print_exc()
     rval = (E_MISC, None, [], "", e.__class__.__name__+str(e))
+  plog("INFO", "Completed HTTP Reqest for: "+address)
   return rval
 
 
@@ -420,6 +421,7 @@ def ssl_request(address):
   try:
     return _ssl_request(address)
   except socket.timeout, e:
+    plog("INFO", "SSL Request done with timoeut for addrress: "+str(address))
     return (E_TIMEOUT, None, "Socket timeout")
 
 def _ssl_request(address, method='TLSv1_METHOD'):
@@ -495,6 +497,7 @@ def _ssl_request(address, method='TLSv1_METHOD'):
     traceback.print_exc()
     rval = (E_MISC, None,  e.__class__.__name__+str(e))
   signal.alarm(0)
+  plog("INFO", "SSL Request done for addrress: "+str(address))
   return rval
 
 
@@ -2815,10 +2818,16 @@ def decompress_response_data(response):
   if not tot_len:
     tot_len = "0"
 
+  def _raise_timeout(signum, frame):
+    raise socket.timeout("HTTP read timed out")
+  signal.signal(signal.SIGALRM, _raise_timeout)
+
   start = 0
   data = ""
   while True:
+    signal.alarm(int(read_timeout)) # raise a timeout after read_timeout
     data_read = response.read(500) # Cells are 495 bytes..
+    signal.alarm(0)
     if not start:
       start = time.time()
     # TODO: if this doesn't work, check stream observer for
@@ -2838,6 +2847,7 @@ def decompress_response_data(response):
       break
     data += data_read
 
+  plog("INFO", "Completed read")
   if encoding == 'gzip' or encoding == 'x-gzip':
     return gzip.GzipFile('', 'rb', 9, StringIO.StringIO(data)).read()
   elif encoding == 'deflate':
