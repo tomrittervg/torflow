@@ -17,7 +17,7 @@ import getopt
 import getpass
 
 from libsoat import *
-from soat_config_real import *
+from soat_config import *
 
 sys.path.append("../../")
 import TorCtl.TorUtil

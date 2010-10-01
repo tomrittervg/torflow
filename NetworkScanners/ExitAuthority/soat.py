@@ -73,7 +73,7 @@ from BeautifulSoup import Tag, SoupStrainer, BeautifulSoup
 
 
 from libsoat import *
-from soat_config_real import *
+from soat_config import *
 
 sys.path.append("../../")
 from TorCtl import TorUtil, TorCtl, PathSupport, ScanSupport

@@ -21,7 +21,7 @@ from OpenSSL import crypto
 
 from soat import Tag, SoupStrainer
 
-from soat_config_real import *
+from soat_config import *
 
 sys.path.append("../../")
 from TorCtl.TorUtil import *
