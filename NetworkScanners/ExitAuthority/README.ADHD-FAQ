@@ -7,6 +7,12 @@ Q: HELP! IS IT REALLY THIS SIMPLE? ARE THIS ALL THE COMMANDS NEED?
 A: Yes. Until it breaks :)
 
 
+Q: HELP! I NEED TORFLOW!
+A:
+   git clone git://git.torproject.org/git/torflow.git torflow.git
+   cd torflow.git && sh ./add_torctl.sh
+
+
 Q: HELP! I NEED TO START TOR FOR THIS!
 A:
    tor -f ./data/tor/torrc &
