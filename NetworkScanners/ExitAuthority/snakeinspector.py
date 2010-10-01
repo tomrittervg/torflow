@@ -225,7 +225,7 @@ def main(argv):
       if r.site_result_rate[1] != 0 and \
           conf.siterate < (100.0*r.site_result_rate[0])/r.site_result_rate[1]:
         continue
-    if 100.0/conf.exitrate > r.exit_result_rate[1]:
+    if 100.0/(100-conf.exitrate) > r.exit_result_rate[1]:
       if r.exit_result_rate[1] != 0 and \
           conf.exitrate > (100.0*r.exit_result_rate[0])/r.exit_result_rate[1]:
         continue
