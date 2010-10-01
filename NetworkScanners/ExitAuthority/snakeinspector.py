@@ -219,12 +219,16 @@ def main(argv):
     else:
       if conf.cron_interval and r.timestamp < now-conf.cron_interval-60:
         continue
-    if r.site_result_rate[1] != 0 and \
-        conf.siterate < (100.0*r.site_result_rate[0])/r.site_result_rate[1]:
-      continue
-    if r.exit_result_rate[1] != 0 and \
-        conf.exitrate > (100.0*r.exit_result_rate[0])/r.exit_result_rate[1]:
-      continue
+    # Only apply siterate filters if enough tests have run for them to be
+    # true. Otherwise, assume they are true (don't check them).
+    if 100.0/conf.siterate > r.site_result_rate[1]:
+      if r.site_result_rate[1] != 0 and \
+          conf.siterate < (100.0*r.site_result_rate[0])/r.site_result_rate[1]:
+        continue
+    if 100.0/conf.exitrate > r.exit_result_rate[1]:
+      if r.exit_result_rate[1] != 0 and \
+          conf.exitrate > (100.0*r.exit_result_rate[0])/r.exit_result_rate[1]:
+        continue
     if (not conf.statuscode or r.status == conf.statuscode) and \
        (not conf.proto or r.proto == conf.proto) and \
        (not conf.resultfilter or r.__class__.__name__ == conf.resultfilter):

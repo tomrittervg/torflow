@@ -1,0 +1,35 @@
+                                   SOAT FAQ
+                                 Don't Panic.
+
+
+
+Q: HELP! IS IT REALLY THIS SIMPLE? ARE THIS ALL THE COMMANDS NEED?
+A: Yes. Until it breaks :)
+
+
+Q: HELP! I NEED TO START TOR FOR THIS!
+A:
+   tor -f ./data/tor/torrc &
+
+
+Q: HELP! I NEED TO FIND SNAKES!
+A:
+   ./soat.py --http --ssl >& ./data/soat.log
+
+
+Q: HELP! I WANT TO JUST TEST A FIXED URL!
+A:
+   echo 'scan_filetypes = ["html"]' >> soat_config.py
+   ./soat.py --http --target "http://moria.csail.mit.edu/index.html" >& ./data/soat.log
+
+
+Q: HELP! I NEED TO EMAIL TEH LIST EVERY HOWAR!
+A:
+   echo -e "45 0-23 * * * $PWD/cron.sh" | crontab -
+
+
+Q: HELP! SOAT CRASHED! I NEED TO RESTART!
+A:
+   ./soat.py --resume 0 --http --ssl >& ./data/soat.log.0
+
+

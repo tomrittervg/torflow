@@ -83,8 +83,8 @@ min_targets = 10
 
 # How many times each node should be tested before removing it from 
 # a run loop (can be overriden on command line)
-num_tests_per_node = 1
-num_rescan_tests_per_node = 3
+num_tests_per_node = 5
+num_rescan_tests_per_node = 5
 
 # Number of timeouts before we consider a node failed.
 num_timeouts_per_node = 4
@@ -98,7 +98,7 @@ num_connfails_per_node = 2
 # Rescan failures upon finishing the run loop. 
 # FIXME: This does have the downside that we do NOT prune excessively 
 # dynamic URLs during this loop, and so false positives may accumulate...
-rescan_at_finish = False
+rescan_at_finish = True
 
 # Should we restart scanning from the beginning at the finish?
 restart_at_finish = True
@@ -266,5 +266,4 @@ http_content_dir = soat_dir + 'http/content/'
 http_failed_dir = soat_dir + 'http/failed/'
 http_inconclusive_dir = soat_dir + 'http/inconclusive/'
 http_falsepositive_dir = soat_dir + 'http/falsepositive/'
-
 

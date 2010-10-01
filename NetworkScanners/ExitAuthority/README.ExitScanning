@@ -251,10 +251,10 @@ soat_config, you can set mail_password = None, and you'll be
 prompted to provide it when snakeinspector is run.
 
 In this current directory is a cron.sh script that calls snakeinspector to
-email results that completed in the last 24 hours, or since the last time
+email results that completed in the last hour, or since the last time
 you've run it. Add it to `crontab -e` like so:
 
-0 3 * * * ~/code/torflow.git/NetworkScanners/ExitAuthority/cron.sh
+0 * * * * ~/code/torflow.git/NetworkScanners/ExitAuthority/cron.sh
 
 Alright that covers the basics. Let's get those motherfuckin snakes off
 this motherfuckin Tor!
