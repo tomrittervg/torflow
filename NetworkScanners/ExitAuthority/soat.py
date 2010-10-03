@@ -121,6 +121,12 @@ __selmgr = PathSupport.SelectionManager(
       use_guards=False,
       exit_ports=[443])
 
+# Needed for our own sigalarm-based timeouts.
+# We can't use socket.timeout because it is a different
+# identifier when we are using socksipy's 'socket'
+class ReadTimeout(Exception):
+  pass
+
 # Oh yeah. so dirty. Blame this guy if you hate me:
 # http://mail.python.org/pipermail/python-bugs-list/2008-October/061202.html
 _origsocket = socket.socket
@@ -369,7 +375,7 @@ def http_request(address, cookie_jar=None, headers=firefox_headers):
     plog("DEBUG", "Mime type is "+mime_type+", length "+str(length))
     content = decompress_response_data(reply)
     rval = (reply.code, reply_headers, new_cookies, mime_type, content)
-  except socket.timeout, e:
+  except (ReadTimeout, socket.timeout), e:
     plog("WARN", "Socket timeout for "+address+": "+str(e))
     rval = (E_TIMEOUT, None, [], "", e.__class__.__name__+str(e))
   except SlowXferException, e:
@@ -420,7 +426,7 @@ def ssl_request(address):
   # _ssl_request, so we need to catch socket.timeout here
   try:
     return _ssl_request(address)
-  except socket.timeout, e:
+  except (ReadTimeout, socket.timeout), e:
     plog("INFO", "SSL Request done with timoeut for addrress: "+str(address))
     return (E_TIMEOUT, None, "Socket timeout")
 
@@ -435,7 +441,7 @@ def _ssl_request(address, method='TLSv1_METHOD'):
   s.settimeout(None)
 
   def _raise_timeout(signum, frame):
-    raise socket.timeout("SSL connection timed out")
+    raise ReadTimeout("SSL connection timed out")
   signal.signal(signal.SIGALRM, _raise_timeout)
   # open an ssl connection
   rval = (None, None, None)
@@ -451,7 +457,7 @@ def _ssl_request(address, method='TLSv1_METHOD'):
     # c.send(crypto.dump_certificate_request(crypto.FILETYPE_PEM,request))
     c.do_handshake()
     rval = (0, c.get_peer_certificate(), None)
-  except socket.timeout, e:
+  except (ReadTimeout, socket.timeout), e:
     rval = (E_TIMEOUT, None, "Socket timeout")
   except socks.Socks5Error, e:
     plog('WARN', 'A SOCKS5 error '+str(e.value[0])+' occured for '+address+": "+str(e))
@@ -2819,7 +2825,7 @@ def decompress_response_data(response):
     tot_len = "0"
 
   def _raise_timeout(signum, frame):
-    raise socket.timeout("HTTP read timed out")
+    raise ReadTimeout("HTTP read timed out")
   signal.signal(signal.SIGALRM, _raise_timeout)
 
   start = 0
