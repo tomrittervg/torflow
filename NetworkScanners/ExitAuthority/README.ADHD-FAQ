@@ -15,6 +15,7 @@ A:
 
 Q: HELP! I NEED TO START TOR FOR THIS!
 A:
+   cd NetworkScanners/ExitAuthority
    tor -f ./data/tor/torrc &
 
 
