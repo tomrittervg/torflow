@@ -15,6 +15,8 @@ import traceback
 
 import getopt
 import getpass
+import socket
+import struct
 
 from libsoat import *
 from soat_config import *
@@ -200,7 +202,7 @@ def main(argv):
   elif conf.sortby == "exit":
     results.sort(lambda x, y: cmp(x.exit_node, y.exit_node))
 
-  by_proto = {}
+  by_reason = {}
 
   for r in results:
     r.verbose = conf.verbose
@@ -231,7 +233,7 @@ def main(argv):
        (not conf.proto or r.proto == conf.proto) and \
        (not conf.resultfilter or r.__class__.__name__ == conf.resultfilter):
       if conf.send_email:
-        by_proto.setdefault(r.proto, []).append(r)
+        by_reason.setdefault(r.reason, []).append(r)
         continue
       try:
         print r
@@ -244,18 +246,18 @@ def main(argv):
           print "\n-----------------------------\n"
 
   if conf.send_email:
-    for p in by_proto.iterkeys():
-      print "Mailing "+str(len(by_proto[p]))+" "+p+" results..."
-      subject = p+" scan found "+str(len(by_proto[p]))+" snakes"
-      text = ""
-      for r in by_proto[p]:
+    for rsn in by_reason.iterkeys():
+      for r in by_reason[rsn]:
+        print "Mailing result..."
+        subject = rsn+" on "+socket.inet_ntoa(struct.pack(">I",r.exit_ip))+" ("+r.exit_name+")"
+        text = ""
         try:
           text += str(r) + "\n-----------------------------\n"
         except Exception, e:
           text += traceback.format_exc()
-      # TODO: Attach files? Or is that too much.. Maybe serve
-      # them via http and include links?
-      send_mail(from_email, to_email, subject, text)
+        # TODO: Attach files? Or is that too much.. Maybe serve
+        # them via http and include links?
+        send_mail(from_email, to_email, subject, text)
 
 if __name__ == "__main__":
   main(sys.argv)
