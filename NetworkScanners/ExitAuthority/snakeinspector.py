@@ -1,4 +1,4 @@
-#!/usr/bin/python
+#!/usr/bin/python2.6
 
 import smtplib
 from email.MIMEMultipart import MIMEMultipart
@@ -214,7 +214,10 @@ def main(argv):
       if r.finish_timestamp < conf.finishedafter: continue
       if conf.finishedbefore < r.finish_timestamp: continue
     if (conf.falsepositives) ^ r.false_positive: continue
-    if conf.confirmed != r.confirmed: continue
+
+    # XXX: r.confirmed is not used. The variable to use here is r.from_rescan.
+    # We should fix this in libsoat.py and soat.py someday.
+    if conf.confirmed != r.from_rescan: continue
     if conf.confirmed:
       if conf.cron_interval and r.finish_timestamp < now-conf.cron_interval-60:
         continue
