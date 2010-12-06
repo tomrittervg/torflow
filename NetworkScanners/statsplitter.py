@@ -2,6 +2,7 @@
 import sys
 import socket
 import math
+import re
 
 sys.path.append("../")
 #from TorCtl import *
@@ -23,12 +24,11 @@ def cleanup(c, f):
   
 
 s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-s.connect((control_host,control_port))
-c = Connection(s)
+c = TorCtl.connect("127.0.0.1",9051)
 c.debug(file("control.log", "w"))
-c.authenticate(control_pass)
 #c.authenticate_cookie(file("/home/torperf/tor-data1/control_auth_cookie", "r"))
 FUDValue = c.get_option("FetchUselessDescriptors")[0][1]
+ExtraInfoValue = c.get_option("DownloadExtraInfo")[0][1]
 c.set_option("FetchUselessDescriptors", "1") 
 atexit.register(cleanup, *(c, FUDValue))
 nslist = c.get_network_status()
@@ -212,11 +212,10 @@ def check_entropy(rlist, clipping_point):
   print "Consensus Exit entropy: " + str(-exit_entropy)
 
   print ""
-  print "Guard Weights: E: "+str(ggen.guard_weight)+" M: "+str(mgen.guard_weight)+" X: "+str(egen.guard_weight)
-  print "Exit Weights: E: "+str(ggen.exit_weight)+" M: "+str(mgen.exit_weight)+" X: "+str(egen.exit_weight)
-  print "Guard+Exit Weights: E: "+str(ggen.guard_weight*ggen.exit_weight)+" M: "+str(mgen.guard_weight*mgen.exit_weight)+" X: "+str(egen.guard_weight*egen.exit_weight)
-
-  print ""
+#  print "Guard Weights: E: "+str(ggen.guard_weight)+" M: "+str(mgen.guard_weight)+" X: "+str(egen.guard_weight)
+#  print "Exit Weights: E: "+str(ggen.exit_weight)+" M: "+str(mgen.exit_weight)+" X: "+str(egen.exit_weight)
+#  print "Guard+Exit Weights: E: "+str(ggen.guard_weight*ggen.exit_weight)+" M: "+str(mgen.guard_weight*mgen.exit_weight)+" X: "+str(egen.guard_weight*egen.exit_weight)
+#  print ""
 
   print "Nodes: "+str(nodes)+", Exits: "+str(exits)+" Total bw: "+str(round(bw/(1024.0*1024),2))+", Exit Bw: "+str(round(exit_bw/(1024.0*1024),2))
   print "Clipped: "+str(clipped)+", bw: "+str(round(clipped_bw/(1024.0*1024),2))
@@ -387,9 +386,74 @@ def check_slices():
   for i in xrange(0,100,10):
     check(i,i+10)
 
+def is_default_policy(r):
+  # XXX: Hack. Just checks for "accept *:*" in the last line.
+  if r.exitpolicy[-1].ip == 0 and r.exitpolicy[-1].netmask == 0 and \
+     r.exitpolicy[-1].port_low == 0 and r.exitpolicy[-1].port_high == 65535 \
+     and r.exitpolicy[-1].match:
+    return True
+  return False
+
+def split_port_list(line):
+  ret = {}
+  tot=0
+  ports = line.split(",")
+  for p in ports:
+    pair = p.split("=")
+    ret[pair[0]]=int(pair[1])
+    tot+=int(pair[1])
+  if tot:
+    keys = ret.keys()
+    for p in keys:
+      ret[p] = round((100.0*ret[p])/tot,1)
+  else:
+    return (tot, None)
+  return (tot, ret)
+
+def display_port_list(r, which, tot, port_list):
+  if not port_list: return
+  keys = port_list.keys()
+  keys.sort(lambda y,x: int((port_list[x] - port_list[y])*100))
+  if is_default_policy(r):
+    name = "Default exit "+r.nickname
+  else:
+    name = "Misc Exit "+r.nickname
+
+  print name+" "+which+" "+str(round(tot/(1024.0*1024.0),1))+"M"
+  out = "   "
+  for k in keys[:6]:
+    out += str(k)+": "+str(port_list[k])+"% "
+  print out
+
+def check_port_bytes(sorted_rlist, top_n):
+  displayed=0
+  for r in sorted_rlist[0:50]:
+    if displayed > top_n: return
+    if r.extra_info_digest and "Exit" in r.flags:
+      try:
+        extra_info = c.sendAndRecv("GETINFO extra-info/digest/" +
+                              r.extra_info_digest + "\r\n")[0][2]
+      except TorCtl.ErrorReply:
+        print "Not all extra info docs present. Missing one for router "+r.idhex+"="+r.nickname
+      if "exit-kibibytes-written" in extra_info:
+        displayed += 1
+        g = re.search("exit-kibibytes-read (\S+)", extra_info).group(1)
+        (tot, port_list) = split_port_list(g)
+        display_port_list(r, "read", tot, port_list)
+        g = re.search("exit-kibibytes-written (\S+)", extra_info).group(1)
+        (tot, port_list) = split_port_list(g)
+        display_port_list(r, "wrote", tot, port_list)
+        print
+
 check_slices()
 
 tot_bw = check(0, 100)
 check_ratios(sorted_rlist)
 
 check_entropy(sorted_rlist, 0.05*tot_bw)
+
+if ExtraInfoValue == "0":
+  print "DownloadExtraInfo must be set in order to display per-port stats."
+  print "\n"
+else:
+  check_port_bytes(sorted_rlist, 10)
