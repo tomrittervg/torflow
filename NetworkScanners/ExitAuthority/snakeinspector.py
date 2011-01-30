@@ -255,7 +255,12 @@ def main(argv):
         subject = rsn+" on "+socket.inet_ntoa(struct.pack(">I",r.exit_ip))+" ("+r.exit_name+")"
         text = ""
         try:
-          text += str(r) + "\n-----------------------------\n"
+          text += str(r)
+          text += "\n# torrc:\n"
+          text += "authdirbadexit "+socket.inet_ntoa(struct.pack(">I",r.exit_ip))+" # "+r.exit_name+"\n"
+          text += "\n# approved-routers\n"
+          text += "!badexit "+r.exit_node+" # "+r.exit_name+"\n"
+          text += + "\n------------------------------------------\n"
         except Exception, e:
           text += traceback.format_exc()
         # TODO: Attach files? Or is that too much.. Maybe serve
