@@ -13,9 +13,9 @@ cd $SCANDIR
    --noreason FailureConnError --noreason FailureHostUnreach \
    --noreason FailureConnRefused --noreason FailureExitTruncation \
    --noreason FailureBadHTTPCode404 --noreason FailureNoExitContent \
-   --noreason FailureTimeout 
+   --noreason FailureTimeout --verbose
 
-./snakeinspector.py --confirmed --email --siterate 10 --croninterval 1
+./snakeinspector.py --confirmed --email --siterate 10 --croninterval 1 --verbose
 
 # Optionally, you can use these two lines to allow less regular cron
 # scheduling:
