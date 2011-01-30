@@ -1,5 +1,5 @@
-#!/usr/bin/python
-#
+#!/usr/bin/python2.6
+
 # 2008 Aleksei Gorny, mentored by Mike Perry
 # 2009 Mike Perry
 
@@ -44,6 +44,7 @@ import urllib
 import urllib2
 import urlparse
 import zlib,gzip
+import struct
 
 import Queue
 import StringIO
@@ -288,25 +289,37 @@ class ExitScanHandler(ScanSupport.ScanHandler):
     '''
 
     # get the structure
-    routers = self.c.read_routers(self.c.get_network_status())
+    routers = filter(lambda r: "BadExit" not in r.flags,
+                     self.current_consensus().sorted_r)
     bad_exits = set([])
     specific_bad_exits = [None]*len(ports_to_check)
+    bad_exit_bw = [0]*len(ports_to_check)
+    exit_bw = 0
+
     for i in range(len(ports_to_check)):
       specific_bad_exits[i] = []
 
     # check exit policies
     for router in routers:
+      if "Exit" in router.flags:
+        exit_bw += router.bw
       for i in range(len(ports_to_check)):
         [common_protocol, common_restriction, secure_protocol, secure_restriction] = ports_to_check[i]
         if common_restriction.r_is_ok(router) and not secure_restriction.r_is_ok(router):
           bad_exits.add(router)
+          bad_exit_bw[i] += router.bw
           specific_bad_exits[i].append(router)
           #plog('INFO', 'Router ' + router.nickname + ' allows ' + common_protocol + ' but not ' + secure_protocol)
 
 
     for i,exits in enumerate(specific_bad_exits):
       [common_protocol, common_restriction, secure_protocol, secure_restriction] = ports_to_check[i]
-      plog("NOTICE", "Nodes allowing "+common_protocol+" but not "+secure_protocol+":\n\t"+"\n\t".join(map(lambda r: r.nickname+"="+r.idhex, exits)))
+      plog("NOTICE", str(len(exits))+" nodes ("+str(round(100.0*bad_exit_bw[i]/exit_bw,2))+"%) allowing "+common_protocol+" but not "+secure_protocol+":")
+      print "# approved-routers"
+      print "\n".join(map(lambda r: "!badexit "+r.idhex+"  # "+r.nickname, exits))
+      print "\n# torrc"
+      print "\n".join(map(lambda r: "authdirbadexit "+socket.inet_ntoa(struct.pack(">I",r.ip))+"  # "+r.nickname, exits))
+      print ""
       #plog('INFO', 'Router ' + router.nickname + ' allows ' + common_protocol + ' but not ' + secure_protocol)
 
 
@@ -314,8 +327,9 @@ class ExitScanHandler(ScanSupport.ScanHandler):
     plog('INFO', 'Total nodes: ' + `len(routers)`)
     for i in range(len(ports_to_check)):
       [common_protocol, _, secure_protocol, _] = ports_to_check[i]
-      plog('INFO', 'Exits with ' + common_protocol + ' / ' + secure_protocol + ' problem: ' + `len(specific_bad_exits[i])` + ' (~' + `(len(specific_bad_exits[i]) * 100 / len(routers))` + '%)')
-    plog('INFO', 'Total bad exits: ' + `len(bad_exits)` + ' (~' + `(len(bad_exits) * 100 / len(routers))` + '%)')
+      plog('INFO', 'Exits with ' + common_protocol + ' / ' + secure_protocol +
+' problem: ' + `len(specific_bad_exits[i])`) # + ' (~' + `(len(specific_bad_exits[i]) * 100 / len(routers))` + '%)')
+    plog('INFO', 'Total bad exits: ' + `len(bad_exits)`) # + ' (~' + `(len(bad_exits) * 100 / len(routers))` + '%)')
 
   # FIXME: Hrmm is this in the right place?
   def check_dns_rebind(self, cookie_file):
@@ -2937,12 +2951,15 @@ def main(argv):
     print '--policies'
     print '--exit=<exit>'
     print '--target=<ip or url>'
+    print '--loglevel=<DEBUG|INFO|NOTICE|WARN|ERROR|NONE>'
     print ''
     return
+  
+  TorUtil.read_config(data_dir+"/torctl.cfg")
 
-  opts = ['ssl','rescan', 'pernode=', 'resume=', 'html','http','ssh','smtp','pop','imap','dns','dnsrebind','policies','exit=','target=']
+  opts = ['ssl','rescan', 'pernode=', 'resume=', 'html','http','ssh','smtp','pop','imap','dns','dnsrebind','policies','exit=','target=','loglevel=']
   flags, trailer = getopt.getopt(argv[1:], [], opts)
-
+  
   # get specific test types
   do_resume = False
   do_rescan = ('--rescan','') in flags
@@ -2972,8 +2989,13 @@ def main(argv):
     if flag[0] == "--resume":
       do_resume = True
       resume_run=int(flag[1])
+    if flag[0] == "--loglevel":
+      if flag[1] in TorUtil.loglevels:
+        TorUtil.loglevel=flag[1]
+      else:
+        plog("ERROR", "Unknown loglevel: "+flag[1])
+        sys.exit(0)
 
-  TorUtil.read_config(data_dir+"/torctl.cfg")
 
   plog("DEBUG", "Read tor config. Got Socks proxy: "+str(TorUtil.tor_port))
 
