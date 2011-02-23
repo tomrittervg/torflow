@@ -433,17 +433,17 @@ def check_port_bytes(sorted_rlist, top_n):
       try:
         extra_info = c.sendAndRecv("GETINFO extra-info/digest/" +
                               r.extra_info_digest + "\r\n")[0][2]
+        if "exit-kibibytes-written" in extra_info:
+          displayed += 1
+          g = re.search("exit-kibibytes-read (\S+)", extra_info).group(1)
+          (tot, port_list) = split_port_list(g)
+          display_port_list(r, "read", tot, port_list)
+          g = re.search("exit-kibibytes-written (\S+)", extra_info).group(1)
+          (tot, port_list) = split_port_list(g)
+          display_port_list(r, "wrote", tot, port_list)
+          print
       except TorCtl.ErrorReply:
         print "Not all extra info docs present. Missing one for router "+r.idhex+"="+r.nickname
-      if "exit-kibibytes-written" in extra_info:
-        displayed += 1
-        g = re.search("exit-kibibytes-read (\S+)", extra_info).group(1)
-        (tot, port_list) = split_port_list(g)
-        display_port_list(r, "read", tot, port_list)
-        g = re.search("exit-kibibytes-written (\S+)", extra_info).group(1)
-        (tot, port_list) = split_port_list(g)
-        display_port_list(r, "wrote", tot, port_list)
-        print
 
 check_slices()
 
