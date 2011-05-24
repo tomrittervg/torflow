@@ -2076,12 +2076,14 @@ class SearchBasedTest:
     count = 0
     while len(type_urls) < self.results_per_type and count < max_search_retry:
       count += 1
+
+      #Try to filter based on filetype/protocol. Unreliable. We will re-filter.
       query = random.choice(self.wordlist)
       if filetype != 'any':
         query += " "+self.search_mode["filetype"]+filetype
       plog("WARN", "RESULTPROTOCOL IS:" + self.result_protocol)
-      if self.result_protocol != 'any' and self.search_mode["inurl"]:
-        query += " "+self.search_mode["inurl"]+self.result_protocol # this isn't too reliable, but we'll re-filter results later
+      if self.result_protocol == 'https' and self.search_mode["inurl"]:
+        query += " " + self.search_mode["inurl"] + "https"
       #query += '&num=' + `g_results_per_page`
 
       # search google for relevant pages
@@ -2124,19 +2126,19 @@ class SearchBasedTest:
         traceback.print_exc()
         print "Content is: "+str(content)
         break
+
       # get the links and do some additional filtering
+      assert(self.search_mode["class"])
       for link in soup.findAll('a'):
-        skip = True
-        for a in link.attrs:
-          if a[0] == "class" and self.search_mode["class"] in a[1]:
-            skip = False
-            break
-        if skip:
-          continue
-        if link.has_key(self.search_mode['realtgt']):
-          url = link[self.search_mode['realtgt']]
-        else:
-          url = link['href']
+        #Filter based on class of link
+        try:
+          if self.search_mode["class"] != link["class"]:
+            continue
+        except KeyError: continue
+
+        #Get real target
+        url = link[self.search_mode['realtgt']]
+
         if self.result_protocol == 'any':
           prot_list = None
         else:
@@ -2158,7 +2160,7 @@ class SearchBasedTest:
             type_urls.add(url)
         else:
           pass
-    plog("INFO", "Have "+str(len(type_urls))+"/"+str(self.results_per_type)+" urls from search so far..")
+      plog("INFO", "Have "+str(len(type_urls))+"/"+str(self.results_per_type)+" urls from search so far..")
     return type_urls
 
 class SearchBasedHTTPTest(SearchBasedTest, BaseHTTPTest):
