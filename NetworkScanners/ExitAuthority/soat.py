@@ -2188,16 +2188,19 @@ class SearchBasedHTTPTest(SearchBasedTest, BaseHTTPTest):
         plog("NOTICE", self.proto+" scanner short on "+ftype+" targets. Adding more")
         map(self.add_target, self.get_search_urls_for_filetype(ftype))
 
-  def get_targets(self):
-    raw_urls = self.get_search_urls()
-    new = {}
-    for url in raw_urls:
-      split = url.rsplit('.',1) # Try to get filetype
-      if len(split) > 1 and split[-1] in self.scan_filetypes:
-        new.setdefault(split[-1],[]).append(url)
-    for k,v in new.items():
-      self.targets_by_type.setdefault(k, []).extend(v)
-    return raw_urls
+# This duplicated the effort of BaseHTTPTest.add_target which is invoked by
+# SearchBasedHTTPTest.rewind -> BaseHTTPTest.rewind = Test.rewind
+# Instead we should fall back on SearchBasedTest.get_targets
+#  def get_targets(self):
+#    raw_urls = self.get_search_urls()
+#    new = {}
+#    for url in raw_urls:
+#      split = url.rsplit('.',1) # Try to get filetype
+#      if len(split) > 1 and split[-1] in self.scan_filetypes:
+#        new.setdefault(split[-1],[]).append(url)
+#    for k,v in new.items():
+#      self.targets_by_type.setdefault(k, []).extend(v)
+#      return raw_urls
 
 HTTPTest = SearchBasedHTTPTest # For resuming from old HTTPTest.*.test files
 
