@@ -520,6 +520,54 @@ def _ssl_request(address, method='TLSv1_METHOD'):
   plog("INFO", "SSL Request done for addrress: "+str(address))
   return rval
 
+class Targets:
+  """
+  The class used to store the targets of a Test.
+
+  Supports iteration over all targets and labelling a target with one or more "keys".
+  MUST support these methods:
+  add -- Add a target. Optional second argument is list of keys. Idempotent.
+  remove -- Remove a target. Returns True iff the target was found.
+  bykey -- Get an iterator whose elements match the supplied key.
+  __iter__
+  __len__
+
+  """
+  def __init__(self):
+    self.list = []
+    self.lookup = {}
+  def add(self, target, keys=[]):
+    if not target:
+      return
+    for pos,entry in enumerate(self.list):
+      if entry[0] == target:
+        newkeys = set.difference(set(keys),self.list[pos][1])
+        self.list[pos][1].update(newkeys)
+        break
+    else:
+      newkeys = set(keys)
+      self.list.append((target,newkeys))
+    for key in newkeys:
+      try:
+        self.lookup[key].append(target)
+      except KeyError:
+        self.lookup[key] = [target]
+  def remove(self,target):
+    retval = False
+    for pos,entry in enumerate(self.list):
+      if entry[0] == target:
+        for key in self.list[pos][1]:
+          self.lookup[key].remove(target)
+        self.list.pop(pos)
+        retval = True
+        break
+    return retval
+  def bykey(self,key):
+    return self.lookup.get(key,[])
+  def __iter__(self):
+    return map(lambda x: x[0], self.list).__iter__()
+  def __len__(self):
+    return len(self.list)
 
 # Base Test Classes
 class Test:
