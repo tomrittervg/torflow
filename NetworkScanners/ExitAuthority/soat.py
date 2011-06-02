@@ -528,9 +528,10 @@ class Targets:
   MUST support these methods:
   add -- Add a target. Optional second argument is list of keys. Idempotent.
   remove -- Remove a target. Returns True iff the target was found.
-  bykey -- Get an iterator whose elements match the supplied key.
+  bykey -- Get a list whose elements match the supplied key.
   __iter__
   __len__
+  __getitem__
 
   """
   def __init__(self):
@@ -564,15 +565,20 @@ class Targets:
     return retval
   def bykey(self,key):
     return self.lookup.get(key,[])
+  def keys(self):
+    return self.lookup.keys()
   def __iter__(self):
     return map(lambda x: x[0], self.list).__iter__()
   def __len__(self):
     return len(self.list)
+  def __getitem__(self,index):
+    return self.list[index]
 
 # Base Test Classes
 class Test:
   """ Base class for our tests """
   def __init__(self, proto, port):
+    """Sets the variables that are static for the lifetime of the test and calls self._reset() which sets the variables that are not."""
     self.proto = proto
     self.port = port
     self.min_targets = min_targets
@@ -585,8 +591,7 @@ class Test:
     self.scan_nodes = 0
     self.nodes_to_mark = 0
     self.tests_per_node = num_tests_per_node
-    self.url_reserve = {}
-    self._reset()
+    self._reset() #CA make this a call to rewind instead?
     self._pickle_revision = 8 # Will increment as fields are added
 
   def run_test(self):
@@ -656,13 +661,19 @@ class Test:
     return True
 
   def add_target(self, target):
-    self.targets.append(target)
+    self.targets.add(target)
+
+  def select_targets(self):
+    return self.targets
+
+  def refill_targets(self):
+    map(self.add_target, self.get_targets())
+    if not self.targets:
+      raise NoURLsFound("No URLS found for protocol "+self.proto)
 
   def remove_target(self, target, reason="None"):
     self.banned_targets.add(target)
-    self.refill_targets()
-    if target in self.targets:
-      self.targets.remove(target)
+    self.targets.remove(target)
     if target in self.dynamic_fails:
       del self.dynamic_fails[target]
     if target in self.successes:
@@ -692,6 +703,8 @@ class Test:
         r.mark_false_positive(reason)
         datahandler.saveResult(r)
       self.results.remove(r)
+
+    self.refill_targets()
 
   def load_rescan(self, type, since=None):
     self.rescan_nodes = set([])
@@ -817,7 +830,7 @@ class Test:
 
   def _reset(self):
     self.results = []
-    self.targets = []
+    self.targets = Targets()
     self.tests_run = 0
     self.nodes_marked = 0
     self.run_start = time.time()
@@ -827,7 +840,7 @@ class Test:
     self.dns_fails_per_exit = {}
     self.exit_fails_per_exit = {}
     self.node_results = {}
-    # These are indexed by site url:
+    # These are indexed by target URI:
     self.connect_fails = {}
     self.timeout_fails = {}
     self.dns_fails = {}
@@ -842,8 +855,8 @@ class Test:
     if not self.targets:
       raise NoURLsFound("No URLS found for protocol "+self.proto)
 
-    targets = "\n\t".join(self.targets)
-    plog("INFO", "Using the following urls for "+self.proto+" scan:\n\t"+targets)
+    targets_str = "\n\t".join(map(str,self.targets))
+    plog("INFO", "Using the following urls for "+self.proto+" scan:\n\t"+targets_str)
 
   def site_tests(self, site):
     tot_cnt = 0
@@ -981,17 +994,16 @@ class Test:
 
 
 class BaseHTTPTest(Test):
-  def __init__(self, filetypes=scan_filetypes):
+  def __init__(self, scan_filetypes=scan_filetypes):
     # FIXME: Handle http urls w/ non-80 ports..
-    self.scan_filetypes = filetypes
+    self.scan_filetypes = scan_filetypes
+    self.fetch_queue = []
     Test.__init__(self, "HTTP", 80)
     self.save_name = "HTTPTest"
-    self.fetch_targets = urls_per_filetype
 
   def _reset(self):
     self.httpcode_fails = {}
     self.httpcode_fails_per_exit = {}
-    self.targets_by_type = {}
     Test._reset(self)
 
   def depickle_upgrade(self):
@@ -1034,15 +1046,13 @@ class BaseHTTPTest(Test):
 
     self.tests_run += 1
 
-    n_tests = random.choice(xrange(1,len(self.targets_by_type)+1))
-    filetypes = random.sample(self.targets_by_type.keys(), n_tests)
-
-    plog("INFO", "HTTPTest decided to fetch "+str(n_tests)+" urls of types: "+str(filetypes))
+    self.fetch_queue.extend(self.select_targets())
 
     n_success = n_fail = n_inconclusive = 0
-    for ftype in filetypes:
+
+    while self.fetch_queue:
+      address = self.fetch_queue.pop(0)
       # FIXME: Set referrer to random or none for each of these
-      address = random.choice(self.targets_by_type[ftype])
       result = self.check_http(address)
       if result == TEST_INCONCLUSIVE:
         n_inconclusive += 1
@@ -1062,22 +1072,9 @@ class BaseHTTPTest(Test):
     else:
       return TEST_SUCCESS
 
-  def add_target(self, target):
-    # HTTP Tests keep an additional dictionary of targets keyed by filetype
-    split = target.rsplit('.',1)
-    if len(split) > 1 and split[-1] in self.scan_filetypes:
-      self.targets.append(target)
-      self.targets_by_type.setdefault(split[-1], []).append(target)
-
   def remove_target(self, target, reason="None"):
     # Remove from targets list and targets by type dictionary
-    if target in self.targets:
-      self.targets.remove(target)
-    for k,v in self.targets_by_type.items():
-      if target in v:
-        v.remove(target)
-        if not v:
-          del self.targets_by_type[k]
+    self.targets.remove(target)
     # Delete results in httpcode_fails
     if target in self.httpcode_fails:
       del self.httpcode_fails[target]
@@ -1488,18 +1485,10 @@ def is_script_mimetype(mime_type):
   return is_script
 
 class BaseHTMLTest(BaseHTTPTest):
-  def __init__(self, recurse_filetypes=scan_filetypes):
-    BaseHTTPTest.__init__(self, recurse_filetypes)
+  def __init__(self, scan_filetypes=scan_filetypes):
+    BaseHTTPTest.__init__(self, scan_filetypes)
     self.save_name = "HTMLTest"
-    self.fetch_targets = num_html_urls
-    self.proto = "HTML"
-    self.recurse_filetypes = recurse_filetypes
-    self.fetch_queue = []
-
-  def _reset(self):
-    self.httpcode_fails = {}
-    self.httpcode_fails_per_exit = {}
-    Test._reset(self)
+    self.proto = "HTML" #CA .. ?
 
   def depickle_upgrade(self):
     if self._pickle_revision < 7:
@@ -1507,10 +1496,8 @@ class BaseHTMLTest(BaseHTTPTest):
     Test.depickle_upgrade(self)
 
   def add_target(self, target):
+    """Avoid BaseHTTP.add_target which keys entries"""
     Test.add_target(self, target)
-
-  def remove_target(self, target, reason="None"):
-    Test.remove_target(self, target, reason)
 
   def run_test(self):
     # A single test should have a single cookie jar
@@ -1616,7 +1603,7 @@ class BaseHTMLTest(BaseHTTPTest):
               targets.append(("image", urlparse.urljoin(orig_addr, attr_tgt)))
             elif t.name == 'a':
               if attr_name == "href":
-                for f in self.recurse_filetypes:
+                for f in self.scan_filetypes:
                   if f not in got_type and attr_tgt[-len(f):] == f:
                     got_type[f] = 1
                     targets.append(("http", urlparse.urljoin(orig_addr, attr_tgt)))
@@ -2045,14 +2032,16 @@ class FixedTargetTest:
   def __init__(self, targets):
     self.fixed_targets = targets
 
-  def refill_targets(self):
-    pass
-
   def get_targets(self):
     return self.fixed_targets[:]
 
+  def refill_targets(self):
+    """Can't refill FixedTargetTest"""
+    pass
+
   def finished(self):
-    # FixedTargetTests are done if they test all nodes or run out of targets
+    """FixedTargetTests are done if they test all nodes or run out of targets"""
+    # CA do we properly handle possibility that self.targets can run out
     return not (self.nodes and self.targets)
 
 class FixedTargetHTTPTest(FixedTargetTest, BaseHTTPTest):
@@ -2081,17 +2070,12 @@ class SearchBasedTest:
   """ Mixin class. Must be mixed with a subclass of Test """
   def __init__(self, wordlist_file):
     self.wordlist_file = wordlist_file
-
     self.host_only = False
-    self.result_filetypes = ['any']
-    self.result_protocol = 'any'
-    self.results_per_type = 10
     self.search_mode = default_search_mode
+    self.url_reserve = {}
 
-  def refill_targets(self):
-    if len(self.targets) < self.min_targets:
-      plog("NOTICE", self.proto+" scanner short on targets. Adding more")
-      map(self.add_target, self.get_targets())
+  def rewind(self):
+    self.wordlist = load_wordlist(self.wordlist_file)
 
   def get_targets(self):
     return self.get_search_urls()
@@ -2103,26 +2087,23 @@ class SearchBasedTest:
     plog('INFO', 'Searching for relevant sites...')
 
     urllist = set([])
-    for filetype in self.result_filetypes:
-      type_urls = self.get_search_urls_for_filetype(filetype)
-      # make sure we don't get more urls than needed
-      if len(type_urls) > self.results_per_type:
-        chosen_urls = set(random.sample(type_urls, self.results_per_type))
-        if filetype in self.url_reserve:
-          self.url_reserve[filetype].extend(list(type_urls - chosen_urls))
-        else:
-          self.url_reserve[filetype] = list(type_urls - chosen_urls)
-        type_urls = chosen_urls
-      urllist.update(type_urls)
+    for filetype in self.scan_filetypes:
+      urllist.update(self.get_search_urls_for_filetype(filetype))
 
     return list(urllist)
 
-  def get_search_urls_for_filetype(self, filetype):
-    type_urls = set(self.url_reserve.get(filetype, []))
-    if type_urls: # Clear urls from the reserve
-      self.url_reserve[filetype] = []
+  def get_search_urls_for_filetype(self, filetype,number = 0):
+    if not number:
+      number = self.results_per_type
+
+    self.url_reserve.setdefault(filetype,[])
+
+    type_urls = set(self.url_reserve[filetype][:number])
+    self.url_reserve[filetype] = self.url_reserve[filetype][number:]
+
     count = 0
-    while len(type_urls) < self.results_per_type and count < max_search_retry:
+
+    while len(type_urls) < number and count < max_search_retry:
       count += 1
 
       #Try to filter based on filetype/protocol. Unreliable. We will re-filter.
@@ -2194,30 +2175,34 @@ class SearchBasedTest:
         if filetype == 'any':
           file_list = None
         else:
-          file_list = self.result_filetypes
+          file_list = self.scan_filetypes
 
         if self._is_useable_url(url, prot_list, file_list):
           if self.host_only:
             # FIXME: %-encoding, @'s, etc?
             plog("INFO", url)
-            host = urlparse.urlparse(url)[1]
+            url = urlparse.urlparse(url)[1]
             # Have to check again here after parsing the url:
-            if host not in self.banned_targets:
-              type_urls.add(host)
-          else:
-            type_urls.add(url)
+            if host in self.banned_targets:
+              continue
+          type_urls.add(url)
+          plog("INFO", "Have "+str(len(type_urls))+"/"+str(number)+" urls from search so far..")
         else:
           pass
-      plog("INFO", "Have "+str(len(type_urls))+"/"+str(self.results_per_type)+" urls from search so far..")
+
+    if len(type_urls) > number:
+      chosen = random.sample(type_urls,number)
+      self.url_reserve[filetype].extend(list(type_urls - set(chosen)))
+      type_urls = chosen
+
     return type_urls
 
 class SearchBasedHTTPTest(SearchBasedTest, BaseHTTPTest):
   def __init__(self, wordlist):
     BaseHTTPTest.__init__(self)
     SearchBasedTest.__init__(self, wordlist)
-    self.result_filetypes = self.scan_filetypes
-    self.result_protocol = "http"
-    self.results_per_type = self.fetch_targets
+    self.results_per_type = urls_per_filetype
+    self.result_protocol = 'http'
 
   def depickle_upgrade(self):
     if self._pickle_revision < 7:
@@ -2227,28 +2212,32 @@ class SearchBasedHTTPTest(SearchBasedTest, BaseHTTPTest):
     BaseHTTPTest.depickle_upgrade(self)
 
   def rewind(self):
-    self.wordlist = load_wordlist(self.wordlist_file)
+    SearchBasedTest.rewind(self)
     BaseHTTPTest.rewind(self)
+
+  def add_target(self, target):
+    # Keys targets by filetype. One filetype per target
+    split = target.rsplit('.',1)
+    if len(split) > 1 and split[-1] in self.scan_filetypes:
+      self.targets.add(target,[split[-1]])
+      return True
+    return False
+
+  def select_targets(self):
+    retval = []
+    n_tests = random.randrange(1,len(self.targets.keys())+1)
+    filetypes = random.sample(self.targets.keys(), n_tests)
+    plog("INFO", "HTTPTest decided to fetch "+str(n_tests)+" urls of types: "+str(filetypes))
+    for ftype in filetypes:
+      retval.append(random.choice(self.targets.bykey(ftype)))
+    return retval
 
   def refill_targets(self):
     for ftype in self.scan_filetypes:
-      if not ftype in self.targets_by_type or len(self.targets_by_type[ftype]) < self.fetch_targets:
+      targets_needed = self.results_per_type - len(self.targets.bykey(ftype))
+      if targets_needed > 0:
         plog("NOTICE", self.proto+" scanner short on "+ftype+" targets. Adding more")
-        map(self.add_target, self.get_search_urls_for_filetype(ftype))
-
-# This duplicated the effort of BaseHTTPTest.add_target which is invoked by
-# SearchBasedHTTPTest.rewind -> BaseHTTPTest.rewind = Test.rewind
-# Instead we should fall back on SearchBasedTest.get_targets
-#  def get_targets(self):
-#    raw_urls = self.get_search_urls()
-#    new = {}
-#    for url in raw_urls:
-#      split = url.rsplit('.',1) # Try to get filetype
-#      if len(split) > 1 and split[-1] in self.scan_filetypes:
-#        new.setdefault(split[-1],[]).append(url)
-#    for k,v in new.items():
-#      self.targets_by_type.setdefault(k, []).extend(v)
-#      return raw_urls
+        map(self.add_target, self.get_search_urls_for_filetype(ftype,targets_needed))
 
 HTTPTest = SearchBasedHTTPTest # For resuming from old HTTPTest.*.test files
 
@@ -2257,7 +2246,6 @@ class SearchBasedHTMLTest(SearchBasedTest, BaseHTMLTest):
     BaseHTMLTest.__init__(self)
     SearchBasedTest.__init__(self, wordlist)
     self.result_filetypes = ["any"]
-    self.result_protocol = "http"
     self.results_per_type = self.fetch_targets
 
   def depickle_upgrade(self):
@@ -2268,7 +2256,7 @@ class SearchBasedHTMLTest(SearchBasedTest, BaseHTMLTest):
     BaseHTMLTest.depickle_upgrade(self)
 
   def rewind(self):
-    self.wordlist = load_wordlist(self.wordlist_file)
+    SearchBasedTest.rewind(self)
     BaseHTMLTest.rewind(self)
 
 HTMLTest = SearchBasedHTMLTest # For resuming from old HTMLTest.*.test files
@@ -2908,7 +2896,7 @@ def decompress_response_data(response):
     len_read = len(data)
     now = time.time()
 
-    plog("DEBUG", "Read "+str(len_read)+"/"+str(tot_len))
+    #plog("DEBUG", "Read "+str(len_read)+"/"+str(tot_len)) #Very verbose
     # Wait 5 seconds before counting data
     if (now-start) > 5:
       rate = (float(len_read)/(now-start)) #B/s
