@@ -73,6 +73,9 @@ __selmgr = PathSupport.SelectionManager(
       use_guards=False,
       exit_ports=[443])
 
+# exit code to indicate scan completion
+STOP_PCT_REACHED = -9
+
 def read_config(filename):
   config = ConfigParser.SafeConfigParser()
   config.read(filename)
@@ -273,46 +276,42 @@ def main(argv):
     pidfd.write('%d\n' % os.getpid())
     pidfd.close()
 
-  try:
-    (c,hdlr) = setup_handler(out_dir, tor_dir+"/control_auth_cookie")
-  except Exception, e:
-    traceback.print_exc()
-    plog("WARN", "Can't connect to Tor: "+str(e))
+    slice_num = int(argv[2])
 
-  sql_file = os.getcwd()+'/'+out_dir+'/bwauthority.sqlite'
-  hdlr.attach_sql_listener('sqlite:///'+sql_file)
+    try:
+      (c,hdlr) = setup_handler(out_dir, tor_dir+"/control_auth_cookie")
+    except Exception, e:
+      traceback.print_exc()
+      plog("WARN", "Can't connect to Tor: "+str(e))
+    
+    sql_file = os.getcwd()+'/'+out_dir+'/bwauthority.sqlite'
+    hdlr.attach_sql_listener('sqlite:///'+sql_file)
+    
+    # set SOCKS proxy
+    socks.setdefaultproxy(socks.PROXY_TYPE_SOCKS5, TorUtil.tor_host, TorUtil.tor_port)
+    socket.socket = socks.socksocket
+    plog("INFO", "Set socks proxy to "+TorUtil.tor_host+":"+str(TorUtil.tor_port))
 
-  # set SOCKS proxy
-  socks.setdefaultproxy(socks.PROXY_TYPE_SOCKS5, TorUtil.tor_host, TorUtil.tor_port)
-  socket.socket = socks.socksocket
-  plog("INFO", "Set socks proxy to "+TorUtil.tor_host+":"+str(TorUtil.tor_port))
+    hdlr.wait_for_consensus()
+    pct_step = hdlr.rank_to_percent(nodes_per_slice)
 
-  while True:
-    pct = start_pct
-    plog('INFO', 'Beginning time loop')
-    slice_num = 0 
-    while pct < stop_pct:
-      hdlr.wait_for_consensus()
-      pct_step = hdlr.rank_to_percent(nodes_per_slice)
-      hdlr.reset_stats()
-      hdlr.commit()
-      plog('DEBUG', 'Reset stats')
+    # check to see if we are done
+    if (slice_num * pct_step > stop_pct):
+        sys.exit(STOP_PCT_REACHED)
 
-      speedrace(hdlr, pct, pct+pct_step, circs_per_node, save_every, out_dir,
-                max_fetch_time, sleep_start, sleep_stop, slice_num,
-                min_streams, sql_file)
+    speedrace(hdlr, slice_num*pct_step + start_pct, (slice_num + 1)*pct_step + start_pct, circs_per_node, save_every, out_dir,
+              max_fetch_time, sleep_start, sleep_stop, slice_num,
+              min_streams, sql_file)
 
-      # For debugging memory leak..
-      #TorUtil.dump_class_ref_counts(referrer_depth=1)
+    # For debugging memory leak..
+    #TorUtil.dump_class_ref_counts(referrer_depth=1)
 
-      # TODO: Change pathlen to 3 and kill exit+ConserveExit restrictions
-      # And record circ failure rates..
+    # TODO: Change pathlen to 3 and kill exit+ConserveExit restrictions
+    # And record circ failure rates..
 
-      #circ_measure(hdlr, pct, pct+pct_step, circs_per_node, save_every, 
-      #  out_dir, max_fetch_time, sleep_start, sleep_stop, slice_num, sql_file)
-
-      pct += pct_step
-      slice_num += 1
+    #circ_measure(hdlr, pct, pct+pct_step, circs_per_node, save_every, 
+    #  out_dir, max_fetch_time, sleep_start, sleep_stop, slice_num, sql_file)
+    sys.exit(0)
 
 def cleanup(c, f):
   plog("INFO", "Resetting __LeaveStreamsUnattached=0 and FetchUselessDescriptors="+f)
