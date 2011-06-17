@@ -267,6 +267,7 @@ def speedrace(hdlr, start_pct, stop_pct, circs_per_node, save_every, out_dir,
   #hdlr.save_sql_file(sql_file, os.getcwd()+"/"+out_dir+"/bw-db-"+str(lo)+":"+str(hi)+"-"+time.strftime("20%y-%m-%d-%H:%M:%S")+".sqlite")
 
 def main(argv):
+  plog("DEBUG", "Child Process Spawning...")
   TorUtil.read_config(argv[1])
   (start_pct,stop_pct,nodes_per_slice,save_every,circs_per_node,out_dir,
       max_fetch_time,tor_dir,sleep_start,sleep_stop,
@@ -319,14 +320,8 @@ def main(argv):
     #  out_dir, max_fetch_time, sleep_start, sleep_stop, slice_num, sql_file)
     sys.exit(0)
 
-def cleanup(c, f):
-  plog("INFO", "Resetting __LeaveStreamsUnattached=0 and FetchUselessDescriptors="+f)
-  try:
-    # XXX: Remember __LeaveStreamsUnattached and use saved value!
-    c.set_option("__LeaveStreamsUnattached", "0")
-    c.set_option("FetchUselessDescriptors", f)
-  except TorCtl.TorCtlClosed:
-    pass
+def cleanup():
+  plog("DEBUG", "Child Process Exiting...")
 
 def setup_handler(out_dir, cookie_file):
   plog('INFO', 'Connecting to Tor at '+TorUtil.control_host+":"+str(TorUtil.control_port))
@@ -335,7 +330,6 @@ def setup_handler(out_dir, cookie_file):
   c = PathSupport.Connection(s)
   #c.debug(file(out_dir+"/control.log", "w", buffering=0))
   c.authenticate_cookie(file(cookie_file, "r"))
-  #f = c.get_option("__LeaveStreamsUnattached")[0]
   h = BwScanHandler(c, __selmgr,
                     strm_selector=PathSupport.SmartSocket.StreamSelector)
 
@@ -349,10 +343,7 @@ def setup_handler(out_dir, cookie_file):
           TorCtl.EVENT_TYPE.CIRC,
           TorCtl.EVENT_TYPE.STREAM_BW], True)
 
-  c.set_option("__LeaveStreamsUnattached", "1")
-  f = c.get_option("FetchUselessDescriptors")[0][1]
-  c.set_option("FetchUselessDescriptors", "1")
-  atexit.register(cleanup, *(c, f))
+  atexit.register(cleanup)
   return (c,h)
 
 def usage(argv):
