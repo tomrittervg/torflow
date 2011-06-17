@@ -301,7 +301,7 @@ def main(argv):
     pct_step = hdlr.rank_to_percent(nodes_per_slice)
 
     # check to see if we are done
-    if (slice_num * pct_step > stop_pct):
+    if (slice_num * pct_step + start_pct > stop_pct):
         sys.exit(STOP_PCT_REACHED)
 
     speedrace(hdlr, slice_num*pct_step + start_pct, (slice_num + 1)*pct_step + start_pct, circs_per_node, save_every, out_dir,
