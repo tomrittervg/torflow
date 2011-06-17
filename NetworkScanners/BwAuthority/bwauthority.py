@@ -30,7 +30,7 @@ def main(argv):
     if (p.returncode == 0):
       slice_num += 1
     elif (p.returncode == bwauthority_child.STOP_PCT_REACHED):
-      plog('INFO', 'stop_pct reached, restarting from slice 0')
+      plog('INFO', 'restarting from slice 0')
       slice_num = 0
     else:
       plog('WARN', 'Child process returned %s' % p.returncode)

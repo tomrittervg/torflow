@@ -305,6 +305,7 @@ def main(argv):
 
     # check to see if we are done
     if (slice_num * pct_step + start_pct > stop_pct):
+        plog('INFO', 'stop_pct: %s reached. Exiting with %s' % (stop_pct, STOP_PCT_REACHED))
         sys.exit(STOP_PCT_REACHED)
 
     speedrace(hdlr, slice_num*pct_step + start_pct, (slice_num + 1)*pct_step + start_pct, circs_per_node, save_every, out_dir,
