@@ -98,10 +98,11 @@ def read_config(filename):
   sleep_stop = tuple(map(int, sleep_stop.split(":")))
 
   pid_file = config.get('BwAuthority', 'pid_file')
+  db_url = config.get('BwAuthority', 'db_url')
 
   return (start_pct,stop_pct,nodes_per_slice,save_every,
             circs_per_node,out_dir,max_fetch_time,tor_dir,
-            sleep_start,sleep_stop,min_streams,pid_file)
+            sleep_start,sleep_stop,min_streams,pid_file,db_url)
 
 def choose_url(percentile):
   for (pct, url) in urls:
@@ -269,7 +270,7 @@ def main(argv):
   TorUtil.read_config(argv[1])
   (start_pct,stop_pct,nodes_per_slice,save_every,circs_per_node,out_dir,
       max_fetch_time,tor_dir,sleep_start,sleep_stop,
-             min_streams,pid_file_name) = read_config(argv[1])
+             min_streams,pid_file_name,db_url) = read_config(argv[1])
  
   if pid_file_name:
     pidfd = file(pid_file_name, 'w')
@@ -284,8 +285,12 @@ def main(argv):
       traceback.print_exc()
       plog("WARN", "Can't connect to Tor: "+str(e))
     
-    sql_file = os.getcwd()+'/'+out_dir+'/bwauthority.sqlite'
-    hdlr.attach_sql_listener('sqlite:///'+sql_file)
+    if db_url:
+      hdlr.attach_sql_listener(db_url)
+    else:
+      plog("INFO", "db_url not found in config. Defaulting to sqlite")
+      sql_file = os.getcwd()+'/'+out_dir+'/bwauthority.sqlite'
+      hdlr.attach_sql_listener('sqlite:///'+sql_file)
     
     # set SOCKS proxy
     socks.setdefaultproxy(socks.PROXY_TYPE_SOCKS5, TorUtil.tor_host, TorUtil.tor_port)
