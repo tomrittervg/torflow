@@ -287,6 +287,7 @@ def main(argv):
     
     if db_url:
       hdlr.attach_sql_listener(db_url)
+      sql_file = None
     else:
       plog("INFO", "db_url not found in config. Defaulting to sqlite")
       sql_file = os.getcwd()+'/'+out_dir+'/bwauthority.sqlite'
