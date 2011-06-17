@@ -323,7 +323,11 @@ def main(argv):
 
 def ignore_streams(c,hdlr):
   for stream in c.get_info("stream-status")['stream-status'].rstrip("\n").split("\n"):
-    f = re.match("(?P<sid>\d*)\s(?P<status>\S*)\s(?P<cid>\d*)\s(?P<host>\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}):(?P<port>\d{1,5})",stream).groupdict()
+    m = re.match("(?P<sid>\d*)\s(?P<status>\S*)\s(?P<cid>\d*)\s(?P<host>\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}):(?P<port>\d{1,5})",stream)
+    if m:
+      f = m.groupdict()
+    else:
+      return # no streams
     s = PathSupport.Stream(int(f['sid']), f['host'], int(f['port']), 0)
     plog("DEBUG", "Ignoring foreign stream: %s" % f['sid'])
     s.ignored = True
