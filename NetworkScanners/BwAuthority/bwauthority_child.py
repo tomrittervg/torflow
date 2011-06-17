@@ -22,6 +22,7 @@ import threading
 import ConfigParser
 import sqlalchemy
 import sets
+import re
 
 sys.path.append("../../")
 
@@ -285,7 +286,7 @@ def main(argv):
     except Exception, e:
       traceback.print_exc()
       plog("WARN", "Can't connect to Tor: "+str(e))
-    
+
     if db_url:
       hdlr.attach_sql_listener(db_url)
       sql_file = None
@@ -320,6 +321,14 @@ def main(argv):
     #  out_dir, max_fetch_time, sleep_start, sleep_stop, slice_num, sql_file)
     sys.exit(0)
 
+def ignore_streams(c,hdlr):
+  for stream in c.get_info("stream-status")['stream-status'].rstrip("\n").split("\n"):
+    f = re.match("(?P<sid>\d*)\s(?P<status>\S*)\s(?P<cid>\d*)\s(?P<host>\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}):(?P<port>\d{1,5})",stream).groupdict()
+    s = PathSupport.Stream(int(f['sid']), f['host'], int(f['port']), 0)
+    plog("DEBUG", "Ignoring foreign stream: %s" % f['sid'])
+    s.ignored = True
+    hdlr.streams[s.strm_id] = s
+
 def cleanup():
   plog("DEBUG", "Child Process Exiting...")
 
@@ -333,6 +342,8 @@ def setup_handler(out_dir, cookie_file):
   h = BwScanHandler(c, __selmgr,
                     strm_selector=PathSupport.SmartSocket.StreamSelector)
 
+  # ignore existing streams
+  ignore_streams(c,h)
   c.set_event_handler(h)
   #c.set_periodic_timer(2.0, "PULSE")
 
