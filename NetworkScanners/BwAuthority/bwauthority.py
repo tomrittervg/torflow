@@ -14,7 +14,7 @@ def main(argv):
   TorUtil.read_config(argv[1])
   (start_pct,stop_pct,nodes_per_slice,save_every,circs_per_node,out_dir,
       max_fetch_time,tor_dir,sleep_start,sleep_stop,
-             min_streams,pid_file_name) = bwauthority_child.read_config(argv[1])
+             min_streams,pid_file_name,db_url) = bwauthority_child.read_config(argv[1])
  
   if pid_file_name:
     pidfd = file(pid_file_name, 'w')
