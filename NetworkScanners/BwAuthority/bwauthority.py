@@ -1,14 +1,11 @@
 #!/usr/bin/env python
-import sys
-import subprocess
-import ConfigParser
-import os
-import traceback
-sys.path.append("../../")
-from TorCtl import TorUtil
-from TorCtl.TorUtil import plog
-from signal import signal, SIGTERM
+from sys import argv as s_argv
+from sys import path
 from sys import exit
+from subprocess import Popen
+path.append("../../")
+from TorCtl.TorUtil import plog as plog
+from signal import signal, SIGTERM
 
 
 # exit code to indicate scan completion
@@ -20,7 +17,7 @@ def main(argv):
   while True:
     plog('INFO', 'Beginning time loop')
     global p
-    p = subprocess.Popen(["python", "bwauthority_child.py", argv[1], str(slice_num)])
+    p = Popen(["python", "bwauthority_child.py", argv[1], str(slice_num)])
     p.wait()
     if (p.returncode == 0):
       slice_num += 1
@@ -38,11 +35,9 @@ def sigterm_handler(signum, frame):
 if __name__ == '__main__':
   signal(SIGTERM, sigterm_handler)
   try:
-    main(sys.argv)
+    main(s_argv)
   except KeyboardInterrupt:
     p.kill()
     plog('INFO', "Ctrl + C was pressed. Exiting ... ")
-    traceback.print_exc()
   except Exception, e:
     plog('ERROR', "An unexpected error occured.")
-    traceback.print_exc()
