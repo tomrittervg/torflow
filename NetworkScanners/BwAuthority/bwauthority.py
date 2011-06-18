@@ -7,6 +7,8 @@ import traceback
 sys.path.append("../../")
 from TorCtl import TorUtil
 from TorCtl.TorUtil import plog
+from signal import signal, SIGTERM
+from sys import exit
 
 
 # exit code to indicate scan completion
@@ -28,7 +30,13 @@ def main(argv):
     else:
       plog('WARN', 'Child process returned %s' % p.returncode)
 
+def sigterm_handler(signum, frame):
+  if p:
+    p.kill()
+  exit()
+
 if __name__ == '__main__':
+  signal(SIGTERM, sigterm_handler)
   try:
     main(sys.argv)
   except KeyboardInterrupt:
