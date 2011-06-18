@@ -10,7 +10,7 @@ from signal import signal, SIGTERM
 
 # exit code to indicate scan completion
 # make sure to update this in bwauthority_child.py as well
-STOP_PCT_REACHED = -9
+STOP_PCT_REACHED = 9
 
 def main(argv):
   slice_num = 0 

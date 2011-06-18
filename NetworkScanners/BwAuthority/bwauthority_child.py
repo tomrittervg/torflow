@@ -76,7 +76,7 @@ __selmgr = PathSupport.SelectionManager(
 
 # exit code to indicate scan completion
 # make sure to update this in bwauthority.py as well
-STOP_PCT_REACHED = -9
+STOP_PCT_REACHED = 9
 
 def read_config(filename):
   config = ConfigParser.SafeConfigParser()
@@ -309,6 +309,7 @@ def main(argv):
         plog('INFO', 'stop_pct: %s reached. Exiting with %s' % (stop_pct, STOP_PCT_REACHED))
         sys.exit(STOP_PCT_REACHED)
 
+    plog("DEBUG", "Starting slice number %s" % slice_num)
     speedrace(hdlr, slice_num*pct_step + start_pct, (slice_num + 1)*pct_step + start_pct, circs_per_node, save_every, out_dir,
               max_fetch_time, sleep_start, sleep_stop, slice_num,
               min_streams, sql_file)
