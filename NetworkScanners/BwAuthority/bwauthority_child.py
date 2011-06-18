@@ -75,6 +75,7 @@ __selmgr = PathSupport.SelectionManager(
       exit_ports=[443])
 
 # exit code to indicate scan completion
+# make sure to update this in bwauthority.py as well
 STOP_PCT_REACHED = -9
 
 def read_config(filename):

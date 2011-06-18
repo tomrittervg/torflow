@@ -7,20 +7,13 @@ import traceback
 sys.path.append("../../")
 from TorCtl import TorUtil
 from TorCtl.TorUtil import plog
-import bwauthority_child
 
+
+# exit code to indicate scan completion
+# make sure to update this in bwauthority_child.py as well
+STOP_PCT_REACHED = -9
 
 def main(argv):
-  TorUtil.read_config(argv[1])
-  (start_pct,stop_pct,nodes_per_slice,save_every,circs_per_node,out_dir,
-      max_fetch_time,tor_dir,sleep_start,sleep_stop,
-             min_streams,pid_file_name,db_url) = bwauthority_child.read_config(argv[1])
- 
-  if pid_file_name:
-    pidfd = file(pid_file_name, 'w')
-    pidfd.write('%d\n' % os.getpid())
-    pidfd.close()
-
   slice_num = 0 
   while True:
     plog('INFO', 'Beginning time loop')
@@ -29,7 +22,7 @@ def main(argv):
     p.wait()
     if (p.returncode == 0):
       slice_num += 1
-    elif (p.returncode == bwauthority_child.STOP_PCT_REACHED):
+    elif (p.returncode == STOP_PCT_REACHED):
       plog('INFO', 'restarting from slice 0')
       slice_num = 0
     else:
