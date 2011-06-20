@@ -49,11 +49,13 @@ user_agent = "Mozilla/4.0 (compatible; MSIE 6.0; Windows NT 5.1; .NET CLR 1.0.37
 # TODO: We'll also want to try to prefer pairing unmeasured nodes 
 # together then, and use a different url set for them.
 #          cutoff percent                URL
-urls =         [(10,          "https://38.229.70.2/2M"),
-                (20,          "https://38.229.70.2/1M"),
-                (30,          "https://38.229.70.2/512k"),
-                (50,          "https://38.229.70.2/256k"),
-                (100,         "https://38.229.70.2/128k")]
+urls =         [(5,          "https://38.229.70.2/16M"),    # fbw 1499k..500k
+                (10,          "https://38.229.70.2/8M"),    # fbw 500k..350k
+                (20,          "https://38.229.70.2/4M"),    # fbw 350k..200k
+                (30,          "https://38.229.70.2/2M"),    # fbw 200k..128k
+                (50,          "https://38.229.70.2/512k"),  # fbw 128k..50k
+                (80,          "https://38.229.70.2/256k"),  # fbw 50k..26k
+                (100,         "https://38.229.70.2/128k")]  # fbw 26k..10k
 
 
 # Do NOT modify this object directly after it is handed to PathBuilder
