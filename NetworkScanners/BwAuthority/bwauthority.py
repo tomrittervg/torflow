@@ -5,7 +5,7 @@ from sys import exit
 from subprocess import Popen
 path.append("../../")
 from TorCtl.TorUtil import plog as plog
-from signal import signal, SIGTERM
+from signal import signal, SIGTERM, SIGKILL
 
 
 # exit code to indicate scan completion
@@ -24,6 +24,12 @@ def main(argv):
     elif (p.returncode == STOP_PCT_REACHED):
       plog('INFO', 'restarting from slice 0')
       slice_num = 0
+    elif (abs(p.returncode) == SIGKILL):
+      plog('WARN', 'Child process recieved SIGKILL, exiting')
+      exit()
+    elif (abs(p.returncode) == SIGTERM):
+      plog('WARN', 'Child process recieved SIGTERM, exiting')
+      exit()
     else:
       plog('WARN', 'Child process returned %s' % p.returncode)
 
