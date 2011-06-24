@@ -50,13 +50,14 @@ user_agent = "Mozilla/4.0 (compatible; MSIE 6.0; Windows NT 5.1; .NET CLR 1.0.37
 # TODO: We'll also want to try to prefer pairing unmeasured nodes 
 # together then, and use a different url set for them.
 #          cutoff percent                URL
-urls =         [(5,          "https://38.229.70.2/16M"),    # fbw 1499k..500k
-                (10,          "https://38.229.70.2/8M"),    # fbw 500k..350k
-                (20,          "https://38.229.70.2/4M"),    # fbw 350k..200k
-                (30,          "https://38.229.70.2/2M"),    # fbw 200k..128k
-                (50,          "https://38.229.70.2/512k"),  # fbw 128k..50k
-                (80,          "https://38.229.70.2/256k"),  # fbw 50k..26k
-                (100,         "https://38.229.70.2/128k")]  # fbw 26k..10k
+urls =         [(5,          "https://38.229.70.2/8M"),     # fbw 2000k..451k
+                (10,          "https://38.229.70.2/4M"),    # fbw 451k..275k
+                (20,          "https://38.229.70.2/2M"),    # fbw 275k..150k
+                (30,          "https://38.229.70.2/1M"),    # fbw 150k..100k
+                (40,          "https://38.229.70.2/1M"),    # fbw 100k..75k
+                (50,          "https://38.229.70.2/512k"),  # fbw 75k..50k
+                (80,          "https://38.229.70.2/256k"),  # fbw 50k..25k
+                (100,         "https://38.229.70.2/128k")]  # fbw 25k..10k
 
 
 # Do NOT modify this object directly after it is handed to PathBuilder
@@ -376,6 +377,8 @@ if __name__ == '__main__':
   except KeyboardInterrupt:
     plog('INFO', "Ctrl + C was pressed. Exiting ... ")
     traceback.print_exc()
+  except SystemExit, e:
+    sys.exit(e)
   except Exception, e:
     plog('ERROR', "An unexpected error occured.")
     traceback.print_exc()
