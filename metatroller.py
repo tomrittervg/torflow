@@ -305,11 +305,8 @@ def listenloop(c, h, f):
   srv.close()
 
 def startup():
-  s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-  s.connect((control_host,control_port))
-  c = PathSupport.Connection(s)
+  c = TorCtl.connect(control_host, control_port, ConnClass=PathSupport.Connection)
   c.debug(file("control.log", "w", buffering=0))
-  c.authenticate(control_pass)
   h = PathSupport.PathBuilder(c, __selmgr) # StatsHandler(c, __selmgr)
 
   c.set_event_handler(h)
