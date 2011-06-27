@@ -73,7 +73,8 @@ __selmgr = PathSupport.SelectionManager(
       uniform=True,
       use_exit=None,
       use_guards=False,
-      exit_ports=[443])
+      exit_ports=[443],
+      order_by_ratio=True)
 
 # exit code to indicate scan completion
 # make sure to update this in bwauthority.py as well
