@@ -28,7 +28,7 @@ num_html_urls = 10
 max_search_retry = 3
 
 # Hrmm.. Too many of these and Google really h8s us..
-scan_filetypes = ['pdf','exe']
+scan_filetypes = ['pdf','doc','html']
 
 # Urls to scan for each filetype
 urls_per_filetype = 2
@@ -150,8 +150,8 @@ ixquick_search_mode = {"host" : "ixquick.com/do/metasearch.pl", "query":"all_ter
                       "extra":[("prfh","disable_family_filterEEE1N1Nnum_of_resultsEEE50N1Ndisable_video_family_filterEEE1N1N")]}
  
 
-#default_search_mode = google_search_mode
-default_search_mode = ixquick_search_mode
+default_search_mode = google_search_mode
+#default_search_mode = ixquick_search_mode
 
 # Regex of characters we consider unsafe to write to the filesystem
 unsafe_filechars = "[^a-zA-Z0-9-\.+]"
