@@ -12,7 +12,7 @@ for n in `seq $SCANNER_COUNT`; do
     PIDFILE=./data/scanner.${n}/bwauthority.pid
     if [ -f $PIDFILE ]; then
     echo "Killing off scanner $n."
-    kill `head -1 $PIDFILE` && rm $PIDFILE
+    kill -9 `head -1 $PIDFILE` && rm $PIDFILE
     fi
 done
 

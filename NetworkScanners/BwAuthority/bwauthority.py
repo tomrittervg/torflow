@@ -28,8 +28,16 @@ def main(argv):
       plog('WARN', 'Child process recieved SIGKILL, exiting')
       exit()
     elif (abs(p.returncode) == SIGTERM):
-      plog('WARN', 'Child process recieved SIGTERM, exiting')
-      exit()
+      #XXX
+      # see: https://trac.torproject.org/projects/tor/ticket/3701
+      # if uncaught exceptions are raised in user-written handlers, TorCtl
+      # will kill the bwauthority_child process using os.kill() because sys.exit()
+      # only exits the thread in which the exception is caught.
+      # quote mikeperry: "we want this thing not do die. that is priority one"
+      # therefore: we restart the child process and hope for the best :-)
+      plog('WARN', 'Child process recieved SIGTERM')
+      #exit()
+
     else:
       plog('WARN', 'Child process returned %s' % p.returncode)
 
