@@ -358,6 +358,10 @@ class ExitScanHandler(ScanSupport.ScanHandler):
 
     self.__dnshandler = DNSRebindScanner(self, c)
 
+class Http_Return:
+  def __init__(self, rt):
+    (self.code, self.headers, self.new_cookies, self.mime_type, self.content) = rt
+
 # HTTP request handling
 def http_request(address, cookie_jar=None, headers=firefox_headers):
   ''' perform a http GET-request and return the content received '''
@@ -384,7 +388,7 @@ def http_request(address, cookie_jar=None, headers=firefox_headers):
     length = reply.info().get("Content-Length")
     if length and int(length) > max_content_size:
       plog("WARN", "Max content size exceeded for "+address+": "+length)
-      return (reply.code, None, [], "", "")
+      return Http_Return((reply.code, None, [], "", ""))
     mime_type = reply.info().type.lower()
     reply_headers = HeaderDiffer.filter_headers(reply.info().items())
     reply_headers.add(("mime-type", mime_type))
@@ -433,7 +437,7 @@ def http_request(address, cookie_jar=None, headers=firefox_headers):
     traceback.print_exc()
     rval = (E_MISC, None, [], "", e.__class__.__name__+str(e))
   plog("INFO", "Completed HTTP Reqest for: "+address)
-  return rval
+  return Http_Return(rval)
 
 
 # SSL request handling
@@ -1120,7 +1124,7 @@ class BaseHTTPTest(Test):
     datahandler.saveResult(result)
     return TEST_FAILURE
 
-  def direct_load(self, orig_address, filetype):
+  def first_load(self, orig_address, filetype):
     """Loads a page on a direct connection. The signtuare is:
        address (posibly after redirects)
        success (T/F)
@@ -1132,36 +1136,37 @@ class BaseHTTPTest(Test):
     address = orig_address
 
     # Reqest the content using a direct connection
-    (code, resp_headers, new_cookies, mime_type, content) = http_request(orig_address,self.cookie_jar, self.headers)
+    req = http_request(orig_address,self.cookie_jar, self.headers)
 
     # Make a good faith effort to follow redirects
     count = 0
     trail = set([])
-    while (300 <= code < 400):
-      plog("NOTICE", "Non-Tor HTTP "+str(code)+" redirect from "+str(orig_address)+" to "+str(content))
-      address = content
+    while (300 <= req.code < 400):
+      plog("NOTICE", "Non-Tor HTTP "+str(req.code)+" redirect from "+str(orig_address)+" to "+str(req.content))
+      address = req.content
       if address in trail: break
       trail.add(address)
-      (code, resp_headers, new_cookies, mime_type, content) = http_request(address, self.cookie_jar, self.headers)
+      req = http_request(address, self.cookie_jar, self.headers)
 
       count += 1
       if count > 4: break
 
     # Couldn't get past the redirects
-    if (300 <= code < 400):
-      return (address,False,code,'')
+    if (300 <= req.code < 400):
+      return (address,False,req.code,'')
 
     # If there was a fatal error, return failure
-    if not (200 <= code < 300) or not content:
-      plog("NOTICE", "Non-tor HTTP error "+str(code)+" fetching content for "+address)
-      return (address, False, code,'')
+    if not (200 <= req.code < 300) or not req.content:
+      plog("NOTICE", "Non-tor HTTP error "+str(req.code)+" fetching content for "+address)
+      return (address, False, req.code,'')
 
-    loaded_filetype = mime_to_filetype(mime_type)
+    loaded_filetype = mime_to_filetype(req.mime_type)
 
     if filetype and filetype != loaded_filetype:
-      
-      plog('DEBUG', 'Wrong filetype: ' + filetype + ' ' + loaded_filetype)
-      return (address, False, code, '')
+      plog('DEBUG', 'Wrong filetype: ' + loaded_filetype + ' instead of ' + filetype)
+      return (address, False, req.code, '')
+
+    self.save_compare_data(address,filetype,req)
 
     # Fetch again with different cookies and see if we get the same content
     # Use a different IP address if possible
@@ -1169,34 +1174,18 @@ class BaseHTTPTest(Test):
     empty_cookie_jar = cookielib.MozillaCookieJar()
 
     BindingSocket.bind_to = refetch_ip
-    (code_new, resp_headers_new, new_cookies_new, mime_type_new, content_new) = http_request(address, empty_cookie_jar, self.headers)
+    second_req = http_request(address, empty_cookie_jar, self.headers)
     BindingSocket.bind_to = None
 
     # If there was a fatal error, return failure
-    if not (code <= 200 < 300) or not content:
-      plog("NOTICE", "Non-tor HTTP error "+str(code)+" fetching content for "+address)
-      return (address, False, code, '')
+    if not (second_req.code <= 200 < 300) or not second_req.content:
+      plog("NOTICE", "Non-tor HTTP error "+str(second_req.code)+" fetching content for "+address)
+      return (address, False, second_req.code, '')
 
-    # The context for writing out the files used to make repeated comparisons
-    address_file = DataHandler.safeFilename(re.sub('[a-z]+://','',address))
-    content_prefix = http_content_dir + address_file
+    if self.compare(address,filetype,second_req) != COMPARE_EQUAL:
+      return (address, False, second_req.code, '')
 
-    # If the page is different on the second load, then it is probably dynamic and useless to us
-    if self.compare(content,content_new,content_prefix,loaded_filetype) != COMPARE_EQUAL:
-      return (address, False, code, '')
-
-    f = open(content_prefix + '.content', 'w')
-    f.write(content)
-    f.close()
-
-    # Save the cookies in case we want them for a later test
-    empty_cookie_jar.save(content_prefix + '.cookies',ignore_discard=True)
-
-    # Save the response headers in case we want them for a later test
-    headerdiffer = HeaderDiffer(resp_headers)
-    SnakePickler.dump(headerdiffer, content_prefix+'.headerdiff')
-
-    return (address, True, code, loaded_filetype)    
+    return (address, True, req.code, loaded_filetype)    
 
   def check_http(self, address, filetype, dynamic = False):
     ''' check whether a http connection to a given address is molested '''
@@ -1219,8 +1208,8 @@ class BaseHTTPTest(Test):
     # CA we should modify our headers for maximum magic
 
     # pfoobar means that foobar was acquired over a _p_roxy
-    (pcode, presp_headers, pnew_cookies, pmime_type, pcontent) = torify(http_request, address, my_tor_cookie_jar, self.headers)
-    psha1sum = sha(pcontent)
+    preq = torify(http_request, address, my_tor_cookie_jar, self.headers)
+    psha1sum = sha(preq.content)
 
     exit_node = scanhdlr.get_exit_node()
     if not exit_node:
@@ -1238,21 +1227,21 @@ class BaseHTTPTest(Test):
     exit_node = "$"+exit_node.idhex
 
     # If there is an error loading the page over Tor:
-    if not (200 <= pcode < 300) or not pcontent:
+    if not (200 <= preq.code < 300) or not preq.content:
       # And if it doesn't have to do with our SOCKS connection:
-      if pcode not in SOCKS_ERRS:
-        plog("NOTICE", exit_node+" had error "+str(pcode)+" fetching content for "+address)
+      if preq.code not in SOCKS_ERRS:
+        plog("NOTICE", exit_node+" had error "+str(preq.code)+" fetching content for "+address)
 
-        (code_direct, resp_headers_direct, direct_cookies_direct, mime_type_direct, content_direct) = http_request(address, my_cookie_jar, self.headers)
+        direct_req = http_request(address, my_cookie_jar, self.headers)
 
         # If a direct load is failing, remove this target from future consideration
-        if (300 <= code_direct < 400):
+        if (300 <= direct_req.code < 400):
           self.remove_target(address, INCONCLUSIVE_REDIRECT)
-        elif not (200 <= code_direct < 300):
+        elif not (200 <= direct_req.code < 300):
           self.remove_target(address, FALSEPOSITIVE_HTTPERRORS)
 
         # If Tor and direct are failing for the same reason, Tor is off the hook
-        if (code_direct == pcode):
+        if (direct_req.code == preq.code):
           result = HttpTestResult(self.node_map[exit_node[1:]],
                                   address, TEST_INCONCLUSIVE, INCONCLUSIVE_NOLOCALCONTENT)
           if self.rescan_nodes:
@@ -1276,15 +1265,15 @@ class BaseHTTPTest(Test):
          E_MISC:        (FAILURE_MISCEXCEPTION, self.register_connect_failure, True)
         }
 
-      if pcode in err_lookup:
-        fail_reason, register, extra_info = err_lookup[pcode]
-      elif 300 <= pcode < 400: # Exit node introduced a redirect
-        plog("NOTICE", "Tor only HTTP "+str(pcode)+" redirect from "+address+" to "+str(pcontent))
+      if preq.code in err_lookup:
+        fail_reason, register, extra_info = err_lookup[preq.code]
+      elif 300 <= preq.code < 400: # Exit node introduced a redirect
+        plog("NOTICE", "Tor only HTTP "+str(preq.code)+" redirect from "+address+" to "+str(preq.content))
         fail_reason = FAILURE_REDIRECT
         register = self.register_http_failure
         extra_info = True
       else: # Exit node introduced some other change
-        fail_reason = FAILURE_BADHTTPCODE + str(pcode) #CA don't think this is good
+        fail_reason = FAILURE_BADHTTPCODE + str(preq.code) #CA don't think this is good
         register = self.register_exit_failure
         extra_info = True
 
@@ -1298,7 +1287,7 @@ class BaseHTTPTest(Test):
       return TEST_FAILURE
 
     # If we have no content, we had a connection error
-    if pcontent == "":
+    if not preq.content:
       result = HttpTestResult(self.node_map[exit_node[1:]],
                               address, TEST_FAILURE, FAILURE_NOEXITCONTENT)
       self.register_exit_failure(result)
@@ -1309,30 +1298,15 @@ class BaseHTTPTest(Test):
     # Tor was able to connect, so now it's time to make the comparison
     #
 
-    # An address representation acceptable for a filename:
-    address_file = DataHandler.safeFilename(re.sub('[a-z]+://','',address))
-    content_prefix = http_content_dir + address_file
-    failed_prefix = http_failed_dir + address_file
-
-    # Load content from disk
-    content_file = open(content_prefix+'.content', 'r')
-    content = ''.join(content_file.readlines())
-    content_file.close()
-    
-    # If we need to write out the content handed to us by the exit node
-    exit_content_file_name = DataHandler.uniqueFilename(failed_prefix+'.'+exit_node[1:]+'.content')
-
-    # TODO we might want to check headers and cookies
-
     # Compare the content
     # TODO should we check if mimetype agrees with filetype?
-    result = self.compare(pcontent,content,content_prefix,filetype)
+    result = self.compare(address,filetype,preq)
     if result == COMPARE_NOEQUAL:
       # Reload direct content and try again
-      (code_direct, resp_headers_direct, direct_cookies_direct, mime_type_direct, content_direct) = http_request(address, my_cookie_jar, self.headers)
+      new_req = http_request(address, my_cookie_jar, self.headers)
       
       # If a new direct load somehow fails, then we're out of luck
-      if not (200 <= code_direct < 300):
+      if not (200 <= new_req.code < 300):
         plog("WARN", "Failed to re-frech "+address+" outside of Tor. Did our network fail?")
         self.remove_target(address, FALSEPOSITIVE_HTTPERRORS)
         result = HttpTestResult(self.node_map[exit_node[1:]],
@@ -1344,14 +1318,14 @@ class BaseHTTPTest(Test):
         return TEST_INCONCLUSIVE
 
       # Try our comparison again
-      dynamic = self.compare(content_direct,content,content_prefix,filetype)
+      dynamic = self.compare(address,filetype,new_req)
       
       if dynamic == COMPARE_EQUAL:
-        # The content has changed, so our exit node is screwing with us.
+        # The content has not actually changed, so our exit node is screwing with us.
         result = HttpTestResult(self.node_map[exit_node[1:]],
                                 address, TEST_FAILURE, FAILURE_EXITONLY,
                                 sha1sum.hexdigest(), psha1sum.hexdigest(),
-                                content_prefix+".content", exit_content_file_name)
+                                address_to_context(address)+".content")
         self.register_exit_failure(result)
         retval = TEST_FAILURE
       else:
@@ -1363,73 +1337,100 @@ class BaseHTTPTest(Test):
         result = HttpTestResult(self.node_map[exit_node[1:]],
                                 address, TEST_INCONCLUSIVE, INCONCLUSIVE_DYNAMIC,
                                 sha1sum_new.hexdigest(), psha1sum.hexdigest(),
-                                content_prefix+".content", exit_content_file_name,
-                                content_prefix+'.content-old',
-                                sha1sum.hexdigest())
+                                address_to_context(address)+".content")
         self.results.append(result)
         retval = TEST_INCONCLUSIVE
+
     elif result == COMPARE_EQUAL:
       result = HttpTestResult(self.node_map[exit_node[1:]],
                               address, TEST_SUCCESS)
       self.register_success(result)
       return TEST_SUCCESS
     elif result == COMPARE_TRUNCATION:
-      exit_content_file = open(DataHandler.uniqueFilename(failed_prefix+'.'+exit_node[1:]+'.content'), 'w')
-      exit_content_file.write(pcontent)
-      exit_content_file.close()
       result = HttpTestResult(self.node_map[exit_node[1:]],
                               address, TEST_FAILURE, FAILURE_EXITTRUNCATION,
                               sha1sum.hexdigest(), psha1sum.hexdigest(),
                               content_prefix+".content",
-                              exit_content_file_name)
+                              exit_content_file)
       self.register_exit_failure(result)
-      return TEST_FAILURE
+      retval = TEST_FAILURE
 
     # If we failed, then store what the exit node handed us
     if retval == TEST_FAILURE:
-      exit_content_file = open(exit_content_file_name, 'w')
-      exit_content_file.write(pcontent)
+      exit_content_file = open(address_to_failed_prefix(address)+'.'+exit_node[1:]+'.content', 'w')
+      exit_content_file.write(preq.contet)
       exit_content_file.close()
 
     return retval
 
-  def compare(self,new_content,old_content,context,filetype):
+  def _address_to_filename(self, address):
+    return DataHandler.safeFilename(re.sub('[a-z]+://','',address))
+
+  def address_to_context(self,address):
+    return http_content_dir + self._address_to_filename(address)
+
+  def address_to_failed_prefix(self, address):
+    return http_failed_dir + self._address_to_filename(address)
+    
+  def save_compare_data(self, address, filetype, req):
+    context = self. address_to_context(address)
+
+    f = open(context + '.content', 'w')
+    f.write(req.content)
+    f.close()
+
+    lines = req.content.split('\n')
+      
+    hashes = []
+    working_hash = sha()
+    for l in lines:
+      working_hash.update(l)
+      hashes.append(working_hash.hexdigest())
+
+    f = open(context + '.hashes','w')
+    pickle.dump(hashes,f)
+    f.close()
+
+    # Save the response headers in case we want them for a later test
+    headerdiffer = HeaderDiffer(req.headers)
+    SnakePickler.dump(headerdiffer, context + '.headerdiff')
+
+    # Save the new cookies in case we need them for a later test
+    SnakePickler.dump(req.new_cookies,context + '.cookies')
+
+  def compare(self,address,filetype,req):
     """The generic function for comparing webcontent."""
 
     plog('DEBUG', "Beginning Compare")
 
-    new_linelist = new_content.split('\n')
-    old_linelist = old_content.split('\n')
- 
-    old_hashes = pickled_content(context,'.hashes')
-    if not old_hashes:
-      old_hashes = []
-      old_hash = sha()
-      for l in old_linelist:
-        old_hash.update(l)
-        old_hashes.append(old_hash.hexdigest())
-      f = open(context + '.hashes','w')
-      pickle.dump(old_hashes,f)
-      f.close()
+    context = self. address_to_context(address)
 
-    if len(new_linelist) > len(old_linelist):
+    new_linelist = req.content.split('\n')
+ 
+    f = open(context + '.content')
+    old_content = f.read()
+    f.close()
+
+    old_hashes = pickled_content(context,'.hashes')
+
+    if len(new_linelist) > len(old_hashes):
       retval = COMPARE_NOEQUAL
     else:
       new_hash = sha()
-      for i in range(0,min(len(old_linelist),len(new_linelist))):
+      for i in range(0,min(len(old_hashes),len(new_linelist))):
         new_hash.update(new_linelist[i])
       new_hash = new_hash.hexdigest()
 
       if new_hash != old_hashes[len(new_linelist) - 1]:
         retval = COMPARE_NOEQUAL
-      elif len(new_linelist) == len(old_linelist):
+      elif len(new_linelist) == len(old_hashes):
         retval = COMPARE_EQUAL
       else:
         retval = COMPARE_TRUNCATION
 
     if retval == COMPARE_NOEQUAL:
       try:
-        retval = self.compare_funcs[filetype](new_content,old_content,context)
+        retval = self.compare_funcs[filetype](req.content,old_content,context)
       except KeyError:
         pass
 
@@ -2056,7 +2057,7 @@ class FixedTargetHTTPTest(FixedTargetTest, BaseHTTPTest):
   def get_targets(self):
     ret = []
     for targ in self.fixed_targets:
-      addr, succ, code, ftype = self.direct_load(targ, False)
+      addr, succ, code, ftype = self.first_load(targ, False)
       if succ: ret.append([addr,ftype])
     return ret
 
@@ -2146,11 +2147,12 @@ class SearchBasedTest:
       plog("INFO", "Search url: "+search_url)
       try:
         if self.search_mode["useragent"]:
-          (code, resp_headers, new_cookies, mime_type, content) = http_request(search_url, search_cookies)
+          search_req = http_request(search_url, search_cookies)
         else:
           headers = filter(lambda h: h[0] != "User-Agent",
                            copy.copy(firefox_headers))
-          (code, resp_headers, new_cookies, mime_type, content) = http_request(search_url, search_cookies, headers)
+          search_req = http_request(search_url, search_cookies, headers)
+
       except socket.gaierror:
         plog('ERROR', 'Scraping of http://'+host+search_path+" failed")
         traceback.print_exc()
@@ -2161,9 +2163,11 @@ class SearchBasedTest:
         # Bloody hack just to run some tests overnight
         break
 
-      if (400 <= code < 500):
+      if (400 <= search_req.code < 500):
         plog('ERROR', 'Scraping of http://'+host+search_path+' failed. HTTP '+str(code))
         break
+
+      content = search_req.content
 
       links = SoupStrainer('a')
       try:
@@ -2197,7 +2201,7 @@ class SearchBasedTest:
 
         if self._is_useable_url(url, prot_list, file_list):
           plog('DEBUG', "Found a useable url: " + url)
-          url, success, code, cur_filetype = self.direct_load(url,filetype)
+          url, success, code, cur_filetype = self.first_load(url,filetype)
           if not success:
             plog('DEBUG',"Url was not useable after all: " + url)
             continue
