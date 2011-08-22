@@ -1002,6 +1002,12 @@ class Test:
     datahandler.saveResult(result)
     return TEST_FAILURE
 
+  def register_inconclusive(self, result):
+    if self.rescan_nodes:
+      result.from_rescan = True
+    self.results.append(result)
+    datahandler.saveResult(result)
+    return TEST_INCONCLUSIVE
 
 class BaseHTTPTest(Test):
   def __init__(self, scan_filetypes=scan_filetypes):
@@ -1205,7 +1211,7 @@ class BaseHTTPTest(Test):
     for cookie in self.cookie_jar:
       my_cookie_jar.set_cookie(cookie)
 
-    # CA we should modify our headers for maximum magic
+    # CA we should modify our headers so we look like a browser
 
     # pfoobar means that foobar was acquired over a _p_roxy
     preq = torify(http_request, address, my_tor_cookie_jar, self.headers)
@@ -1217,12 +1223,7 @@ class BaseHTTPTest(Test):
       plog('NOTICE', 'We had no exit node to test, skipping to the next test.')
       result = HttpTestResult(None,
                               address, TEST_INCONCLUSIVE, INCONCLUSIVE_NOEXIT)
-      if self.rescan_nodes:
-        # CA: we shouldn't need to do this
-        result.from_rescan = True
-      self.results.append(result)
-      # CA: when do we use datahandler?
-      return TEST_INCONCLUSIVE
+      return self.register_inconclusive(result)
 
     exit_node = "$"+exit_node.idhex
 
@@ -1244,11 +1245,7 @@ class BaseHTTPTest(Test):
         if (direct_req.code == preq.code):
           result = HttpTestResult(self.node_map[exit_node[1:]],
                                   address, TEST_INCONCLUSIVE, INCONCLUSIVE_NOLOCALCONTENT)
-          if self.rescan_nodes:
-            # CA: we shouldn't need to do this
-            result.from_rescan = True
-          self.results.append(result)
-          return TEST_INCONCLUSIVE
+          return self.register_inconclusive(result)
 
       #  Error => behavior lookup table
       #  Error code     (Failure reason,        Register method,               Set extra_info to pcontent?)
@@ -1283,23 +1280,20 @@ class BaseHTTPTest(Test):
       if extra_info:
         result.extra_info = str(pcontent)
 
-      register(result)
-      return TEST_FAILURE
+      return register(result)
 
     # If we have no content, we had a connection error
     if not preq.content:
       result = HttpTestResult(self.node_map[exit_node[1:]],
                               address, TEST_FAILURE, FAILURE_NOEXITCONTENT)
-      self.register_exit_failure(result)
-      # Restore cookie jars
-      return TEST_FAILURE
+      return self.register_exit_failure(result)
 
     #
     # Tor was able to connect, so now it's time to make the comparison
     #
 
     # Compare the content
-    # TODO should we check if mimetype agrees with filetype?
+
     result = self.compare(address,filetype,preq)
     if result == COMPARE_NOEQUAL:
       # Reload direct content and try again
@@ -1312,10 +1306,7 @@ class BaseHTTPTest(Test):
         result = HttpTestResult(self.node_map[exit_node[1:]],
                                 address, TEST_INCONCLUSIVE,
                                 INCONCLUSIVE_NOLOCALCONTENT)
-        if self.rescan_nodes:
-          result.from_rescan = True
-        self.results.append(result)
-        return TEST_INCONCLUSIVE
+        return self.register_inconclusive(result)
 
       # Try our comparison again
       dynamic = self.compare(address,filetype,new_req)
@@ -1326,8 +1317,8 @@ class BaseHTTPTest(Test):
                                 address, TEST_FAILURE, FAILURE_EXITONLY,
                                 sha1sum.hexdigest(), psha1sum.hexdigest(),
                                 address_to_context(address)+".content")
-        self.register_exit_failure(result)
-        retval = TEST_FAILURE
+        retval = self.register_exit_failure(result)
+
       else:
         # The content is dynamic.
         # Here's where "no dynamic" comes in.
@@ -1338,22 +1329,20 @@ class BaseHTTPTest(Test):
                                 address, TEST_INCONCLUSIVE, INCONCLUSIVE_DYNAMIC,
                                 sha1sum_new.hexdigest(), psha1sum.hexdigest(),
                                 address_to_context(address)+".content")
-        self.results.append(result)
-        retval = TEST_INCONCLUSIVE
+        retval = self.register_inconclusive(result)
 
     elif result == COMPARE_EQUAL:
       result = HttpTestResult(self.node_map[exit_node[1:]],
                               address, TEST_SUCCESS)
-      self.register_success(result)
-      return TEST_SUCCESS
+      retval = self.register_success(result)
+
     elif result == COMPARE_TRUNCATION:
       result = HttpTestResult(self.node_map[exit_node[1:]],
                               address, TEST_FAILURE, FAILURE_EXITTRUNCATION,
                               sha1sum.hexdigest(), psha1sum.hexdigest(),
                               content_prefix+".content",
                               exit_content_file)
-      self.register_exit_failure(result)
-      retval = TEST_FAILURE
+      retval = self.register_exit_failure(result)
 
     # If we failed, then store what the exit node handed us
     if retval == TEST_FAILURE:
@@ -2108,7 +2097,7 @@ class SearchBasedTest:
     return list(urllist)
 
   def get_search_urls_for_filetype(self, filetype, number=0):
-    # CA. I don't want to support 'any' any more. We must specify a filetype
+    # We don't want to support 'any' any more. We must specify a filetype
     assert(filetype != 'any')
     assert(filetype)
 
