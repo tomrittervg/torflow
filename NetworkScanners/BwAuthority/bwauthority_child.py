@@ -339,7 +339,10 @@ def ignore_streams(c,hdlr):
     hdlr.streams[s.strm_id] = s
 
 def cleanup(c):
-  if c: c.close()
+  if c: 
+    c.close()
+    c.block_until_close()
+
   plog("DEBUG", "Child Process Exiting...")
 
 def setup_handler(out_dir, cookie_file):
