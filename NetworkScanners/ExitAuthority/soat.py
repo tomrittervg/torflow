@@ -32,7 +32,6 @@ import getopt
 import httplib
 import mimetypes
 import os
-import pickle
 import random
 import re
 import signal
@@ -447,7 +446,7 @@ def ssl_request(address):
   try:
     return _ssl_request(address)
   except (ReadTimeout, socket.timeout), e:
-    plog("INFO", "SSL Request done with timoeut for addrress: "+str(address))
+    plog("INFO", "SSL Request done with timoeut for address: "+str(address))
     return (E_TIMEOUT, None, "Socket timeout")
 
 def _ssl_request(address, method='TLSv1_METHOD'):
@@ -639,7 +638,7 @@ class Test:
       self.url_reserve = {}
       self._pickle_revision = 8
 
-  def _is_useable_url(self, url, valid_schemes=None, filetypes=None):
+  def _is_useable_url(self, url, valid_schemes=None, filetype=None):
     (scheme, netloc, path, params, query, fragment) = urlparse.urlparse(url)
     if netloc.rfind(":") != -1:
       # FIXME: %-encoding?
@@ -658,12 +657,10 @@ class Test:
     if url in self.banned_targets:
       plog("DEBUG", "Banned url "+url)
       return False
-    if filetypes: # Must be checked last
-      for filetype in filetypes:
-        if url[-len(filetype):] == filetype:
-          return True
-      plog("DEBUG", "Bad filetype for "+url)
-      return False
+    if filetype:
+      if url[-len(filetype):] != filetype:
+        plog("DEBUG", "Bad filetype for "+url)
+        return False
     return True
 
   def add_target(self, target):
@@ -1010,9 +1007,8 @@ class Test:
     return TEST_INCONCLUSIVE
 
 class BaseHTTPTest(Test):
-  def __init__(self, scan_filetypes=scan_filetypes):
+  def __init__(self):
     # FIXME: Handle http urls w/ non-80 ports..
-    self.scan_filetypes = scan_filetypes
     self.fetch_queue = []
     Test.__init__(self, "HTTP", 80)
     self.save_name = "HTTPTest"
@@ -1172,7 +1168,7 @@ class BaseHTTPTest(Test):
       plog('DEBUG', 'Wrong filetype: ' + loaded_filetype + ' instead of ' + filetype)
       return (address, False, req.code, '')
 
-    self.save_compare_data(address,filetype,req)
+    self.save_compare_data(address,loaded_filetype,req)
 
     # Fetch again with different cookies and see if we get the same content
     # Use a different IP address if possible
@@ -1188,7 +1184,7 @@ class BaseHTTPTest(Test):
       plog("NOTICE", "Non-tor HTTP error "+str(second_req.code)+" fetching content for "+address)
       return (address, False, second_req.code, '')
 
-    if self.compare(address,filetype,second_req) != COMPARE_EQUAL:
+    if self.compare(address,loaded_filetype,second_req) != COMPARE_EQUAL:
       return (address, False, second_req.code, '')
 
     return (address, True, req.code, loaded_filetype)    
@@ -1278,7 +1274,7 @@ class BaseHTTPTest(Test):
       result = HttpTestResult(self.node_map[exit_node[1:]],
                               address, TEST_FAILURE, fail_reason)
       if extra_info:
-        result.extra_info = str(pcontent)
+        result.extra_info = str(preq.content)
 
       return register(result)
 
@@ -1376,9 +1372,8 @@ class BaseHTTPTest(Test):
       working_hash.update(l)
       hashes.append(working_hash.hexdigest())
 
-    f = open(context + '.hashes','w')
-    pickle.dump(hashes,f)
-    f.close()
+    # Save these line-by-line hashes for later use
+    SnakePickler.dump(hashes, context + '.hashes')
 
     # Save the response headers in case we want them for a later test
     headerdiffer = HeaderDiffer(req.headers)
@@ -1400,7 +1395,8 @@ class BaseHTTPTest(Test):
     old_content = f.read()
     f.close()
 
-    old_hashes = pickled_content(context,'.hashes')
+    
+    old_hashes = SnakePickler.load(context + '.hashes')
 
     if len(new_linelist) > len(old_hashes):
       retval = COMPARE_NOEQUAL
@@ -1449,15 +1445,6 @@ class BaseHTTPTest(Test):
       return COMPARE_NOEQUAL
 
 # TODO move these somewhere sensible
-def pickled_content(context,extension):
-  try:
-    f = open(context + extension, 'r')
-    ret = pickle.load(f)
-    f.close()
-  except IOError:
-    ret = False
-  return ret
-
 def mime_to_filetype(mime_type):
   return mimetypes.guess_extension(mime_type)[1:]
 
@@ -1478,8 +1465,8 @@ def is_script_mimetype(mime_type):
   return is_script
 
 class BaseHTMLTest(BaseHTTPTest):
-  def __init__(self, scan_filetypes=scan_filetypes):
-    BaseHTTPTest.__init__(self, scan_filetypes)
+  def __init__(self):
+    BaseHTTPTest.__init__(self)
     self.save_name = "HTMLTest"
     self.proto = "HTML" #CA .. ?
 
@@ -1833,7 +1820,7 @@ class BaseSSLTest(Test):
 
   def run_test(self):
     self.tests_run += 1
-    return self.check_ssl(random.choice(self.targets))
+    return self.check_ssl(random.choice(self.targets)[0])
 
   def get_resolved_ip(self, hostname):
     # XXX: This is some extreme GIL abuse.. It may have race conditions
@@ -2043,11 +2030,12 @@ class FixedTargetHTTPTest(FixedTargetTest, BaseHTTPTest):
     utargets = [t for t in targets if self._is_useable_url(t, ['http'])]
     FixedTargetTest.__init__(self, utargets)
 
-  def get_targets(self):
+  def get_targets(self): 
     ret = []
     for targ in self.fixed_targets:
       addr, succ, code, ftype = self.first_load(targ, False)
-      if succ: ret.append([addr,ftype])
+      if succ: 
+        ret.append([addr,ftype])
     return ret
 
   def add_target(self, target):
@@ -2065,6 +2053,7 @@ class FixedTargetHTMLTest(FixedTargetTest, BaseHTMLTest):
 class FixedTargetSSLTest(FixedTargetTest, BaseSSLTest):
   def __init__(self, targets):
     BaseSSLTest.__init__(self)
+    # We ask for hostnames only, please
     utargets = [t for t in targets if self._is_useable_url(t, [''])]
     FixedTargetTest.__init__(self, utargets)
 
@@ -2080,30 +2069,7 @@ class SearchBasedTest:
   def rewind(self):
     self.wordlist = load_wordlist(self.wordlist_file)
 
-  def add_target(self, target):
-    self.targets.add(target[0],[target[1]])
-    return True
-
-  def get_targets(self):
-    '''
-    construct a list of urls based on the wordlist, filetypes and protocol.
-    '''
-    plog('INFO', 'Searching for relevant sites...')
-
-    urllist = set([])
-    for filetype in self.scan_filetypes:
-      urllist.update(map(lambda x: (x, filetype), self.get_search_urls_for_filetype(filetype)))
-
-    return list(urllist)
-
-  def get_search_urls_for_filetype(self, filetype, number=0):
-    # We don't want to support 'any' any more. We must specify a filetype
-    assert(filetype != 'any')
-    assert(filetype)
-
-    if not number:
-      number = self.results_per_type
-
+  def get_search_urls_for_filetype(self, filetype, number):
     self.url_reserve.setdefault(filetype,[])
 
     type_urls = set(self.url_reserve[filetype][:number])
@@ -2116,7 +2082,7 @@ class SearchBasedTest:
 
       #Try to filter based on filetype/protocol. Unreliable. We will re-filter.
       query = random.choice(self.wordlist)
-      if filetype != 'any':
+      if filetype:
         query += " "+self.search_mode["filetype"]+filetype
       plog("WARN", "RESULTPROTOCOL IS:" + self.result_protocol)
       if self.result_protocol == 'https' and self.search_mode["inurl"]:
@@ -2183,17 +2149,18 @@ class SearchBasedTest:
           prot_list = None
         else:
           prot_list = [self.result_protocol]
-        if filetype == 'any':
-          file_list = None
-        else:
-          file_list = self.scan_filetypes
 
-        if self._is_useable_url(url, prot_list, file_list):
+        if self._is_useable_url(url, prot_list, filetype):
+          try:
+            self.first_load
+          except AttributeError:
+            pass
+          else:
+            url, success, code, cur_filetype = self.first_load(url,filetype)
+            if not success:
+              continue
+
           plog('DEBUG', "Found a useable url: " + url)
-          url, success, code, cur_filetype = self.first_load(url,filetype)
-          if not success:
-            plog('DEBUG',"Url was not useable after all: " + url)
-            continue
           if self.host_only:
             # FIXME: %-encoding, @'s, etc?
             plog("INFO", url)
@@ -2217,9 +2184,10 @@ class SearchBasedTest:
     return type_urls
 
 class SearchBasedHTTPTest(SearchBasedTest, BaseHTTPTest):
-  def __init__(self, wordlist):
+  def __init__(self, wordlist, scan_filetypes=scan_filetypes):
     BaseHTTPTest.__init__(self)
     SearchBasedTest.__init__(self, wordlist)
+    self.scan_filetypes = scan_filetypes
     self.results_per_type = urls_per_filetype
     self.result_protocol = 'http'
 
@@ -2250,6 +2218,22 @@ class SearchBasedHTTPTest(SearchBasedTest, BaseHTTPTest):
         plog("NOTICE", self.proto+" scanner short on "+ftype+" targets. Adding more")
         map(self.add_target, self.get_search_urls_for_filetype(ftype,targets_needed))
 
+  def add_target(self, target):
+    self.targets.add(target[0],[target[1]])
+    return True
+
+  def get_targets(self):
+    '''
+    construct a list of urls based on the wordlist, filetypes and protocol.
+    '''
+    plog('INFO', 'Searching for relevant sites...')
+
+    urllist = set([])
+    for filetype in self.scan_filetypes:
+      urllist.update(map(lambda x: (x, filetype), self.get_search_urls_for_filetype(filetype, self.results_per_type)))
+
+    return list(urllist)
+
 HTTPTest = SearchBasedHTTPTest # For resuming from old HTTPTest.*.test files
 
 class SearchBasedHTMLTest(SearchBasedTest, BaseHTMLTest):
@@ -2257,7 +2241,6 @@ class SearchBasedHTMLTest(SearchBasedTest, BaseHTMLTest):
     BaseHTMLTest.__init__(self)
     SearchBasedTest.__init__(self, wordlist)
     self.result_filetypes = ["any"]
-    self.results_per_type = self.fetch_targets
 
   def depickle_upgrade(self):
     if self._pickle_revision < 7:
@@ -2278,8 +2261,11 @@ class SearchBasedSSLTest(SearchBasedTest, BaseSSLTest):
     SearchBasedTest.__init__(self, wordlist)
     self.host_only = True
     self.result_protocol = 'https'
-    if default_search_mode == yahoo_search_mode:
-      plog('WARN', 'Yahoo search mode is not suitable for SSLTests. Continuing anyway.')
+    try:
+      if default_search_mode == yahoo_search_mode:
+        plog('WARN', 'Yahoo search mode is not suitable for SSLTests. Continuing anyway.')
+    except NameError:
+      pass
     self.search_mode=default_search_mode
 
   def depickle_upgrade(self):
@@ -2289,8 +2275,19 @@ class SearchBasedSSLTest(SearchBasedTest, BaseSSLTest):
       self.search_mode=google_search_mode
     BaseSSLTest.depickle_upgrade(self)
 
+  def get_targets(self):
+    '''
+    construct a list of urls based on the wordlist, filetypes and protocol.
+    '''
+    plog('INFO', 'Searching for relevant sites...')
+
+    urllist = set([])
+    urllist.update(self.get_search_urls_for_filetype(None, num_ssl_hosts))
+
+    return list(urllist)
+
   def rewind(self):
-    self.wordlist = load_wordlist(self.wordlist_file)
+    SearchBasedTest.rewind(self)
     BaseSSLTest.rewind(self)
 
 SSLTest = SearchBasedSSLTest # For resuming from old SSLTest.*.test files
@@ -3207,6 +3204,9 @@ def main(argv):
         common_nodes &= test.nodes
       scanhdlr._sanity_check(map(lambda id: test.node_map[id],
                                              test.nodes))
+    print "COMMON NODES"
+    print common_nodes
+
     if common_nodes is None:
       common_nodes = set([])
 
