@@ -5,6 +5,7 @@ from sys import exit
 from subprocess import Popen
 path.append("../../")
 from TorCtl.TorUtil import plog as plog
+from TorCtl.TorUtil import get_git_version as get_git_version
 from signal import signal, SIGTERM, SIGKILL
 
 
@@ -12,7 +13,15 @@ from signal import signal, SIGTERM, SIGKILL
 # make sure to update this in bwauthority_child.py as well
 STOP_PCT_REACHED = 9
 
+# path to git repos (.git)
+PATH_TO_TORFLOW_REPO = '../../.git/'
+PATH_TO_TORCTL_REPO = '../../TorCtl/.git/'
+
 def main(argv):
+  (branch, head) = get_git_version(PATH_TO_TORFLOW_REPO)
+  plog('INFO', 'TorFlow Version: %s' % branch+' '+head)
+  (branch, head) = get_git_version(PATH_TO_TORCTL_REPO)
+  plog('INFO', 'TorCtl Version: %s' % branch+' '+head)
   slice_num = 0 
   while True:
     plog('INFO', 'Beginning time loop')
