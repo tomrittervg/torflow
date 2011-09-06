@@ -338,11 +338,7 @@ def ignore_streams(c,hdlr):
     s.ignored = True
     hdlr.streams[s.strm_id] = s
 
-def cleanup(c):
-  if c: 
-    c.close()
-    c.block_until_close()
-
+def cleanup():
   plog("DEBUG", "Child Process Exiting...")
 
 def setup_handler(out_dir, cookie_file):
@@ -367,7 +363,7 @@ def setup_handler(out_dir, cookie_file):
           TorCtl.EVENT_TYPE.CIRC,
           TorCtl.EVENT_TYPE.STREAM_BW], True)
 
-  atexit.register(cleanup, c)
+  atexit.register(cleanup)
   return (c,h)
 
 def usage(argv):
