@@ -42,6 +42,7 @@ __all__ = [ # Classes
             # Functions
            "FullyStrainedSoup",
             # Constants
+           "COMPARE_EQUAL", "COMPARE_NOEQUAL", "COMPARE_TRUNCATION",
            "TEST_SUCCESS", "TEST_INCONCLUSIVE", "TEST_FAILURE",
            "RESULT_STRINGS", "RESULT_CODES",
            "INCONCLUSIVE_NOLOCALCONTENT", "INCONCLUSIVE_DYNAMICSSL",
@@ -77,6 +78,12 @@ class LoggingJSLexer(JavaScriptLexer):
 
 # constants
 
+# Compare results
+COMPARE_EQUAL = 0
+COMPARE_NOEQUAL = 1
+COMPARE_TRUNCATION = 2
+
+# Test results
 TEST_SUCCESS = 0
 TEST_INCONCLUSIVE = 1
 TEST_FAILURE = 2
@@ -842,7 +849,7 @@ class SnakePickler:
           pass
       raise KeyboardInterrupt
     except Exception, e:
-      plog("WARN", "Exception during pickle dump: "+e)
+      plog("WARN", "Exception during pickle dump: " + str(e))
       try:
         os.unlink(filename)
       except: pass

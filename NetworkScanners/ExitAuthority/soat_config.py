@@ -28,7 +28,7 @@ num_html_urls = 10
 max_search_retry = 3
 
 # Hrmm.. Too many of these and Google really h8s us..
-scan_filetypes = ['pdf','exe']
+scan_filetypes = ['pdf','doc','html']
 
 # Urls to scan for each filetype
 urls_per_filetype = 2
@@ -40,8 +40,8 @@ max_content_size = 256*1024
 # Bind refetches of docuements to a specific source IP.
 # Useful for eliminating false positives that arise
 # from IP-based identifiers encoded in content
-#refetch_ip = None
-refetch_ip = "4.4.4.4"
+refetch_ip = None
+#refetch_ip = "4.4.4.4"
 
 # Email settings for email scans.
 from_email = "Tor Exit Scanner <noreply@torproject.org>"
@@ -134,22 +134,24 @@ search_cookie_file="./search_cookies.lwp"
 # Search mode. 
 # Leave these maps alone. Change the default_search_mode variable 
 # to what you want.
-# XXX: Make a bing search mode.
-yahoo_search_mode = {"host" : "search.yahoo.com", "query":"p", "filetype": "originurlextension:", \
-                      "inurl":None, "class":"yschttl", "realtgt":"ourl", "useragent":False, \
-                      "extra":[]}
-google_search_mode = {"host" : "www.google.com", "query":"q", "filetype":"filetype:", \
-                      "inurl":"inurl:", "class" : "l", "realtgt":"href", "useragent":True, \
-                      "extra":[]}
-ixquick_search_mode = {"host" : "ixquick.com/do/metasearch.pl", "query":"all_terms", "filetype":"title:", \
+# XXX: Make a bing search mode and a DuckDuckGo search mode
+
+#Yahoo is no longer supported because they make it difficult to scrape their results
+#yahoo_search_mode = {"host" : "search.yahoo.com/search", "query":"p", "filetype": "vf:", \
+#                      "inurl":None, "class":"yschttl", "realtgt":"ourl", "useragent":False, \
+#                      "extra":[]}
+
+google_search_mode = {"host" : "www.google.com/search", "query":"q", "filetype":"filetype:", \
+                       "inurl":"inurl:", "class" : "l", "realtgt":"href", "useragent":True, \
+                       "extra":[]}
+
+ixquick_search_mode = {"host" : "ixquick.com/do/metasearch.pl", "query":"all_terms", "filetype":"url:.", \
                       "inurl":"url:", "class" : "title2", "realtgt":"href", "useragent":False, \
                       "extra":[("prfh","disable_family_filterEEE1N1Nnum_of_resultsEEE50N1Ndisable_video_family_filterEEE1N1N")]}
  
-# FIXME: This does not affect the ssl search.. Only Google has 
-# a working "inurl:" that allows you to pick the scheme to be https 
-#default_search_mode = google_search_mode
-#default_search_mode = yahoo_search_mode
-default_search_mode = ixquick_search_mode
+
+default_search_mode = google_search_mode
+#default_search_mode = ixquick_search_mode
 
 # Regex of characters we consider unsafe to write to the filesystem
 unsafe_filechars = "[^a-zA-Z0-9-\.+]"
