@@ -15,10 +15,8 @@ document. This document concerns itself only with running the scanner.
 II. Prerequisites
 
 Python 2.5+
-Tor 0.2.1.13 (r18556 or later)
+Tor 0.2.2.x
 py-openssl/pyOpenSSL
-sqlalchemy 5.x
-Elixir 6.x
 Bonus: Secondary external IP address
 
 Having a second external IP address will allow your scanner to filter
@@ -31,14 +29,16 @@ III. Setup
 
 A. Compiling Tor
 
-To run SoaT you will need Tor 0.2.1.x or later.
+To run SoaT you will need Tor 0.2.2.x.
 
 It is also strongly recommended that you have a custom Tor instance that
 is devoted only to exit scanning, and is not performing any other
 function (including serving as a relay or a directory authority).
 
 
-B. Configuring SoaT
+B. Configuring SoaT for Randomized Testing
+
+If you just want to run a simple static test, skip this section.
 
 To configure SoaT you will need to edit soat_config.py.
 
@@ -91,6 +91,10 @@ positive rates.
 
 # ./soat.py --ssl --http >& ./data/soat.log &
 
+or
+
+# ./soat.py --ssl --target=ip:port >& ./data/soat.log &
+
 
 V. Tests and Operating Modes
 
@@ -103,13 +107,15 @@ enable a test, simply pass SoaT its flag: --ssl, --http, --html, or
 
 By default the tests are run in search based mode, this means that the URLs
 to be requested during the run are gathered by querying search engines for
-the terms in your ./wordlist.txt file. An alternative, and potentially less
-false positive prone, operating mode is the fixed target mode. Fixed target
-mode is enabled by passing SoaT one or more --target=<URL> flags. Only the
-URLs referenced by the target flags will be requested. This operating mode
-has several attractive features, for instance, you can reduce false positive
-rates by selecting static content, and you can shorten the duration of runs
-by selecting small files on highly responsive servers.
+the terms in your ./wordlist.txt file.
+
+An alternative, and potentially less false positive prone, operating mode is
+the fixed target mode. Fixed target mode is enabled by passing SoaT one or
+more --target=<URL> flags. Only the URLs referenced by the target flags will
+be requested. This operating mode has several attractive features, for
+instance, you can reduce false positive rates by selecting static content, and
+you can shorten the duration of runs by selecting small files on highly
+responsive servers.
 
 It should be noted that, despite their attractive features, fixed target
 scans are likely to miss many of the results which search based scans
@@ -125,7 +131,7 @@ make a request through such an exit which triggers its malicious behavior.
 
 VI. Monitoring and Results
 
-A. Issues with automated search engine queries
+A. Issues with automated search engine queries and Randomized Scans
 
 SoaT can use Ixquick, Google, or Yahoo to perform its search queries. The
 current default is Ixquick, and for most purposes this should be fine. If
@@ -165,7 +171,7 @@ soat.log.
 If/When SoaT crashes, you should be able to resume it exactly where it
 left off with:
 
-# ./soat.py --resume=-1 --ssl --html --http --dnsrebind >& soat.log &
+# ./soat.py --resume=-1 [other options you used last time] >& soat.log &
 
 Keeping the same options during a --resume is a Really Good Idea.
 
