@@ -453,6 +453,14 @@ def _ssl_request(address, method='TLSv1_METHOD'):
   ''' initiate an ssl connection and return the server certificate '''
   address=str(address) # Unicode hostnames not supported..
 
+  if address.rfind(":") != -1:
+    # FIXME: %-encoding?
+    port = int(address[address.rfind(":")+1:])
+    address_name = address[:address.rfind(":")]
+  else:
+    port = 443
+    address_name = address
+
   # specify the context
   ctx = SSL.Context(getattr(SSL,method))
 
@@ -468,7 +476,7 @@ def _ssl_request(address, method='TLSv1_METHOD'):
     c = SSL.Connection(ctx, s)
     c.set_connect_state()
     signal.alarm(int(read_timeout)) # raise a timeout after read_timeout
-    c.connect((address, 443)) # DNS OK.
+    c.connect((address_name, port)) # DNS OK.
     # XXX: A PEM encoded certificate request was a bizarre and fingerprintable
     # thing to send here. All we actually need to do is perform a handshake,
     # but it might be good to make a simple GET request to further limit
@@ -643,14 +651,15 @@ class Test:
     if netloc.rfind(":") != -1:
       # FIXME: %-encoding?
       port = netloc[netloc.rfind(":")+1:]
-      try:
-        if int(port) != self.port:
-          plog("DEBUG", "Unusable port "+port+" in "+url)
-          return False
-      except:
-        traceback.print_exc()
-        plog("WARN", "Unparseable port "+port+" in "+url)
-        return False
+      # I think port restrictions are silly, come to think of it..
+      #try:
+      #  if int(port) != self.port:
+      #    plog("DEBUG", "Unusable port "+port+" in "+url)
+      #    return False
+      #except:
+      #  traceback.print_exc()
+      #  plog("WARN", "Unparseable port "+port+" in "+url)
+      #  return False
     if valid_schemes and scheme not in valid_schemes:
       plog("DEBUG", "Unusable scheme "+scheme+" in "+url)
       return False
@@ -1515,6 +1524,14 @@ class BaseSSLTest(Test):
     address_file = DataHandler.safeFilename(shortaddr)
     ssl_file_name = ssl_certs_dir + address_file + '.ssl'
 
+    if address.rfind(":") != -1:
+      # FIXME: %-encoding?
+      port = address[address.rfind(":")+1:]
+      address_name = address[:address.rfind(":")]
+    else:
+      port = 443
+      address_name = address
+
     # load the original cert and compare
     # if we don't have the original cert yet, get it
     try:
@@ -1527,14 +1544,14 @@ class BaseSSLTest(Test):
     # Make 3 resolution attempts
     for attempt in xrange(1,4):
       try:
-        resolved = socket.getaddrinfo(address, 443, socket.AF_INET, socket.SOCK_STREAM, socket.IPPROTO_TCP)
+        resolved = socket.getaddrinfo(address_name, 443, socket.AF_INET, socket.SOCK_STREAM, socket.IPPROTO_TCP)
         break
       except socket.gaierror:
         plog("NOTICE", "Local resolution failure #%d for %s" % (attempt, address))
 
     for res in resolved:
       if res[4][0] not in check_ips:
-        check_ips.append(res[4][0])
+        check_ips.append(res[4][0]+":"+str(port))
 
     if not check_ips:
       plog("WARN", "Local resolution failure for "+address)
@@ -1697,7 +1714,7 @@ class FixedTargetSSLTest(FixedTargetTest, BaseSSLTest):
   def __init__(self, targets):
     BaseSSLTest.__init__(self)
     # We ask for hostnames only, please
-    utargets = [t for t in targets if self._is_useable_url(t, [''])]
+    utargets = [t for t in targets if self._is_useable_url(t)]
     FixedTargetTest.__init__(self, utargets)
 
 # Search Based Tests
@@ -2579,11 +2596,10 @@ def cleanup(c, l, f):
 
 def setup_handler(out_dir, cookie_file, fixed_exits=[]):
   plog('INFO', 'Connecting to Tor at '+TorUtil.control_host+":"+str(TorUtil.control_port))
-  s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-  s.connect((TorUtil.control_host,TorUtil.control_port))
-  c = PathSupport.Connection(s)
+
+  c = TorCtl.connect(TorUtil.control_host, TorUtil.control_port, ConnClass=PathSupport.Connection)
   c.debug(file(out_dir+"/control.log", "w", buffering=0))
-  c.authenticate_cookie(file(cookie_file, "r"))
+
   l = c.get_option("__LeaveStreamsUnattached")[0][1]
   h = ExitScanHandler(c, __selmgr, PathSupport.SmartSocket.StreamSelector, fixed_exits)
 
