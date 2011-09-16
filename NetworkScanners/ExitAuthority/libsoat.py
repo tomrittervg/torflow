@@ -24,7 +24,13 @@ from soat import Tag, SoupStrainer
 from soat_config import *
 
 sys.path.append("../../")
-from TorCtl.TorUtil import *
+try:
+    from TorCtl.TorUtil import *
+except ImportError:
+    from os import getcwd, path
+    print "TorCtl not found in %s" % path.abspath(getcwd()+'../..')
+    print "Exiting..."
+    exit()   
 
 # Antlr stuff
 sys.path.append("../libs/jsparser/")

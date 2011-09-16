@@ -78,8 +78,14 @@ from libsoat import *
 from soat_config import *
 
 sys.path.append("../../")
-from TorCtl import TorUtil, TorCtl, PathSupport, ScanSupport
-from TorCtl.TorUtil import plog
+try:
+    from TorCtl import TorUtil, TorCtl, PathSupport, ScanSupport
+    from TorCtl.TorUtil import plog
+except ImportError:
+    from os import getcwd, path
+    print "TorCtl not found in %s" % path.abspath(getcwd()+'../..')
+    print "Exiting..."
+    exit()  
 
 sys.path.insert(0,"../libs")
 # Make our SocksiPy use our socket
