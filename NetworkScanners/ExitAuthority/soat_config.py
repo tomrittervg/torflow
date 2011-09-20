@@ -43,10 +43,7 @@ max_content_size = 256*1024
 refetch_ip = None
 #refetch_ip = "4.4.4.4"
 
-# Email settings for email scans.
-from_email = "Tor Exit Scanner <noreply@torproject.org>"
-to_email = ["Tor Exit Scanner List <flynn@torproject.org>"]
-
+# Email settings for emailing scanned results:
 mail_server = "127.0.0.1"
 # Email authentication
 # If your smtp server requires a username and password, set
@@ -57,6 +54,8 @@ mail_user = "soat@fscked.org"
 mail_password = "password"
 mail_tls = False # Requires Python >= 2.6
 mail_starttls = False
+mail_from_email = "Tor Exit Scanner <"+mail_user+">"
+mail_to_email = ["Tor Exit Scanner List <tor-exitscanner@lists.torproject.org>"]
 
 # What percentage of tested nodes must disagree with our local fetches before
 # we ignore the target site/url

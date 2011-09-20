@@ -265,7 +265,7 @@ def main(argv):
           text += traceback.format_exc()
         # TODO: Attach files? Or is that too much.. Maybe serve
         # them via http and include links?
-        send_mail(from_email, to_email, subject, text)
+        send_mail(mail_from_email, mail_to_email, subject, text)
 
 if __name__ == "__main__":
   main(sys.argv)
