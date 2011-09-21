@@ -160,4 +160,26 @@ for i in 512 256 128 64 32 16; do
 done
 
 
+Appendix B: Configuring PostgreSQL backend
 
+To use postgres instead of sqlite:
+
+1. Install postgresql:
+sudo apt-get install postgresql postgresql-common postgresql-client-common
+
+2. Create role:
+sudo -u postgres psql
+ CREATE USER bwscanner WITH PASSWORD 'password';
+
+3. Create databases:
+sudo -u postgres createdb BwScan1 -O bwscanner
+sudo -u postgres createdb BwScan2 -O bwscanner
+sudo -u postgres createdb BwScan3 -O bwscanner
+sudo -u postgres createdb BwScan4 -O bwscanner
+
+4. Update bwauthority.cfg files
+comment out the lines beginning with db_url=
+uncomment the line:
+#db_url = postgresql://bwscanner:password@127.0.0.1/BwScan1
+
+5. ./run_scan.sh
