@@ -8,6 +8,5 @@ PidFile ./data/tor/tor.pid
 CookieAuthentication 1
 FetchUselessDescriptors 1
 __LeaveStreamsUnattached 1
-UseMicrodescriptors 0
 FetchDirInfoExtraEarly 1
 FetchDirInfoEarly 1
