@@ -34,9 +34,12 @@ need to be running the master branch from tor git.
 
 4. Download SQLAlchemy 0.5.x-latest and Elixir 0.6.x-latest
 
-While TorFlow is written to be compatible with both 0.4.x and 0.5.x of
-SQLAlchemy, 0.4.8 seems to exhibit odd object persistence bugs. If your
-distribution does not provide 0.5.4 or newer, you will likely want to
+The latest version of SQLAlchemy is 0.7.2 and the latest version of Elixir
+is 0.7.1 at the time of writing. While TorFlow is written to be compatible
+with 0.4.x and 0.5.x and 0.6.x of SQLAlchemy, 0.5.5 was noted for
+problems parsing postgres database URLS, 0.4.8 seems to exhibit odd object persistence bugs.
+
+If your distribution does not provide 0.7.x or newer, you will likely want to
 download that tarball from:
 
 http://pypi.python.org/pypi/SQLAlchemy/
@@ -45,7 +48,7 @@ Untar it in the same directory that contains the TorFlow checkout and
 your git checkout (for peace of mind, you will want all three in the
 same place).
 
-If your distribution does not provide Elixir 0.6.1 or above, do the
+If your distribution does not provide Elixir 0.7.x or above, do the
 same with Elixir:
 
 http://pypi.python.org/pypi/Elixir/
@@ -53,12 +56,13 @@ http://pypi.python.org/pypi/Elixir/
 So for example, an ls in ~/code/tor/ should look like this:
 
 # ls ~/code/tor/
-Elixir-0.6.1         SQLAlchemy-0.5.5           tor.git
-Elixir-0.6.1.tar.gz  SQLAlchemy-0.5.5.tar.gz    torflow-trunk
+Elixir-0.7.1         SQLAlchemy-0.7.2           tor.git
+Elixir-0.7.1.tar.gz  SQLAlchemy-0.7.2.tar.gz    torflow-trunk
 
 Both these libraries also depend upon python-pysqlite2, which should be 
 a package for your distribution (you want 2.3.x for SQLite 3.x).
 
+If you want to use postgres support, you should also install python-psycopg2.
 
 
 5. Enable voting on bandwidths in your authority torrc
