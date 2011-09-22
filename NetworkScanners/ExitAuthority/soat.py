@@ -1303,6 +1303,7 @@ class BaseHTTPTest(Test):
     if result == COMPARE_NOEQUAL:
       # Reload direct content and try again
       new_req = http_request(address, my_cookie_jar, self.headers)
+      sha1sum_new = sha(new_req.content)
       
       # If a new direct load somehow fails, then we're out of luck
       if not (200 <= new_req.code < 300):
@@ -1320,7 +1321,7 @@ class BaseHTTPTest(Test):
         # The content has not actually changed, so our exit node is screwing with us.
         result = HttpTestResult(self.node_map[exit_node[1:]],
                                 address, TEST_FAILURE, FAILURE_EXITONLY,
-                                sha1sum.hexdigest(), psha1sum.hexdigest(),
+                                sha1sum_new.hexdigest(), psha1sum.hexdigest(),
                                 address_to_context(address)+".content")
         retval = self.register_exit_failure(result)
 
@@ -1342,6 +1343,7 @@ class BaseHTTPTest(Test):
       retval = self.register_success(result)
 
     elif result == COMPARE_TRUNCATION:
+      sha1sum = self.load_original_sha1sum(address)
       result = HttpTestResult(self.node_map[exit_node[1:]],
                               address, TEST_FAILURE, FAILURE_EXITTRUNCATION,
                               sha1sum.hexdigest(), psha1sum.hexdigest(),
@@ -1452,6 +1454,13 @@ class BaseHTTPTest(Test):
       return COMPARE_EQUAL
     else:
       return COMPARE_NOEQUAL
+
+  def load_original_sha1sum(self, address):
+    context = self.address_to_context(address)
+    f = open(context + '.content')
+    old_content = f.read()
+    f.close() 
+    return sha(old_content)
 
 # TODO move these somewhere sensible
 def mime_to_filetype(mime_type):
