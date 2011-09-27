@@ -1322,7 +1322,7 @@ class BaseHTTPTest(Test):
         result = HttpTestResult(self.node_map[exit_node[1:]],
                                 address, TEST_FAILURE, FAILURE_EXITONLY,
                                 sha1sum_new.hexdigest(), psha1sum.hexdigest(),
-                                address_to_context(address)+".content")
+                                self.address_to_context(address)+".content")
         retval = self.register_exit_failure(result)
 
       else:
@@ -1334,7 +1334,7 @@ class BaseHTTPTest(Test):
         result = HttpTestResult(self.node_map[exit_node[1:]],
                                 address, TEST_INCONCLUSIVE, INCONCLUSIVE_DYNAMIC,
                                 sha1sum_new.hexdigest(), psha1sum.hexdigest(),
-                                address_to_context(address)+".content")
+                                self.address_to_context(address)+".content")
         retval = self.register_inconclusive(result)
 
     elif result == COMPARE_EQUAL:
