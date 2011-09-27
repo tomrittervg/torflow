@@ -1864,7 +1864,8 @@ class SearchBasedHTTPTest(SearchBasedTest, BaseHTTPTest):
     if self._pickle_revision < 7:
       self.result_filetypes = self.scan_filetypes
       self.result_protocol = "http"
-      self.results_per_type = self.fetch_targets
+      #XXX: fetch_targets is not defined anywhere
+      #self.results_per_type = self.fetch_targets
     BaseHTTPTest.depickle_upgrade(self)
 
   def rewind(self):
