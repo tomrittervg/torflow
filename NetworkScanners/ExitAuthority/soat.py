@@ -1348,12 +1348,12 @@ class BaseHTTPTest(Test):
                               address, TEST_FAILURE, FAILURE_EXITTRUNCATION,
                               sha1sum.hexdigest(), psha1sum.hexdigest(),
                               content_prefix+".content",
-                              exit_content_file)
+                              self.address_to_failed_prefix(address)+'.'+exit_node[1:]+'.content')
       retval = self.register_exit_failure(result)
 
     # If we failed, then store what the exit node handed us
     if retval == TEST_FAILURE:
-      exit_content_file = open(address_to_failed_prefix(address)+'.'+exit_node[1:]+'.content', 'w')
+      exit_content_file = open(self.address_to_failed_prefix(address)+'.'+exit_node[1:]+'.content', 'w')
       exit_content_file.write(preq.contet)
       exit_content_file.close()
 
