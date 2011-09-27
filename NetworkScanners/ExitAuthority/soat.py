@@ -1347,7 +1347,7 @@ class BaseHTTPTest(Test):
       result = HttpTestResult(self.node_map[exit_node[1:]],
                               address, TEST_FAILURE, FAILURE_EXITTRUNCATION,
                               sha1sum.hexdigest(), psha1sum.hexdigest(),
-                              content_prefix+".content",
+                              self.address_to_context(address)+".content",
                               self.address_to_failed_prefix(address)+'.'+exit_node[1:]+'.content')
       retval = self.register_exit_failure(result)
 
