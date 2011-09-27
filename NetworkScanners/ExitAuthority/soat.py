@@ -1354,7 +1354,7 @@ class BaseHTTPTest(Test):
     # If we failed, then store what the exit node handed us
     if retval == TEST_FAILURE:
       exit_content_file = open(self.address_to_failed_prefix(address)+'.'+exit_node[1:]+'.content', 'w')
-      exit_content_file.write(preq.contet)
+      exit_content_file.write(preq.content)
       exit_content_file.close()
 
     return retval
