@@ -1884,9 +1884,12 @@ class SearchBasedHTTPTest(SearchBasedTest, BaseHTTPTest):
   def refill_targets(self):
     for ftype in self.scan_filetypes:
       targets_needed = self.results_per_type - len(self.targets.bykey(ftype))
+      urllist = set([])
       if targets_needed > 0:
         plog("NOTICE", self.proto+" scanner short on "+ftype+" targets. Adding more")
-        map(self.add_target, self.get_search_urls_for_filetype(ftype,targets_needed))
+        #map(self.add_target, self.get_search_urls_for_filetype(ftype,targets_needed))
+        urllist.update(map(lambda x: (x, ftype), self.get_search_urls_for_filetype(ftype, targets_needed)))
+        map(self.add_target, urllist)
 
   def add_target(self, target):
     self.targets.add(target[0],[target[1]])
