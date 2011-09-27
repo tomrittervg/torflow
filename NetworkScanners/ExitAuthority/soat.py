@@ -1788,7 +1788,7 @@ class SearchBasedTest:
         break
 
       if (400 <= search_req.code < 500):
-        plog('ERROR', 'Scraping of http://'+host+search_path+' failed. HTTP '+str(code))
+        plog('ERROR', 'Scraping of http://'+host+search_path+' failed. HTTP '+str(search_req.code))
         break
 
       content = search_req.content
