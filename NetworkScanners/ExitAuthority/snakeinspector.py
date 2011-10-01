@@ -26,7 +26,7 @@ try:
     import TorCtl.TorUtil
 except ImportError:
     from os import getcwd, path
-    print "TorCtl not found in %s" % path.abspath(getcwd()+'../..')
+    print "TorCtl not found in %s. Did you run torflow.git/add_torctl.sh?" % path.abspath(getcwd()+'../..')
     print "Exiting..."
     exit()  
 
