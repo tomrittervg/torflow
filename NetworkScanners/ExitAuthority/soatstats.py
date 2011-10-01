@@ -15,8 +15,14 @@ if sys.version_info < (2, 5):
 import libsoat
 from libsoat import *
 
-sys.path.append("../")
-from TorCtl.TorUtil import *
+sys.path.append("../../")
+try:
+    from TorCtl.TorUtil import *
+except ImportError:
+    from os import getcwd, path
+    print "TorCtl not found in %s" % path.abspath(getcwd()+'../..')
+    print "Exiting..."
+    exit()   
 
 class ResultCount:
   def __init__(self, type):

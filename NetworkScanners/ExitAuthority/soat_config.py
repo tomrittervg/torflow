@@ -8,7 +8,13 @@
 
 import sys
 sys.path.append("../../")
-from TorCtl.PathSupport import *
+try:
+    from TorCtl.PathSupport import *
+except ImportError:
+    from os import getcwd, path
+    print "TorCtl not found in %s" % path.abspath(getcwd()+'../..')
+    print "Exiting..."
+    exit() 
 
 from soat import BeautifulSoup
 

@@ -22,7 +22,13 @@ from libsoat import *
 from soat_config import *
 
 sys.path.append("../../")
-import TorCtl.TorUtil
+try:
+    import TorCtl.TorUtil
+except ImportError:
+    from os import getcwd, path
+    print "TorCtl not found in %s" % path.abspath(getcwd()+'../..')
+    print "Exiting..."
+    exit()  
 
 TorCtl.TorUtil.loglevel="INFO"
 
