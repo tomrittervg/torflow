@@ -2638,12 +2638,7 @@ def setup_handler(out_dir, cookie_file, fixed_exits=[]):
   atexit.register(cleanup, *(c, l, f))
   return (c,h)
 
-
-# main logic
-def main(argv):
-  # make sure we have something to test for
-  if len(argv) < 2:
-    print ''
+def usage():
     print 'Please provide at least one test option:'
     print '--pernode=<n>'
     print '--resume=<n>'
@@ -2660,8 +2655,15 @@ def main(argv):
     print '--target=<ip or url>'
     print '--loglevel=<DEBUG|INFO|NOTICE|WARN|ERROR|NONE>'
     print ''
-    return
-  
+    
+	
+# main logic
+def main(argv):
+  # make sure we have something to test for
+  if len(argv) < 2:
+	usage()
+	return
+	
   TorUtil.read_config(data_dir+"/torctl.cfg")
 
   opts = ['ssl','rescan', 'pernode=', 'resume=','http','ssh','smtp','pop','imap','dns','dnsrebind','policies','exit=','target=','loglevel=']
