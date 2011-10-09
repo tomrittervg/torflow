@@ -2667,7 +2667,14 @@ def main(argv):
   TorUtil.read_config(data_dir+"/torctl.cfg")
 
   opts = ['ssl','rescan', 'pernode=', 'resume=','http','ssh','smtp','pop','imap','dns','dnsrebind','policies','exit=','target=','loglevel=']
-  flags, trailer = getopt.getopt(argv[1:], [], opts)
+  
+  # make sure the arguments are correct
+  try:
+	flags, trailer = getopt.getopt(argv[1:], [], opts)
+  except getopt.error, msg:
+	print msg
+	usage()
+	return
   
   # get specific test types
   do_resume = False
@@ -2703,7 +2710,6 @@ def main(argv):
       else:
         plog("ERROR", "Unknown loglevel: "+flag[1])
         sys.exit(0)
-
 
   plog("DEBUG", "Read tor config. Got Socks proxy: "+str(TorUtil.tor_port))
 
