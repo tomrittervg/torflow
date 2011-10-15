@@ -85,7 +85,7 @@ except ImportError:
     from os import getcwd, path
     print "TorCtl not found in %s. Did you run torflow.git/add_torctl.sh?" % path.abspath(getcwd()+'../..')
     print "Exiting..."
-    exit()  
+    exit()
 
 sys.path.insert(0,"../libs")
 # Make our SocksiPy use our socket
@@ -622,7 +622,7 @@ class Test:
       # Yes, this is a hack, and yes, it will bias results
       # away from the filter, but hey, at least it will still run.
       self._pickle_revision = 1
-      
+
       for addr in self.successes.keys():
         if type(self.successes[addr]) == int:
           self.successes[addr] = set(xrange(0,self.successes[addr]))
@@ -1202,7 +1202,7 @@ class BaseHTTPTest(Test):
     if self.compare(address,loaded_filetype,second_req) != COMPARE_EQUAL:
       return (address, False, second_req.code, '')
 
-    return (address, True, req.code, loaded_filetype)    
+    return (address, True, req.code, loaded_filetype)
 
   def check_http(self, address, filetype, dynamic = False):
     ''' check whether a http connection to a given address is molested '''
@@ -1310,7 +1310,7 @@ class BaseHTTPTest(Test):
       # Reload direct content and try again
       new_req = http_request(address, my_cookie_jar, self.headers)
       sha1sum_new = sha(new_req.content)
-      
+
       # If a new direct load somehow fails, then we're out of luck
       if not (200 <= new_req.code < 300):
         plog("WARN", "Failed to re-frech "+address+" outside of Tor. Did our network fail?")
@@ -1322,7 +1322,7 @@ class BaseHTTPTest(Test):
 
       # Try our comparison again
       dynamic = self.compare(address,filetype,new_req)
-      
+
       if dynamic == COMPARE_EQUAL:
         # The content has not actually changed, so our exit node is screwing with us.
         result = HttpTestResult(self.node_map[exit_node[1:]],
@@ -1373,7 +1373,7 @@ class BaseHTTPTest(Test):
 
   def address_to_failed_prefix(self, address):
     return http_failed_dir + self._address_to_filename(address)
-    
+
   def save_compare_data(self, address, filetype, req):
     context = self. address_to_context(address)
 
@@ -1382,7 +1382,7 @@ class BaseHTTPTest(Test):
     f.close()
 
     lines = req.content.split('\n')
-      
+
     hashes = []
     working_hash = sha()
     for l in lines:
@@ -1407,12 +1407,12 @@ class BaseHTTPTest(Test):
     context = self. address_to_context(address)
 
     new_linelist = req.content.split('\n')
- 
+
     f = open(context + '.content')
     old_content = f.read()
     f.close()
 
-    
+
     old_hashes = SnakePickler.load(context + '.hashes')
 
     if len(new_linelist) > len(old_hashes):
@@ -1465,7 +1465,7 @@ class BaseHTTPTest(Test):
     context = self.address_to_context(address)
     f = open(context + '.content')
     old_content = f.read()
-    f.close() 
+    f.close()
     return sha(old_content)
 
 # TODO move these somewhere sensible
@@ -1589,7 +1589,7 @@ class BaseSSLTest(Test):
       if ssl_domain.cert_changed:
         plog("NOTICE", "Fully dynamic certificate host "+address)
 
-        result = SSLTestResult("NoExit", "NotStored!", address, ssl_file_name, 
+        result = SSLTestResult("NoExit", "NotStored!", address, ssl_file_name,
                                TEST_INCONCLUSIVE,
                                INCONCLUSIVE_DYNAMICSSL)
         if self.rescan_nodes:
@@ -1714,11 +1714,11 @@ class FixedTargetHTTPTest(FixedTargetTest, BaseHTTPTest):
     utargets = [t for t in targets if self._is_useable_url(t, ['http'])]
     FixedTargetTest.__init__(self, utargets)
 
-  def get_targets(self): 
+  def get_targets(self):
     ret = []
     for targ in self.fixed_targets:
       addr, succ, code, ftype = self.first_load(targ, False)
-      if succ: 
+      if succ:
         ret.append([addr,ftype])
     return ret
 
@@ -2655,19 +2655,19 @@ def usage():
     print '--target=<ip or url>'
     print '--loglevel=<DEBUG|INFO|NOTICE|WARN|ERROR|NONE>'
     print ''
-    
-	
+
+
 # main logic
 def main(argv):
   # make sure we have something to test for
   if len(argv) < 2:
 	usage()
 	return
-	
+
   TorUtil.read_config(data_dir+"/torctl.cfg")
 
-  opts = ['ssl','rescan', 'pernode=', 'resume=','http','ssh','smtp','pop','imap','dns','dnsrebind','policies','exit=','target=','loglevel=']
-  
+  opts = ['ssl','rescan', 'pernode=', 'resume=','http','ssh','smtp','pop','imap','dns','dnsrebind','policies','exit=','target=','loglevel=','help']
+
   # make sure the arguments are correct
   try:
 	flags, trailer = getopt.getopt(argv[1:], [], opts)
@@ -2675,7 +2675,7 @@ def main(argv):
 	print msg
 	usage()
 	return
-  
+
   # get specific test types
   do_resume = False
   do_rescan = ('--rescan','') in flags
@@ -2691,6 +2691,9 @@ def main(argv):
   fixed_exits=[]
   fixed_targets=[]
   for flag in flags:
+    if flag[0] == "--help":
+      usage()
+      return
     if flag[0] == "--exit":
       fixed_exits.append(flag[1])
     if flag[0] == "--target":
