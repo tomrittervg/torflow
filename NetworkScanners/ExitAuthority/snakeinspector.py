@@ -28,7 +28,7 @@ except ImportError:
     from os import getcwd, path
     print "TorCtl not found in %s. Did you run torflow.git/add_torctl.sh?" % path.abspath(getcwd()+'../..')
     print "Exiting..."
-    exit()  
+    exit()
 
 TorCtl.TorUtil.loglevel="INFO"
 
@@ -36,7 +36,8 @@ if TorCtl.TorUtil.loglevels[TorCtl.TorUtil.loglevel] > TorCtl.TorUtil.loglevels[
   # Kill stderr (jsdiffer and exception noise) if our loglevel is above INFO
   sys.stderr = file("/dev/null", "w")
 
-def usage(argv):
+def usage(argv=None):
+
   print "Usage: "+argv[0]+" with 0 or more of the following filters: "
   print "  --dir <datadir>"
   print "  --file <.result file>"
@@ -86,17 +87,19 @@ class SIConf(object):
 
   def getargs(self, argv):
     try:
-      opts,args = getopt.getopt(argv[1:],"d:f:x:r:n:a:b:t:p:o:s:Fmcv",
+      opts,args = getopt.getopt(argv[1:],"d:f:x:r:n:a:b:t:p:o:s:h:Fmcv",
                ["dir=", "file=", "exit=", "reason=", "resultfilter=", "proto=",
                 "verbose", "statuscode=", "siterate=", "exitrate=", "sortby=",
                 "noreason=", "after=", "before=", "finishedafter=",
                 "finishedbefore=", "croninterval=", "falsepositives",
-                "email", "confirmed"])
+                "email", "confirmed","help"])
     except getopt.GetoptError,err:
       print str(err)
       usage(argv)
     for o,a in opts:
-      if o == '-d' or o == '--dir':
+      if o == '-h' or o == '--help':
+          usage(argv)
+      elif o == '-d' or o == '--dir':
         self.use_dir = a
       elif o == '-f' or o == '--file':
         self.use_file = a
