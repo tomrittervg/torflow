@@ -34,7 +34,7 @@
 
    The "interfaces" of this document are Tor's control and SOCKS protocol
    for performing measurements and Tor's directory protocol for including
-   results int the network status voting process.
+   results in the network status voting process.
 
    The focus of this document is the functionality of the bandwidth
    scanners in their default configuration.  Whenever there are
@@ -94,7 +94,7 @@
    The ordering of the percentiles is determined by sorting the relays by
    the ratio of their network status consensus bandwidth to their descriptor
    values. This ensures that relays with similar amounts of measured capacity
-   are measured together. Relays without the "Fast" or "Runnig" flags are
+   are measured together. Relays without the "Fast" or "Running" flags are
    discarded from both the percentile rankings, and from measurement in
    general.
 
@@ -271,21 +271,78 @@
 
 2. Aggregating scanner results
 
-   Every few hours, the bandwidth scanner results are aggregated in order
-   to include them in the network status consensus process.  This
-   aggregation step looks at the finished measurements, ....
+   Once per hour (via cron), the bandwidth scanner results are aggregated
+   in order to include them in the network status consensus process.  This
+   aggregation step reads in all result files produced from the four 
+   bandwidth authority children as defined in Section 1.6 and produces a
+   single output file to be read by a tor directory authority.
 
-2.1. Connecting to Tor client
+2.1. Selecting which measurements to include
 
-# The aggregate script connects to the same Tor client that bandwidth
-# scanners use and requests the currently valid network status consensus
-# from it.  Does that mean we won't have an opinion on relays that are
-# offline right now?  -KL
+   Since each bandwidth authority child writes a new file each time it
+   processes a slice, there can be a lot of old files. We automatically
+   exclude files older than 15 days.
 
-2.2. [...]
+   Furthermore, since routers can move between slices, we must record the
+   slice timestamps for each router measurement, to ensure we use only the
+   most recent slice that a router appeared in.
+
+2.2. Computing bandwidth values from measurements
+
+   Once we have determined the most recent measurements for each node, we
+   compute an average of the filt_bw fields over all nodes we have measured.
+   
+   These averages are used to produce ratios for each node by dividing the
+   measured value for that node by the network average. 
+
+   These ratios are then multiplied by the most recent observed descriptor
+   bandwidth we have available for each node, to produce a new value for
+   the network status consensus process.
+
+   In this way, the resulting network status consensus bandwidth values
+   are effectively re-weighted proportional to how much faster the node
+   was as compared to the rest of the network.
+
+2.3. Ensuring and measuring progress
+
+   To ensure that the scanners are making progress, we perform two checks.
+
+   First, we read in the previous consensus over the Tor control port. If we
+   have measurements for less than 60% of the current consensus, we do not 
+   produce a result file. This is done to ensure that we have an accurate
+   network average before computing ratios and producing measurement results.
+
+   Second, we collect the most recent slice timestamp for each scanner child.
+   If the most recent slice timestamp is older than 1.5 days, we print out a
+   warning that is mailed to the scanner operator. We still produce a result
+   file in this case.
+
+2.4. Feedback mechanisms
 
 # BETA, GUARD_BETA, ALPHA, and GUARD_ALPHA are all set to 0 in the default
 # configuration.  Is the plan to change their values and use the more
 # complex aggregation mechanism anytime soon?  Or were they only in the
 # code to run experiments and should go away?  -KL
+
+# I am going to change how this stuff works for bug #1976. -MP.
+
+2.5. Result format
+
+   The final output file for use by the directory authorities is comprised of
+   lines of the following format:
+
+      "node_id=" fingerprint SP
+      "bw=" new_bandwidth SP
+      "diff=" (new bandwidth) - (descriptor bandwidth) SP
+      "nick=" nickname SP
+      "measured_at=" slice timestamp NL
+
+2.6. Usage by directory authorities 
+
+   The Tor directory authorities use only the node_id and the bw fields.
+   The rest of the fields are informative only.
+
+   The directory authorities take the median of all votes for the bw field,
+   and publish that value as the consensus bandwidth.
+
 
