@@ -67,12 +67,8 @@
 
    instructs Tor to leave streams unattached and let the controller attach
    new streams to circuits.
-#
-# Why does bwauthority.py set and reset these configuration options when
-# the provided torrc already contains them?  Particularly the resetting
-# part seems to be broken, because bwauthority.py sets
-# __LeaveStreamsUnattached 0 even though other scanners might still be
-# running.  The whole code should be removed from bwauthority.py.  -KL
+
+       
 
 1.2. Connecting to Tor via its control port
 
