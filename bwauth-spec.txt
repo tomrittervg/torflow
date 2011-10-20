@@ -67,7 +67,6 @@
 
    instructs Tor to leave streams unattached and let the controller attach
    new streams to circuits.
-
        
 
 1.2. Connecting to Tor via its control port
@@ -89,9 +88,17 @@
 1.3. Selecting slices of relays
 
    Each of the four bandwidth scanners is responsible for a subset of
-   running relays, determined by a fixed percentile range of bandwidths
-   listed in the network status consensus.  By default the four scanners
-   are responsible for the relays with consensus bandwidth:
+   running relays, determined by a fixed percentile range of relays
+   listed in the network status consensus.
+
+   The ordering of the percentiles is determined by sorting the relays by
+   the ratio of their network status consensus bandwidth to their descriptor
+   values. This ensures that relays with similar amounts of measured capacity
+   are measured together. Relays without the "Fast" or "Runnig" flags are
+   discarded from both the percentile rankings, and from measurement in
+   general.
+
+   By default the four scanners divide the resulting sorted list as follows:
 
     1. from  0th to  12th percentile (fastest relays),
     2. from 12th to  35th percentile (fast relays),
@@ -108,21 +115,12 @@
    network status consensus at the time of starting the slice.  The upper
    percentile may exceed the percentile range that the bandwidth scanner
    is responsible for, whereas the lower percentile isn't.  The set of
-   relays contained in the slice can change arbitrary often while
+   relays contained in the slice can change arbitrarily often while
    performing measurements.
-#
-# What if we approach the upper bound of the interval we're responsible
-# for and there are no 50 relays left?  Is the last slice going to have
-# fewer relays, or do we decrease the lower percentile until we have 50
-# relays?  Example: There are 101 relays between 60th and 100th
-# percentile, and we just finished relays 51 to 100.  Is the next slice
-# going to have only 1 relay?  I saw output files from 100th to 102nd
-# percentile on gabelmoo.  How's that possible?  -KL
-#
-# The paragraph above contains a lot of guesswork and may be completely
-# wrong.  But we need some definition of what relays are contained in a
-# slice and whether membership can change over time.  -KL
 
+   Currently, if a slice has no exits, that slice will be simply skipped.
+   # XXX: See bug #4269. -MP
+ 
    A bandwidth scanner keeps measuring the bandwidth of the relays in a
    slice until:
 
@@ -135,25 +133,15 @@
    Note that the second requirement makes no assumptions about successful
    fetches for a given relay or path.  It is just an abstract number to
    avoid skipping slices in case of temporary network failure.
-#
-# If selection is random, isn't there a small chance of never picking a
-# relay and never reaching the 5 measurements for this relay?  -KL
+
+   The scanners maintain the measurement count for all relays in the current
+   slice, and scan relays with the lowest scan count first.
 
 1.4. Selecting paths for measurements
 
    Before selecting a new path for a measurement, a bandwidth scanner
    makes sure that it has a valid consensus, and if it doesn't, it waits
    for the Tor client to provide one.
-
-   The bandwidth scanners also check the local system time and avoid
-   starting new measurements between 01:30 and 04:30 local time.
-#
-# Why do the authorities sleep for three hours in the *default*
-# configuration?  It seems useful to have this as a configuration option,
-# but why is it enabled by default?  -KL
-#
-# It seems that after waking up from this 3 hour break, we don't wait for
-# a valid consensus.  Should we?  -KL
 
    The bandwidth scanners then select a path and instruct Tor to build a
    circuit that meets the following requirements:
@@ -165,8 +153,9 @@
 
     - Path length is always 2.
 
-    - Selection is uniform, that is, there is no preference for relays,
-      e.g., based on bandwidth.
+    - Nodes are selected uniformly among those with the lowest measurement
+      count for the current slice. Otherwise, there is no preference for
+      relays, e.g., based on bandwidth.
 
     - Relays in the paths must come from different /16 subnets.
 
@@ -175,18 +164,10 @@
 
     - Exit relays must have the Running and Fast flags, must not have the
       BadExit flag, and must permit exiting to 255.255.255.255:443.
-#
-# If the Fast flag is really required for both positions, does this mean
-# that non-Fast relays are not measured?  How does this work with the
-# criteria to consider a slice finished?  And what if the criteria for
-# assigning the Fast flag are tightened in the future?  -KL
-#
-# The sets of entry and exit relays don't overlap, right?  What if a slice
-# of 50 relays has entry or exit relays, but none of the other set?
-# Right, it's highly unlikely, but does this mean we wouldn't measure
-# anything?  -KL
-#
-# There's even more guesswork involved here.  This needs review!  -KL
+
+   If these restrictions cannot be met with the current slice, the slice is
+   abandoned and the scanner moves on to the next slice.
+   # XXX: See bug #4269 -MP.
 
 1.5. Performing measurements
 
@@ -197,25 +178,21 @@
 
    All requests are sent to port 443 using https to avoid caching on the
    exit relay.
-#
-# Do the bandwidth scanners check the result size and/or the bandwidth
-# authority certificate somewhere?  If not, should they?  Otherwise,
-# malicious exits could manipulate their bandwidth weights too easily.
-# -KL
+
+   We currently do not authenticate the certificate or verify the download
+   length is sane. # XXX: Bug #4271. -MP.
 
    The requested resource for performing the measurement varies with the
    lower percentile of the slice under investigation.  The default file
    sizes by lower percentiles are:
 
-    -  0th to  10th percentile:   2 MiB
-    - 10th to  20th percentile:   1 MiB
-    - 20th to  30th percentile: 512 KiB
-    - 30th to  50th percentile: 256 KiB
-    - 50th to 100th percentile: 128 KiB
-#
-# In choose_url(), we raise an exception saying that no nodes are left for
-# the URL choice, but really we can only run into this exception when we
-# pass a value > 100 for percentile.  -KL
+     - 0th  to   5th percentile: 8M
+     - 5th  to  10th percentile: 4M
+     - 10th to  20th percentile: 2M
+     - 20th to  40th percentile: 1M
+     - 40th to  50th percentile: 512k
+     - 50th to  80th percentile: 256k
+     - 80th to 100th percentile: 128k
 
    The bandwidth scanners use the following fixed user-agent string for
    their requests:
@@ -224,14 +201,6 @@
       .NET CLR 1.0.3705; .NET CLR 1.1.4322)
 
    Unfinished downloads are aborted after 30 minutes.
-#
-# That's a pretty high timeout, right?  This can slow us down
-# significantly, given that downloads are not run in parallel for a given
-# bandwidth scanner.  A better timeout might be 10 or 15 minutes.  -KL
-#
-# There's a code line "if ret == 1 and build_exit:" with the else case
-# including build_exit in the log message.  What if ret == 0 and
-# build_exit is null?  -KL
 
    For each download, the bandwidth scanners collect the following data:
 #
