@@ -1,0 +1,326 @@
+
+                      Bandwidth Scanner specification
+
+
+          "This is Fail City and sqlalchemy is running for mayor"
+                                  - or -
+   How to Understand What The Heck the Tor Bandwidth Scanners are Doing
+
+
+                             Karsten Loesing
+                                Mike Perry
+
+0. Preliminaries
+
+   The Tor bandwidth scanners measure the bandwidth of relays in the Tor
+   network to adjust the relays' self-advertised bandwidth values.  The
+   bandwidth scanners are run by a subset of Tor directory authorities
+   which include the results in their network status votes.  Consensus
+   bandwidth weights are then used by Tor clients to make better path
+   selection decisions.  The outcome is a better load balanced Tor network
+   with a more efficient use of the available bandwidth capacity by users.
+
+   This document describes the implementation of the bandwidth scanners as
+   part of the Torflow and TorCtl packages.  This document has two main
+   sections:
+
+    - Section 1 covers the operation of the continuously running bandwidth
+      scanners to split the set of running relays into workable subsets,
+      select two-hop paths between these relays, perform downloads, and
+      write performance results to disk.
+
+    - Section 2 describes the periodically run step to aggregate results
+      in order to include them in the network status voting process.
+
+   The "interfaces" of this document are Tor's control and SOCKS protocol
+   for performing measurements and Tor's directory protocol for including
+   results int the network status voting process.
+
+   The focus of this document is the functionality of the bandwidth
+   scanners in their default configuration.  Whenever there are
+   configuration options that significantly change behavior, this is
+   noted.  But this document is not a manual and does not describe any
+   configuration options in detail.  Refer to README.BwAuthorities for the
+   operation of bandwidth scanners.
+
+1. Measuring relay bandwidth
+
+   Every directory authority that wants to include bandwidth scanner
+   results in its vote operates a set of four bandwidth scanners running
+   in parallel.  These bandwidth scanners divide the Tor network into four
+   partitions from fastest to slowest relays and continuously measure the
+   relays' bandwidth capacity.  Each bandwidth scanner runs the steps as
+   described in this section.  The results of all four bandwidth scanners
+   are periodically aggregated as described in the next section.
+
+1.1. Configuring and running a Tor client
+
+   All four bandwidth scanners use a single Tor client for their
+   measurements.  This Tor client has two non-standard configuration
+   options set.  The first:
+
+      FetchUselessDescriptors 1
+
+   configures Tor to fetch descriptors of non-running relays.  The second:
+
+      __LeaveStreamsUnattached 1
+
+   instructs Tor to leave streams unattached and let the controller attach
+   new streams to circuits.
+#
+# Why does bwauthority.py set and reset these configuration options when
+# the provided torrc already contains them?  Particularly the resetting
+# part seems to be broken, because bwauthority.py sets
+# __LeaveStreamsUnattached 0 even though other scanners might still be
+# running.  The whole code should be removed from bwauthority.py.  -KL
+
+1.2. Connecting to Tor via its control port
+
+   At startup, the bandwidth scanners connect to the Tor client via its
+   control port using cookie authentication.  The bandwidth scanners
+   register for events of the following types:
+
+    - NEWCONSENSUS
+    - NEWDESC
+    - CIRC
+    - STREAM
+    - BW
+    - STREAM_BW
+
+   These events are used to learn about updated Tor directory information
+   and about measurement progress.
+
+1.3. Selecting slices of relays
+
+   Each of the four bandwidth scanners is responsible for a subset of
+   running relays, determined by a fixed percentile range of bandwidths
+   listed in the network status consensus.  By default the four scanners
+   are responsible for the relays with consensus bandwidth:
+
+    1. from  0th to  12th percentile (fastest relays),
+    2. from 12th to  35th percentile (fast relays),
+    3. from 35th to  60th percentile (slow relays), and
+    4. from 60th to 100th percentile (slowest relays).
+
+   The bandwidth scanners further subdivide the share of relays they are
+   responsible for into slices of 50 relays to perform measurements.
+
+   A slice does not consist of 50 fixed relays, but is defined by a
+   percentile range containing 50 relays.  The lower bound of the
+   percentile range equals the former upper bound of the previous slice or
+   0 if this is the first slice.  The upper bound is determined from the
+   network status consensus at the time of starting the slice.  The upper
+   percentile may exceed the percentile range that the bandwidth scanner
+   is responsible for, whereas the lower percentile isn't.  The set of
+   relays contained in the slice can change arbitrary often while
+   performing measurements.
+#
+# What if we approach the upper bound of the interval we're responsible
+# for and there are no 50 relays left?  Is the last slice going to have
+# fewer relays, or do we decrease the lower percentile until we have 50
+# relays?  Example: There are 101 relays between 60th and 100th
+# percentile, and we just finished relays 51 to 100.  Is the next slice
+# going to have only 1 relay?  I saw output files from 100th to 102nd
+# percentile on gabelmoo.  How's that possible?  -KL
+#
+# The paragraph above contains a lot of guesswork and may be completely
+# wrong.  But we need some definition of what relays are contained in a
+# slice and whether membership can change over time.  -KL
+
+   A bandwidth scanner keeps measuring the bandwidth of the relays in a
+   slice until:
+
+    - every relay in the slice has been selected for measurement at least
+      5 times, and
+
+    - the number of successful fetches is at least 65% of the possible
+      path combinations (5 x number of relays / 2).
+
+   Note that the second requirement makes no assumptions about successful
+   fetches for a given relay or path.  It is just an abstract number to
+   avoid skipping slices in case of temporary network failure.
+#
+# If selection is random, isn't there a small chance of never picking a
+# relay and never reaching the 5 measurements for this relay?  -KL
+
+1.4. Selecting paths for measurements
+
+   Before selecting a new path for a measurement, a bandwidth scanner
+   makes sure that it has a valid consensus, and if it doesn't, it waits
+   for the Tor client to provide one.
+
+   The bandwidth scanners also check the local system time and avoid
+   starting new measurements between 01:30 and 04:30 local time.
+#
+# Why do the authorities sleep for three hours in the *default*
+# configuration?  It seems useful to have this as a configuration option,
+# but why is it enabled by default?  -KL
+#
+# It seems that after waking up from this 3 hour break, we don't wait for
+# a valid consensus.  Should we?  -KL
+
+   The bandwidth scanners then select a path and instruct Tor to build a
+   circuit that meets the following requirements:
+
+    - All relays for the new path need to be members of the current slice.
+
+    - The minimum consensus bandwidth for relays to be selected is 1
+      KiB/s.
+
+    - Path length is always 2.
+
+    - Selection is uniform, that is, there is no preference for relays,
+      e.g., based on bandwidth.
+
+    - Relays in the paths must come from different /16 subnets.
+
+    - Entry relays must have the Running and Fast flags and must not
+      permit exiting to 255.255.255.255:443.
+
+    - Exit relays must have the Running and Fast flags, must not have the
+      BadExit flag, and must permit exiting to 255.255.255.255:443.
+#
+# If the Fast flag is really required for both positions, does this mean
+# that non-Fast relays are not measured?  How does this work with the
+# criteria to consider a slice finished?  And what if the criteria for
+# assigning the Fast flag are tightened in the future?  -KL
+#
+# The sets of entry and exit relays don't overlap, right?  What if a slice
+# of 50 relays has entry or exit relays, but none of the other set?
+# Right, it's highly unlikely, but does this mean we wouldn't measure
+# anything?  -KL
+#
+# There's even more guesswork involved here.  This needs review!  -KL
+
+1.5. Performing measurements
+
+   Once the circuit is built, the bandwidth scanners download a test file
+   via Tor's SOCKS port using SOCKS protocol version 5.
+
+   All downloads go to same bandwidth authority server.
+
+   All requests are sent to port 443 using https to avoid caching on the
+   exit relay.
+#
+# Do the bandwidth scanners check the result size and/or the bandwidth
+# authority certificate somewhere?  If not, should they?  Otherwise,
+# malicious exits could manipulate their bandwidth weights too easily.
+# -KL
+
+   The requested resource for performing the measurement varies with the
+   lower percentile of the slice under investigation.  The default file
+   sizes by lower percentiles are:
+
+    -  0th to  10th percentile:   2 MiB
+    - 10th to  20th percentile:   1 MiB
+    - 20th to  30th percentile: 512 KiB
+    - 30th to  50th percentile: 256 KiB
+    - 50th to 100th percentile: 128 KiB
+#
+# In choose_url(), we raise an exception saying that no nodes are left for
+# the URL choice, but really we can only run into this exception when we
+# pass a value > 100 for percentile.  -KL
+
+   The bandwidth scanners use the following fixed user-agent string for
+   their requests:
+
+      Mozilla/4.0 (compatible; MSIE 6.0; Windows NT 5.1; \
+      .NET CLR 1.0.3705; .NET CLR 1.1.4322)
+
+   Unfinished downloads are aborted after 30 minutes.
+#
+# That's a pretty high timeout, right?  This can slow us down
+# significantly, given that downloads are not run in parallel for a given
+# bandwidth scanner.  A better timeout might be 10 or 15 minutes.  -KL
+#
+# There's a code line "if ret == 1 and build_exit:" with the else case
+# including build_exit in the log message.  What if ret == 0 and
+# build_exit is null?  -KL
+
+   For each download, the bandwidth scanners collect the following data:
+#
+# TODO Most of this happens in TorCtl-land that I'm even less familiar
+# with than with Torflow-land.  Mike, can you give me some pointers what
+# code parts to look at in order to understand which Tor controller events
+# are processed where and what we learn from them?  -KL
+
+1.6. Writing measurement results
+
+   Once a bandwidth scanner has completed a slice of relays, it writes the
+   measurement results to disk.
+
+   The output file contains information about the slice number, the
+   timestamp of completing the slice, and the measurement results for the
+   measured relays.
+
+   Only relays with at least 1 successful measurement, non-negative
+   filtered stream bandwidth, and non-negative stream bandwidth are
+   included in the output file.
+#
+# What's the difference between stream and filtered stream?  -KL
+
+   The filename of an output file is derived from the lower and upper
+   slice percentiles and the measurement completion time.  The format is
+
+      "bws-" lower percentile ":" upper percentile "-done-" timestamp
+
+   Both lower and upper percentiles are decimal numbers rounded to 1
+   decimal place.  The timestamp is formatted "YYYY-MM-DD-HH:MM:SS".
+
+   The first line of an output file contains the slice number:
+
+      "slicenum=" slice number NL
+
+   The second line contains the UNIX timestamp when the output file was
+   written:
+
+      timestamp NL
+
+   Subsequent lines contain the measurement results of all relays in the
+   slice in arbitrary order.  There can be at most one such line per relay
+   identity:
+
+      "node_id=" fingerprint SP
+      "nick=" nickname SP
+      "strm_bw=" stream bandwidth SP
+      "filt_bw=" filtered stream bandwidth SP
+      "desc_bw=" descriptor bandwidth SP
+      "ns_bw=" network status bandwidth NL
+
+   The meaning of these fields is as follows: fingerprint is the
+   hex-encoded, upper-case relay identity fingerprint; nickname is the
+   relay's nickname; stream bandwidth and filtered stream bandwidth
+   contain the average measurements; descriptor bandwidth is the average
+   self-advertised bandwidth contained in relay descriptors; and network
+   status bandwidth is the average relay bandwidth contained in network
+   status consensuses.
+#
+# Which nickname is chosen here if a relay changes its nickname between
+# two measurements?  Does it matter?  -KL
+#
+# Starting to count slices at 0 whenever we start at the lower end of our
+# percentile range seems error-prone.  What if the number of slices
+# changes while we're only half through with all slices?  Isn't there a
+# potential from overlooking results?  Or do we not care about the slice
+# number when aggregating results?  -KL
+
+2. Aggregating scanner results
+
+   Every few hours, the bandwidth scanner results are aggregated in order
+   to include them in the network status consensus process.  This
+   aggregation step looks at the finished measurements, ....
+
+2.1. Connecting to Tor client
+
+# The aggregate script connects to the same Tor client that bandwidth
+# scanners use and requests the currently valid network status consensus
+# from it.  Does that mean we won't have an opinion on relays that are
+# offline right now?  -KL
+
+2.2. [...]
+
+# BETA, GUARD_BETA, ALPHA, and GUARD_ALPHA are all set to 0 in the default
+# configuration.  Is the plan to change their values and use the more
+# complex aggregation mechanism anytime soon?  Or were they only in the
+# code to run experiments and should go away?  -KL
+
