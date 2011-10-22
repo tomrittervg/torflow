@@ -202,12 +202,12 @@
 
    Unfinished downloads are aborted after 30 minutes.
 
-   For each download, the bandwidth scanners collect the following data:
-#
-# TODO Most of this happens in TorCtl-land that I'm even less familiar
-# with than with Torflow-land.  Mike, can you give me some pointers what
-# code parts to look at in order to understand which Tor controller events
-# are processed where and what we learn from them?  -KL
+   For each download, the bandwidth scanners process STREAM_BW events with
+   a StreamListener (SQLSupport.py). The throughput for each stream is
+   defined as the ratio of total read bytes over the time delta between the
+   stream start timestamp and the newest STREAM_BW event received timestamp:
+
+   (stream read bytes / (event received timestamp - stream start timestamp)
 
 1.6. Writing measurement results
 
@@ -217,12 +217,6 @@
    The output file contains information about the slice number, the
    timestamp of completing the slice, and the measurement results for the
    measured relays.
-
-   Only relays with at least 1 successful measurement, non-negative
-   filtered stream bandwidth, and non-negative stream bandwidth are
-   included in the output file.
-#
-# What's the difference between stream and filtered stream?  -KL
 
    The filename of an output file is derived from the lower and upper
    slice percentiles and the measurement completion time.  The format is
@@ -259,10 +253,21 @@
    self-advertised bandwidth contained in relay descriptors; and network
    status bandwidth is the average relay bandwidth contained in network
    status consensuses.
-#
-# Which nickname is chosen here if a relay changes its nickname between
-# two measurements?  Does it matter?  -KL
-#
+
+   The strm_bw field is the average (mean) of all the streams for the relay
+   identified by the fingerprint field. 
+
+   The filt_bw field is computed similarly, but only the streams equal to
+   or greater than the strm_bw are counted in order to filter very slow
+   streams.
+
+   The nickname field is entirely informational and may change between
+   measurements.
+
+   Only relays with at least 1 successful measurement, non-negative
+   filtered stream bandwidth, and non-negative stream bandwidth are
+   included in the output file. 
+
 # Starting to count slices at 0 whenever we start at the lower end of our
 # percentile range seems error-prone.  What if the number of slices
 # changes while we're only half through with all slices?  Isn't there a
