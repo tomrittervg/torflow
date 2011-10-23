@@ -8,7 +8,8 @@
 
 
                              Karsten Loesing
-                                Mike Perry
+                               Mike Perry
+                              Aaron Gibson
 
 0. Preliminaries
 
@@ -155,7 +156,7 @@
 
     - Nodes are selected uniformly among those with the lowest measurement
       count for the current slice. Otherwise, there is no preference for
-      relays, e.g., based on bandwidth.
+      relays.
 
     - Relays in the paths must come from different /16 subnets.
 
@@ -202,13 +203,16 @@
 
    Unfinished downloads are aborted after 30 minutes.
 
-   For each download, the bandwidth scanners process STREAM_BW events with
-   a StreamListener (SQLSupport.py). The throughput for each stream is
-   defined as the ratio of total read bytes over the time delta between the
-   stream start timestamp and the newest STREAM_BW event received timestamp:
+   For each download, the bandwidth scanners process STREAM and STREAM_BW events
+   with a StreamListener (in TorCtl/SQLSupport.py). The throughput for each
+   stream is defined as the ratio of total read bytes over the time delta between
+   the STREAM NEW timestamp and the STREAM CLOSED event received timestamp:
 
-   (stream read bytes / (event received timestamp - stream start timestamp)
+   bandwidth = (STREAM_BW bytes / (CLOSED timestamp - NEW timestamp)
 
+   We store both read and write bandwidths in the SQL tables, but only use
+   the read bytes for results.
+   
 1.6. Writing measurement results
 
    Once a bandwidth scanner has completed a slice of relays, it writes the
@@ -259,7 +263,7 @@
 
    The filt_bw field is computed similarly, but only the streams equal to
    or greater than the strm_bw are counted in order to filter very slow
-   streams.
+   streams due to slow node pairings.
 
    The nickname field is entirely informational and may change between
    measurements.
@@ -267,12 +271,6 @@
    Only relays with at least 1 successful measurement, non-negative
    filtered stream bandwidth, and non-negative stream bandwidth are
    included in the output file. 
-
-# Starting to count slices at 0 whenever we start at the lower end of our
-# percentile range seems error-prone.  What if the number of slices
-# changes while we're only half through with all slices?  Isn't there a
-# potential from overlooking results?  Or do we not care about the slice
-# number when aggregating results?  -KL
 
 2. Aggregating scanner results
 
