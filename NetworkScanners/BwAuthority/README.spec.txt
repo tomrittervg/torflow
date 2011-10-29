@@ -33,6 +33,9 @@
     - Section 2 describes the periodically run step to aggregate results
       in order to include them in the network status voting process.
 
+    - Section 3 describes PID Control, an optional feedback mechanism
+      that is governed by the consensus parameter "bwauthpid".
+
    The "interfaces" of this document are Tor's control and SOCKS protocol
    for performing measurements and Tor's directory protocol for including
    results in the network status voting process.
@@ -290,11 +293,18 @@
    slice timestamps for each router measurement, to ensure we use only the
    most recent slice that a router appeared in.
 
+   We then select the most recent measurement for each node from any
+   slice.
+
 2.2. Computing bandwidth values from measurements
+
+   If the consensus parameter "bwauthpid=1" is present, we proceed as
+   specified in Section 3. This section describes the default behavior 
+   (used when the consensus parameter is absent).
 
    Once we have determined the most recent measurements for each node, we
    compute an average of the filt_bw fields over all nodes we have measured.
-   
+
    These averages are used to produce ratios for each node by dividing the
    measured value for that node by the network average. 
 
@@ -320,32 +330,124 @@
    warning that is mailed to the scanner operator. We still produce a result
    file in this case.
 
-2.4. Feedback mechanisms
-
-# BETA, GUARD_BETA, ALPHA, and GUARD_ALPHA are all set to 0 in the default
-# configuration.  Is the plan to change their values and use the more
-# complex aggregation mechanism anytime soon?  Or were they only in the
-# code to run experiments and should go away?  -KL
-
-# I am going to change how this stuff works for bug #1976. -MP.
-
-2.5. Result format
+2.4. Result format
 
    The final output file for use by the directory authorities is comprised of
    lines of the following format:
 
       "node_id=" fingerprint SP
       "bw=" new_bandwidth SP
-      "diff=" (new bandwidth) - (descriptor bandwidth) SP
       "nick=" nickname SP
       "measured_at=" slice timestamp NL
 
-2.6. Usage by directory authorities 
+   If PID control is enabled, additional values are stored. See Section 3.4
+   for those.
+
+2.5. Usage by directory authorities 
 
    The Tor directory authorities use only the node_id and the bw fields.
-   The rest of the fields are informative only.
+   The rest of the fields are ignored.
 
    The directory authorities take the median of all votes for the bw field,
    and publish that value as the consensus bandwidth.
 
+3. PID Control Feedback
+
+   The goal of the bandwidth authorities is to balance load across the
+   network such that a user can expect to have the same average stream
+   capacity regardless of path. Any deviation from this ideal
+   load balancing can be regarded as error.
+
+   Using this model, the measurement mechanisms can be cast as a PID
+   control system, allowing the new measurement ratios to multiplied by
+   the current consensus values, which creates a feedback loop that
+   should cause convergence to this balanced ideal.
+
+   See https://en.wikipedia.org/wiki/PID_controller for background,
+   especially: https://en.wikipedia.org/wiki/PID_controller#Pseudocode
+
+3.1. Modeling Measurement as PID Control
+
+   The bandwidth authorities measure F_node: the filtered stream
+   capacity through a given node (filtering is described in Section 1.6).
+
+   The PID Setpoint, or target for each node is F_avg: the average filtered
+   stream capacity observed in the network
+
+   The normalized PID error e(t) for each node is then:
+
+       pid_error = e(t) = (F_node - F_avg)/F_avg. 
+
+   In the "Process" step, we take the output of the "controller" and multiply it by
+   the current consensus bandwidth for the node, and then add this new
+   proportion to the consensus bandwidth, thereby adjusting the
+   consensus bandwidth in proportion to the error:
+
+     new_consensus_bw = old_consensus_bw +
+                        old_consensus_bw * K_p * e(t) +
+                        old_consensus_bw * K_i * \integral{e(t)} +
+                        old_consensus_bw * K_d * \derivative{e(t)}
+
+   For the case where K_p = 1, K_i=0, and K_d=0, it can be seen that this
+   system is equivalent to the one defined in 2.2, except using consensus
+   bandwidth instead of descriptor bandwidth:
+  
+       new_bw = old_bw + old_bw*e(t)
+       new_bw = old_bw + old_bw*(F_node/F_avg - 1)
+       new_bw = old_bw*F_node/F_avg
+       new_bw = old_bw*ratio
+
+3.2. Measurement intervals
+
+   In order to prevent the consensus bandwidth from functioning as an
+   accumulator (thus amplifying the effects of integration), we must
+   carefully tune the measurement intervals to a rate that we can
+   expect clients to respond to.
+
+   For non-Guard nodes, this is basically 4 consensus intervals, or 4
+   hours. Since the bandwidth authorities also take on the order of
+   hours to measure a slice of nodes, we do nothing special here.
+
+   For Guard nodes however, clients have an minimum rotation rate of 4-6
+   weeks. However, on the assumption that they rotate more frequently
+   than this, we set our Guard measurement interval to 2 weeks.
+
+   For purposes of calculating the integral and the derivative of the
+   error, we assume units of time that correspond to measurement intervals,
+   eliminating the need to track time for any other purpose other than
+   determining when to report a measurement.
+
+   The integral component, pid_error_sum is subjected to a decay factor
+   of 20% per interval, to prevent unbounded growth in cases without
+   convergence.
+
+   The differential component is a simple delta, calculating by
+   subtracting the previous pid_error from the current pid_error.
+
+3.3. Flag weighting
+
+   Guard+Exit nodes are treated as normal nodes in terms of measurement
+   frequency (measurements are reported as soon as they are ready), except
+   they are given a K_p of 1.0-Wgd (Wgd is the consensus bandwidth-weight for
+   selecting Guard+Exits for the Guard position: See dir-spec.txt Section
+   3.4.3).
+
+3.4. Value storage
+
+   In order to maintain the PID information, we store the following additional
+   fields in the output file:
+
+      "pid_error=" (PID error term as defined in Section 3.1) SP
+      "pid_error_sum=" (Weighted sum of PID error) SP
+      "pid_delta=" (Change in error) NL
+
+   pid_delta is purely informational, and is not used in feedback.
+
+3.5. Tuning Parameters
+
+   Internally, the source uses the Standard PID Form:
+   https://en.wikipedia.org/wiki/PID_controller#Ideal_versus_standard_PID_form
+
+   We have selected T_i to be 5.0 (5 measurement intervals) and T_d to be 0.5
+   (one half interval).
 
