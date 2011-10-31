@@ -427,10 +427,17 @@
 3.3. Flag weighting
 
    Guard+Exit nodes are treated as normal nodes in terms of measurement
-   frequency (measurements are reported as soon as they are ready), except
-   they are given a K_p of 1.0-Wgd (Wgd is the consensus bandwidth-weight for
-   selecting Guard+Exits for the Guard position: See dir-spec.txt Section
-   3.4.3).
+   frequency (measurements are reported as soon as their slice results
+   are ready), except they are given a K_p of 1.0-Wgd (Wgd is the consensus
+   bandwidth-weight for selecting Guard+Exits for the Guard position: See
+   dir-spec.txt Section 3.4.3).
+
+   K_p=1.0-Wgd isn't expected to be the optimal value, but we needed a
+   dampening factor to slow the feedback loop, and it seems as good of an
+   initial guess as any. Note that convergence towards zero error should 
+   still happen eventually with this value, just at a slower rate.
+
+   All other nodes are given K_p of 1.0.
 
 3.4. Value storage
 
@@ -448,6 +455,16 @@
    Internally, the source uses the Standard PID Form:
    https://en.wikipedia.org/wiki/PID_controller#Ideal_versus_standard_PID_form
 
+   The Standard PID Form sets K_i and K_d to be proportional to K_p and two
+   other constants that have more relation to convergence behaviors:
+
+       K_i = K_p/T_i
+       K_d = K_d*T_d
+
    We have selected T_i to be 5.0 (5 measurement intervals) and T_d to be 0.5
-   (one half interval).
+   (one half interval). The belief is that any steady state error should be
+   correctable in 5 intervals, and the current rate of change of error
+   only gives us useful information for a fraction of a measurement
+   interval, until clients begin to migrate to the new measurements.
+
 
