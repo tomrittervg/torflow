@@ -397,23 +397,29 @@
        new_bw = old_bw*F_node/F_avg
        new_bw = old_bw*ratio
 
-3.2. Measurement intervals
+3.2. Measurement intervals and Feedback intervals
 
    In order to prevent the consensus bandwidth from functioning as an
    accumulator (thus amplifying the effects of integration), we must
-   carefully tune the measurement intervals to a rate that we can
-   expect clients to respond to.
+   tune the feedback intervals to a rate that we can expect clients
+   to respond to.
 
    For non-Guard nodes, this is basically 4 consensus intervals, or 4
    hours. Since the bandwidth authorities also take on the order of
    hours to measure a slice of nodes, we do nothing special here.
 
-   For Guard nodes however, clients have an minimum rotation rate of 4-6
+   For Guard nodes however, clients have minimum rotation rate of 4-6
    weeks. However, on the assumption that they rotate more frequently
-   than this, we set our Guard measurement interval to 2 weeks.
+   than this, we set our Guard feedback interval to 2 weeks.
+
+   Guard measurements are also used without feedback whenever new
+   measurements are available, to compensate for changes in Guard flag
+   status and associated load changes. These new measurements are
+   multiplied by our most recent bandwidth value that used feedback,
+   in a similar way to Section 2.2.
 
    For purposes of calculating the integral and the derivative of the
-   error, we assume units of time that correspond to measurement intervals,
+   error, we assume units of time that correspond to feedback intervals,
    eliminating the need to track time for any other purpose other than
    determining when to report a measurement.
 
@@ -446,7 +452,8 @@
 
       "pid_error=" (PID error term as defined in Section 3.1) SP
       "pid_error_sum=" (Weighted sum of PID error) SP
-      "pid_delta=" (Change in error) NL
+      "pid_delta=" (Change in error) SP
+      "pid_bw=" (Last bandwidth value used in feedback) NL
 
    pid_delta is purely informational, and is not used in feedback.
 
