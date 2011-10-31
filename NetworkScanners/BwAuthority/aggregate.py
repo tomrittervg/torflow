@@ -99,6 +99,7 @@ class Node:
     self.chosen_fbw = None
     self.sbw_ratio = None
     self.fbw_ratio = None
+    self.pid_bw = 0
     self.pid_error = 0
     self.prev_error = 0
     self.prev_measured_at = 0
@@ -120,17 +121,18 @@ class Node:
     self.chosen_time = vote.measured_at
 
   # Derivative of error for pid control
-  def pid_bw(self, prev_vote, kp):
+  def get_pid_bw(self, prev_vote, kp):
     self.prev_error = prev_vote.pid_error
     self.prev_measured_at = prev_vote.measured_at
     # We decay the interval by 1/T_i each round to keep it bounded.
     # This is non-standard
     self.pid_error_sum = prev_vote.pid_error_sum*(1 - 1.0/T_i) + self.pid_error
 
-    return self.ns_bw[self.bw_idx] \
+    self.pid_bw = self.ns_bw[self.bw_idx] \
              + kp*(self.ns_bw[self.bw_idx]*self.pid_error \
              +     self.ns_bw[self.bw_idx]*self.integral_error()/T_i \
              +     self.ns_bw[self.bw_idx]*self.d_error_dt()*T_d)
+    return self.pid_bw
 
   # Time-weighted sum of error per unit of time (measurement sample)
   def integral_error(self):
@@ -241,8 +243,10 @@ class Vote:
     try:
       self.pid_error = float(re.search("[\s]*pid_error=([\S]+)[\s]*", line).group(1))
       self.pid_error_sum = float(re.search("[\s]*pid_error_sum=([\S]+)[\s]*", line).group(1))
+      self.pid_bw = float(re.search("[\s]*pid_bw=([\S]+)[\s]*", line).group(1))
     except:
       plog("NOTICE", "No previous PID data.")
+      self.pid_bw = 0
       self.pid_error = 0
       self.pid_error_sum = 0
 
@@ -467,9 +471,14 @@ def main(argv):
             # Do full feedback if our previous vote > 2.5 weeks old
             if n.idhex not in prev_votes.vote_map or \
                 n.chosen_time - prev_votes.vote_map[n.idhex].measured_at > GUARD_SAMPLE_RATE:
-              n.new_bw = n.pid_bw(prev_votes.vote_map[n.idhex], K_p)
+              n.new_bw = n.get_pid_bw(prev_votes.vote_map[n.idhex], K_p)
             else:
+              pid_error = n.pid_error
               n.revert_to_vote(prev_votes.vote_map[n.idhex])
+              # Don't use feedback here, but we might as well use our
+              # new measurement against the previous vote.
+              n.new_bw = prev_votes.vote_map[n.idhex].pid_bw + \
+                     K_p*prev_votes.vote_map[n.idhex].pid_bw*pid_error
           else:
             # Everyone else should be pretty instantenous to respond.
             # Full feedback should be fine for them (we hope),
@@ -481,17 +490,19 @@ def main(argv):
             if n.idhex in prev_consensus and \
               ("Guard" in prev_consensus[n.idhex].flags \
                and "Exit" not in prev_consensus[n.idhex].flags):
-              n.new_bw = n.pid_bw(prev_votes.vote_map[n.idhex], 1.0-cs_junk.bw_weights["Wgd"])
+              n.new_bw = n.get_pid_bw(prev_votes.vote_map[n.idhex], 1.0-cs_junk.bw_weights["Wgd"])
             else:
-              n.new_bw = n.pid_bw(prev_votes.vote_map[n.idhex], K_p)
+              n.new_bw = n.get_pid_bw(prev_votes.vote_map[n.idhex], K_p)
         else:
           # Reset values. Don't vote/sample this measurement round.
           n.revert_to_vote(prev_votes.vote_map[n.idhex])
       else: # No prev vote, pure consensus feedback this round
         n.new_bw = n.ns_bw[n.bw_idx] + K_p*n.ns_bw[n.bw_idx]*n.pid_error
         n.pid_error_sum = n.pid_error
+        n.pid_bw = n.new_bw
         plog("INFO", "No prev vote for node "+n.nick+": Consensus feedback")
     else: # No PID feedback
+      n.pid_bw = 0
       n.pid_error = 0
       n.pid_error_sum = 0
       n.new_bw = n.desc_bw[n.bw_idx]*n.ratio
@@ -566,7 +577,7 @@ def main(argv):
   # FIXME: Split out debugging data
   for n in n_print:
     if not n.ignore:
-      out.write("node_id="+n.idhex+" bw="+str(base10_round(n.new_bw))+" nick="+n.nick+ " measured_at="+str(int(n.chosen_time))+" pid_error="+str(n.pid_error)+" pid_error_sum="+str(n.pid_error_sum)+" pid_delta="+str(n.derror_dt)+"\n")
+      out.write("node_id="+n.idhex+" bw="+str(base10_round(n.new_bw))+" nick="+n.nick+ " measured_at="+str(int(n.chosen_time))+" pid_error="+str(n.pid_error)+" pid_error_sum="+str(n.pid_error_sum)+" pid_bw="+str(n.pid_bw)+" pid_delta="+str(n.derror_dt)+"\n")
   out.close()
 
 if __name__ == "__main__":
