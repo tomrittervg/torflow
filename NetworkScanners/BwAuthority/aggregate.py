@@ -96,7 +96,7 @@ class Node:
     self.strm_fail_rate = 0
 
   def revert_to_vote(self, vote):
-    self.new_bw = vote.bw
+    self.new_bw = vote.bw*1000
     self.pid_error = vote.pid_error
     self.measured_at = vote.measured_at
 
@@ -473,7 +473,7 @@ def main(argv):
   plog("INFO", "Measured "+str(measured_pct)+"% of all tor nodes.")
 
   n_print = nodes.values()
-  n_print.sort(lambda x,y: int(y.change) - int(x.change))
+  n_print.sort(lambda x,y: int(y.pid_error*1000) - int(x.pid_error*1000))
 
   for scanner in scanner_timestamps.iterkeys():
     scan_age = int(round(scanner_timestamps[scanner],0))
@@ -486,7 +486,7 @@ def main(argv):
   # FIXME: Split out debugging data
   for n in n_print:
     if not n.ignore:
-      out.write("node_id="+n.idhex+" bw="+str(base10_round(n.new_bw))+" nick="+n.nick+ " measured_at="+str(int(n.measured_at))+" pid_error="+str(n.pid_error)+" pid_error_sum="+str(n.pid_error_sum)+" pid_bw="+str(n.pid_bw)+" pid_delta="+str(n.derror_dt)+"\n")
+      out.write("node_id="+n.idhex+" bw="+str(base10_round(n.new_bw))+" nick="+n.nick+ " measured_at="+str(int(n.measured_at))+" pid_error="+str(n.pid_error)+" pid_error_sum="+str(n.pid_error_sum)+" pid_bw="+str(int(n.pid_bw))+" pid_delta="+str(n.derror_dt)+"\n")
   out.close()
 
 if __name__ == "__main__":
