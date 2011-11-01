@@ -369,10 +369,16 @@
 3.1. Modeling Measurement as PID Control
 
    The bandwidth authorities measure F_node: the filtered stream
-   capacity through a given node (filtering is described in Section 1.6).
+   capacity through a given node (filtering is described in Section 1.6)
+   times the circuit success rate of circuit EXTENDs to the node
+   (1.0 - circ_fail_rate).
 
-   The PID Setpoint, or target for each node is F_avg: the average filtered
-   stream capacity observed in the network
+   In PID control, we add in this extra failure rate as a damper, to prevent
+   the PID control system from driving nodes to CPU overload. Once nodes
+   begin failing circuits, we want to stop devoting more capacity.
+
+   The PID Setpoint, or target for each node is F_avg: the average F_node
+   value observed across the entire network.
 
    The normalized PID error e(t) for each node is then:
 
