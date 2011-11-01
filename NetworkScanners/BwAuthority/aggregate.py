@@ -196,7 +196,7 @@ class ConsensusJunk:
     self.bwauth_pid_control = False
     try:
       cs_params = re.search("^params ((?:[\S]+=[\d]+[\s]?)+)",
-                                     cs_bytes, re.M).split()
+                                     cs_bytes, re.M).group(1).split()
       for p in cs_params:
         if p == "bwauthpid=1":
           self.bwauth_pid_control = True
@@ -207,7 +207,7 @@ class ConsensusJunk:
     self.bw_weights = {}
     try:
       bw_weights = re.search("^bandwidth-weights ((?:[\S]+=[\d]+[\s]?)+)",
-                           cs_bytes, re.M).groups(1)[0].split()
+                           cs_bytes, re.M).group(1).split()
       for b in bw_weights:
         pair = b.split("=")
         self.bw_weights[pair[0]] = int(pair[1])/10000.0
