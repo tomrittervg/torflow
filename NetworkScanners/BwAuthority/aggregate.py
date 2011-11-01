@@ -356,16 +356,18 @@ def main(argv):
   for n in nodes.itervalues():
     n.fbw_ratio = n.filt_bw/true_filt_avg
     n.sbw_ratio = n.strm_bw/true_strm_avg
-    if n.sbw_ratio > n.fbw_ratio:
-      # Does this ever happen?
-      plog("NOTICE", "sbw > fbw for "+n.nick)
-      n.ratio = n.sbw_ratio
-      n.pid_error = (n.strm_bw - true_strm_avg)/true_strm_avg
-    else:
-      n.ratio = n.fbw_ratio
-      n.pid_error = (n.filt_bw - true_filt_avg)/true_filt_avg
+
+    # Always use filtered bandwidths
+    n.ratio = n.fbw_ratio
+    n.pid_error = (n.filt_bw - true_filt_avg)/true_filt_avg
 
     if cs_junk.bwauth_pid_control:
+      # Penalize nodes for circuit failure: it indicates CPU pressure
+      # TODO: Potentially penalize for stream failure, if we run into
+      # socket exhaustion issues..
+      n.fbw_ratio *= n.circ_fail_rate
+
+
       if n.idhex in prev_votes.vote_map:
         # If there is a new sample, let's use it for all but guards
         if n.measured_at > prev_votes.vote_map[n.idhex].measured_at:
