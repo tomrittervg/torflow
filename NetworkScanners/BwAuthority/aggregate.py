@@ -319,12 +319,16 @@ def main(argv):
     plog("NOTICE", "No scan results yet.")
     sys.exit(1)
 
-  true_strm_avg = sum(map(lambda n: n.strm_bw,
-                       nodes.itervalues()))/float(len(nodes))
-  true_filt_avg = sum(map(lambda n: n.filt_bw,
-                       nodes.itervalues()))/float(len(nodes))
+  if cs_junk.bwauth_pid_control:
+    # Penalize nodes for circuit failure: it indicates CPU pressure
+    # TODO: Potentially penalize for stream failure, if we run into
+    # socket exhaustion issues..
+    true_filt_avg = sum(map(lambda n: n.filt_bw*(1.0-n.circ_fail_rate),
+                         nodes.itervalues()))/float(len(nodes))
+  else:
+    true_filt_avg = sum(map(lambda n: n.filt_bw,
+                         nodes.itervalues()))/float(len(nodes))
 
-  plog("DEBUG", "Network true_strm_avg: "+str(true_strm_avg))
   plog("DEBUG", "Network true_filt_avg: "+str(true_filt_avg))
 
   prev_votes = None
@@ -346,28 +350,22 @@ def main(argv):
           node_measure_time += (n.measured_at - \
                                   prev_votes.vote_map[n.idhex].measured_at)
 
-  # There is a difference between measure period and sample rate.
-  # Measurement period is how fast the bandwidth auths can actually measure
-  # the network. Sample rate is how often we want the PID feedback loop to
-  # run. 
-  plog("INFO", "Average node measurement interval: "+str(node_measure_time/node_cnt))
-  plog("INFO", "Average gaurd measurement interval: "+str(guard_measure_time/guard_cnt))
+    if node_cnt > 0:
+      plog("INFO", "Average node measurement interval: "+str(node_measure_time/node_cnt))
+
+    if guard_cnt > 0:
+      plog("INFO", "Average gaurd measurement interval: "+str(guard_measure_time/guard_cnt))
 
   tot_net_bw = 0
   for n in nodes.itervalues():
     n.fbw_ratio = n.filt_bw/true_filt_avg
-    n.sbw_ratio = n.strm_bw/true_strm_avg
 
     # Always use filtered bandwidths
     n.ratio = n.fbw_ratio
-    n.pid_error = (n.filt_bw - true_filt_avg)/true_filt_avg
 
     if cs_junk.bwauth_pid_control:
-      # Penalize nodes for circuit failure: it indicates CPU pressure
-      # TODO: Potentially penalize for stream failure, if we run into
-      # socket exhaustion issues..
-      n.fbw_ratio *= n.circ_fail_rate
-
+      # Penalize nodes for circ failure rate
+      n.pid_error = (n.filt_bw*(1.0-n.circ_fail_rate) - true_filt_avg)/true_filt_avg
 
       if n.idhex in prev_votes.vote_map:
         # If there is a new sample, let's use it for all but guards
