@@ -97,6 +97,7 @@ class Node:
 
   def revert_to_vote(self, vote):
     self.new_bw = vote.bw*1000
+    self.pid_bw = vote.pid_bw
     self.pid_error = vote.pid_error
     self.measured_at = vote.measured_at
 
