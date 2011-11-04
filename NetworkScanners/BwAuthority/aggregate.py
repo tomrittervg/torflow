@@ -441,6 +441,9 @@ def main(argv):
            +str(n.new_bw)+"->"+str(int(tot_net_bw*NODE_CAP))+")")
       n.new_bw = int(tot_net_bw*NODE_CAP)
       n.pid_error_sum = 0 # Don't let unused error accumulate...
+    if n.new_bw < 0:
+      plog("INFO", "Node "+n.idhex+"="+n.nick+" has bandwidth < 0: "+str(n.new_bw))
+      n.new_bw = 0
 
   # WTF is going on here?
   oldest_timestamp = min(map(lambda n: n.measured_at,
@@ -485,7 +488,7 @@ def main(argv):
   # FIXME: Split out debugging data
   for n in n_print:
     if not n.ignore:
-      out.write("node_id="+n.idhex+" bw="+str(base10_round(n.new_bw))+" nick="+n.nick+ " measured_at="+str(int(n.measured_at))+" pid_error="+str(n.pid_error)+" pid_error_sum="+str(n.pid_error_sum)+" pid_bw="+str(int(n.pid_bw))+" pid_delta="+str(n.derror_dt)+"\n")
+      out.write("node_id="+n.idhex+" bw="+str(base10_round(n.new_bw))+" nick="+n.nick+ " measured_at="+str(int(n.measured_at))+" pid_error="+str(n.pid_error)+" pid_error_sum="+str(n.pid_error_sum)+" pid_bw="+str(int(n.pid_bw))+" pid_delta="+str(n.derror_dt)+" circ_fail="+str(n.circ_fail_rate)+"\n")
   out.close()
 
 if __name__ == "__main__":
