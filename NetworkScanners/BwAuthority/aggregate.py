@@ -13,7 +13,6 @@ from TorCtl import TorCtl,TorUtil
 from TorCtl.PathSupport import VersionRangeRestriction, NodeRestrictionList, NotNodeRestriction
 
 bw_files = []
-timestamps = {}
 nodes = {}
 prev_consensus = {}
 
@@ -280,16 +279,17 @@ def main(argv):
                 # measure hibernating routers for days.
                 # This filter is just to remove REALLY old files
                 if time.time() - timestamp > MAX_AGE:
-                  plog("DEBUG", "Skipping old file "+f)
-                  # FIXME: Unlink this file + sql-
+                  sqlf = f.replace("bws-", "sql-")
+                  plog("INFO", "Removing old file "+f+" and "+sqlf)
+                  os.remove(sr+"/"+f)
+                  try:
+                    os.remove(sr+"/"+sqlf)
+                  except:
+                    pass # In some cases the sql file may not exist
                   continue
                 if timestamp > newest_timestamp:
                   newest_timestamp = timestamp
                 bw_files.append((slicenum, timestamp, sr+"/"+f))
-                # FIXME: Can we kill this?
-                if slicenum not in timestamps or \
-                     timestamps[slicenum] < timestamp:
-                  timestamps[slicenum] = timestamp
           scanner_timestamps[ds] = newest_timestamp
 
   # Need to only use most recent slice-file for each node..
