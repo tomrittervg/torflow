@@ -154,10 +154,13 @@ class Line:
     self.measured_at = timestamp
     try:
       self.circ_fail_rate = float(re.search("[\s]*circ_fail_rate=([\S]+)[\s]*", line).group(1))
-      self.strm_fail_rate = float(re.search("[\s]*strm_fail_rate=([\S]+)[\s]*", line).group(1))
     except:
       self.circ_fail_rate = 0
+    try:
+      self.strm_fail_rate = float(re.search("[\s]*strm_fail_rate=([\S]+)[\s]*", line).group(1))
+    except:
       self.strm_fail_rate = 0
+
 
 class Vote:
   def __init__(self, line):
@@ -187,7 +190,6 @@ class VoteSet:
         self.vote_map[vote.idhex] = vote
     except IOError:
       plog("NOTICE", "No previous vote data.")
-      pass
 
 # Misc items we need to get out of the consensus
 class ConsensusJunk:
