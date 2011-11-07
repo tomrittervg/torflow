@@ -246,6 +246,7 @@ def write_file_list(datadir):
   outfile = file(datadir+"/bwfiles.new", "w")
   for f in file_pairs:
    outfile.write(str(f[0])+" "+f[1]+"\n")
+  outfile.write(".\n")
   outfile.close()
   # atomic on POSIX
   os.rename(datadir+"/bwfiles.new", datadir+"/bwfiles")
@@ -362,6 +363,8 @@ def main(argv):
   else:
     true_filt_avg = sum(map(lambda n: n.filt_bw,
                          nodes.itervalues()))/float(len(nodes))
+    true_strm_avg = sum(map(lambda n: n.strm_bw,
+                         nodes.itervalues()))/float(len(nodes))
 
   plog("DEBUG", "Network true_filt_avg: "+str(true_filt_avg))
 
@@ -394,7 +397,7 @@ def main(argv):
   for n in nodes.itervalues():
     n.fbw_ratio = n.filt_bw/true_filt_avg
 
-    # Always use filtered bandwidths
+    # Always use filtered bandwidths for feedback
     n.ratio = n.fbw_ratio
 
     if cs_junk.bwauth_pid_control:
@@ -445,6 +448,13 @@ def main(argv):
         n.pid_bw = n.new_bw
         plog("INFO", "No prev vote for node "+n.nick+": Consensus feedback")
     else: # No PID feedback
+      # Choose the larger between sbw and fbw
+      n.sbw_ratio = n.strm_bw/true_strm_avg
+      if n.sbw_ratio > n.fbw_ratio:
+        n.ratio = n.sbw_ratio
+      else:
+        n.ratio = n.fbw_ratio
+
       n.pid_bw = 0
       n.pid_error = 0
       n.pid_error_sum = 0
