@@ -218,10 +218,42 @@ class ConsensusJunk:
       self.bw_weights["Wgd"] = 0
       self.bw_weights["Wgg"] = 1.0
 
+def write_file_list(datadir):
+  files = {64*1024:"64M", 32*1024:"32M", 16*1024:"16M", 8*1024:"8M",
+                4*1024:"4M", 2*1024:"2M", 1024:"1M", 512:"512k",
+                256:"256k", 128:"128k", 64:"64k", 32:"32k", 16:"16k", 0:"16k"}
+  file_sizes = files.keys()
+  node_fbws = map(lambda x: 5*x.filt_bw, nodes.itervalues())
+  file_pairs = []
+  file_sizes.sort(reverse=True)
+  node_fbws.sort()
+  prev_size = file_sizes[-1]
+  i = 0
+
+  # The idea here is to grab the largest file size such
+  # that 5*bw < file, and do this for each file size.
+  for bw in node_fbws:
+    i += 1
+    for f in xrange(len(file_sizes)):
+      if bw > file_sizes[f]*1024 and file_sizes[f] > prev_size:
+        next_f = max(f-1,0)
+        file_pairs.append((100-(100*i)/len(node_fbws),files[file_sizes[next_f]]))
+        prev_size = file_sizes[f]
+        break
+
+  file_pairs.reverse()
+
+  outfile = file(datadir+"/bwfiles.new", "w")
+  for f in file_pairs:
+   outfile.write(str(f[0])+" "+f[1]+"\n")
+  outfile.close()
+  # atomic on POSIX
+  os.rename(datadir+"/bwfiles.new", datadir+"/bwfiles")
+
 def main(argv):
   TorUtil.read_config(argv[1]+"/scanner.1/bwauthority.cfg")
   TorUtil.loglevel = "NOTICE"
- 
+
   s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
   s.connect((TorUtil.control_host,TorUtil.control_port))
   c = TorCtl.Connection(s)
@@ -399,8 +431,9 @@ def main(argv):
             # knows how to represent that and still KISS?
             if n.idhex in prev_consensus and \
               ("Guard" in prev_consensus[n.idhex].flags \
-               and "Exit" not in prev_consensus[n.idhex].flags):
-              n.new_bw = n.get_pid_bw(prev_votes.vote_map[n.idhex], 1.0-cs_junk.bw_weights["Wgd"])
+               and "Exit" in prev_consensus[n.idhex].flags):
+              n.new_bw = n.get_pid_bw(prev_votes.vote_map[n.idhex],
+                                      K_p*(1.0-cs_junk.bw_weights["Wgd"]))
             else:
               n.new_bw = n.get_pid_bw(prev_votes.vote_map[n.idhex], K_p)
         else:
@@ -492,6 +525,8 @@ def main(argv):
     if not n.ignore:
       out.write("node_id="+n.idhex+" bw="+str(base10_round(n.new_bw))+" nick="+n.nick+ " measured_at="+str(int(n.measured_at))+" pid_error="+str(n.pid_error)+" pid_error_sum="+str(n.pid_error_sum)+" pid_bw="+str(int(n.pid_bw))+" pid_delta="+str(n.derror_dt)+" circ_fail="+str(n.circ_fail_rate)+"\n")
   out.close()
+
+  write_file_list(argv[1])
 
 if __name__ == "__main__":
   try:

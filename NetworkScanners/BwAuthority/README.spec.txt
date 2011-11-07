@@ -209,9 +209,9 @@
    For each download, the bandwidth scanners process STREAM and STREAM_BW events
    with a StreamListener (in TorCtl/SQLSupport.py). The throughput for each
    stream is defined as the ratio of total read bytes over the time delta between
-   the STREAM NEW timestamp and the STREAM CLOSED event received timestamp:
+   the STREAM SUCCEEDED timestamp and the STREAM CLOSED event received timestamp:
 
-   bandwidth = (STREAM_BW bytes / (CLOSED timestamp - NEW timestamp)
+   bandwidth = (STREAM_BW bytes / (CLOSED timestamp - SUCCEEDED timestamp)
 
    We store both read and write bandwidths in the SQL tables, but only use
    the read bytes for results.
@@ -440,11 +440,11 @@
 
    Guard+Exit nodes are treated as normal nodes in terms of measurement
    frequency (measurements are reported as soon as their slice results
-   are ready), except they are given a K_p of 1.0-Wgd (Wgd is the consensus
-   bandwidth-weight for selecting Guard+Exits for the Guard position: See
-   dir-spec.txt Section 3.4.3).
+   are ready), except they are given a K_p of K_p*(1.0-Wgd) (Wgd is the
+   consensus bandwidth-weight for selecting Guard+Exits for the Guard
+   position: See dir-spec.txt Section 3.4.3).
 
-   K_p=1.0-Wgd isn't expected to be the optimal value, but we needed a
+   K_p*(1.0-Wgd) isn't expected to be the optimal value, but we needed a
    dampening factor to slow the feedback loop, and it seems as good of an
    initial guess as any. Note that convergence towards zero error should 
    still happen eventually with this value, just at a slower rate.
