@@ -2661,8 +2661,8 @@ def usage():
 def main(argv):
   # make sure we have something to test for
   if len(argv) < 2:
-	usage()
-	return
+    usage()
+    return
 
   TorUtil.read_config(data_dir+"/torctl.cfg")
 
@@ -2670,11 +2670,11 @@ def main(argv):
 
   # make sure the arguments are correct
   try:
-	flags, trailer = getopt.getopt(argv[1:], [], opts)
+    flags, trailer = getopt.getopt(argv[1:], [], opts)
   except getopt.error, msg:
-	print msg
-	usage()
-	return
+    print msg
+    usage()
+    return
 
   # get specific test types
   do_resume = False
