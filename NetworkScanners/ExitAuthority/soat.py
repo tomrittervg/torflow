@@ -1589,7 +1589,7 @@ class BaseSSLTest(Test):
       if ssl_domain.cert_changed:
         plog("NOTICE", "Fully dynamic certificate host "+address)
 
-        result = SSLTestResult("NoExit", "NotStored!", address, ssl_file_name,
+        result = SSLTestResult(None, "NotStored!", address, ssl_file_name,
                                TEST_INCONCLUSIVE,
                                INCONCLUSIVE_DYNAMICSSL)
         if self.rescan_nodes:
@@ -1601,7 +1601,7 @@ class BaseSSLTest(Test):
 
     if not ssl_domain.num_certs():
       plog("NOTICE", "No non-tor certs available for "+address)
-      result = SSLTestResult("NoExit", "NoStored!", address, ssl_file_name,
+      result = SSLTestResult(None, "NotStored!", address, ssl_file_name,
                              TEST_INCONCLUSIVE,
                              INCONCLUSIVE_NOLOCALCONTENT)
       if self.rescan_nodes:
