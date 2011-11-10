@@ -139,7 +139,8 @@ class Node:
       self.filt_bw = line.filt_bw
       self.ns_bw = line.ns_bw
       self.desc_bw = line.desc_bw
-      self.circ_fail_rate = line.circ_fail_rate
+      # XXX: Temporary test
+      self.circ_fail_rate = 0.0 #line.circ_fail_rate
       self.strm_fail_rate = line.strm_fail_rate
 
 class Line:
@@ -360,6 +361,8 @@ def main(argv):
     # socket exhaustion issues..
     true_filt_avg = sum(map(lambda n: n.filt_bw*(1.0-n.circ_fail_rate),
                          nodes.itervalues()))/float(len(nodes))
+    true_strm_avg = sum(map(lambda n: n.strm_bw*(1.0-n.circ_fail_rate),
+                         nodes.itervalues()))/float(len(nodes))
   else:
     true_filt_avg = sum(map(lambda n: n.filt_bw,
                          nodes.itervalues()))/float(len(nodes))
@@ -396,13 +399,17 @@ def main(argv):
   tot_net_bw = 0
   for n in nodes.itervalues():
     n.fbw_ratio = n.filt_bw/true_filt_avg
-
-    # Always use filtered bandwidths for feedback
-    n.ratio = n.fbw_ratio
+    n.sbw_ratio = n.strm_bw/true_strm_avg
 
     if cs_junk.bwauth_pid_control:
       # Penalize nodes for circ failure rate
-      n.pid_error = (n.filt_bw*(1.0-n.circ_fail_rate) - true_filt_avg)/true_filt_avg
+      # n.pid_error = (n.filt_bw*(1.0-n.circ_fail_rate) - true_filt_avg)/true_filt_avg
+
+      # FIXME: For now, let's try this larger-ratio thing..
+      if n.sbw_ratio > n.fbw_ratio:
+        n.pid_error = (n.strm_bw*(1.0-n.circ_fail_rate) - true_strm_avg)/true_strm_avg
+      else:
+        n.pid_error = (n.filt_bw*(1.0-n.circ_fail_rate) - true_filt_avg)/true_filt_avg
 
       if n.idhex in prev_votes.vote_map:
         # If there is a new sample, let's use it for all but guards
@@ -449,7 +456,6 @@ def main(argv):
         plog("INFO", "No prev vote for node "+n.nick+": Consensus feedback")
     else: # No PID feedback
       # Choose the larger between sbw and fbw
-      n.sbw_ratio = n.strm_bw/true_strm_avg
       if n.sbw_ratio > n.fbw_ratio:
         n.ratio = n.sbw_ratio
       else:
