@@ -95,7 +95,7 @@ class Node:
     self.strm_fail_rate = 0
 
   def revert_to_vote(self, vote):
-    self.new_bw = vote.bw*1000
+    self.new_bw = vote.bw*1000 # XXX: Could be 0?
     self.pid_bw = vote.pid_bw
     self.pid_error = vote.pid_error
     self.measured_at = vote.measured_at
@@ -168,7 +168,7 @@ class Vote:
     # node_id=$DB8C6D8E0D51A42BDDA81A9B8A735B41B2CF95D1 bw=231000 diff=209281 nick=rainbowwarrior measured_at=1319822504
     self.idhex = re.search("[\s]*node_id=([\S]+)[\s]*", line).group(1)
     self.nick = re.search("[\s]*nick=([\S]+)[\s]*", line).group(1)
-    self.bw = int(re.search("[\s]*bw=([\S]+)[\s]*", line).group(1))
+    self.bw = int(re.search("[\s]+bw=([\S]+)[\s]*", line).group(1))
     self.measured_at = int(re.search("[\s]*measured_at=([\S]+)[\s]*", line).group(1))
     try:
       self.pid_error = float(re.search("[\s]*pid_error=([\S]+)[\s]*", line).group(1))
@@ -359,11 +359,13 @@ def main(argv):
     # Penalize nodes for circuit failure: it indicates CPU pressure
     # TODO: Potentially penalize for stream failure, if we run into
     # socket exhaustion issues..
+    plog("INFO", "PID control enabled")
     true_filt_avg = sum(map(lambda n: n.filt_bw*(1.0-n.circ_fail_rate),
                          nodes.itervalues()))/float(len(nodes))
     true_strm_avg = sum(map(lambda n: n.strm_bw*(1.0-n.circ_fail_rate),
                          nodes.itervalues()))/float(len(nodes))
   else:
+    plog("INFO", "PID control disabled")
     true_filt_avg = sum(map(lambda n: n.filt_bw,
                          nodes.itervalues()))/float(len(nodes))
     true_strm_avg = sum(map(lambda n: n.strm_bw,
@@ -381,7 +383,8 @@ def main(argv):
     node_measure_time = 0
     for n in nodes.itervalues():
       if n.idhex in prev_votes.vote_map and n.idhex in prev_consensus:
-        if "Guard" in prev_consensus[n.idhex].flags:
+        if "Guard" in prev_consensus[n.idhex].flags and \
+           "Exit" not in prev_consensus[n.idhex].flags:
           guard_cnt += 1
           guard_measure_time += (n.measured_at - \
                                   prev_votes.vote_map[n.idhex].measured_at)
@@ -448,6 +451,7 @@ def main(argv):
               n.new_bw = n.get_pid_bw(prev_votes.vote_map[n.idhex], K_p)
         else:
           # Reset values. Don't vote/sample this measurement round.
+          # XXX: This possibly breaks guards
           n.revert_to_vote(prev_votes.vote_map[n.idhex])
       else: # No prev vote, pure consensus feedback this round
         n.new_bw = n.ns_bw + K_p*n.ns_bw*n.pid_error
@@ -492,9 +496,12 @@ def main(argv):
            +str(n.new_bw)+"->"+str(int(tot_net_bw*NODE_CAP))+")")
       n.new_bw = int(tot_net_bw*NODE_CAP)
       n.pid_error_sum = 0 # Don't let unused error accumulate...
-    if n.new_bw < 0:
-      plog("INFO", "Node "+n.idhex+"="+n.nick+" has bandwidth < 0: "+str(n.new_bw))
-      n.new_bw = 0
+    if n.new_bw <= 0:
+      if n.idhex in prev_consensus:
+        plog("INFO", str(prev_consensus[n.idhex].flags)+" node "+n.idhex+"="+n.nick+" has bandwidth <= 0: "+str(n.new_bw))
+      else:
+        plog("INFO", "New node "+n.idhex+"="+n.nick+" has bandwidth < 0: "+str(n.new_bw))
+      n.new_bw = 1
 
   # WTF is going on here?
   oldest_timestamp = min(map(lambda n: n.measured_at,
