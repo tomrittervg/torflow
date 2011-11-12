@@ -95,7 +95,7 @@ class Node:
     self.strm_fail_rate = 0
 
   def revert_to_vote(self, vote):
-    self.new_bw = vote.bw*1000 # XXX: Could be 0?
+    self.new_bw = vote.bw*1000
     self.pid_bw = vote.pid_bw
     self.pid_error = vote.pid_error
     self.measured_at = vote.measured_at
@@ -176,7 +176,7 @@ class Vote:
       self.pid_bw = float(re.search("[\s]*pid_bw=([\S]+)[\s]*", line).group(1))
     except:
       plog("NOTICE", "No previous PID data.")
-      self.pid_bw = 0
+      self.pid_bw = self.bw
       self.pid_error = 0
       self.pid_error_sum = 0
 
@@ -432,8 +432,15 @@ def main(argv):
               n.revert_to_vote(prev_votes.vote_map[n.idhex])
               # Don't use feedback here, but we might as well use our
               # new measurement against the previous vote.
-              n.new_bw = prev_votes.vote_map[n.idhex].pid_bw + \
-                     K_p*prev_votes.vote_map[n.idhex].pid_bw*pid_error
+              if prev_votes.vote_map[n.idhex].pid_bw == 0:
+                # This should no longer happen
+                plog("NOTICE", "Zero bw for Guard node "+n.nick+"="+n.idhex)
+                n.new_bw = prev_votes.vote_map[n.idhex].bw + \
+                       K_p*prev_votes.vote_map[n.idhex].bw*pid_error
+                n.pid_bw = n.new_bw
+              else:
+                n.new_bw = prev_votes.vote_map[n.idhex].pid_bw + \
+                       K_p*prev_votes.vote_map[n.idhex].pid_bw*pid_error
           else:
             # Everyone else should be pretty instantenous to respond.
             # Full feedback should be fine for them (we hope),
@@ -451,7 +458,6 @@ def main(argv):
               n.new_bw = n.get_pid_bw(prev_votes.vote_map[n.idhex], K_p)
         else:
           # Reset values. Don't vote/sample this measurement round.
-          # XXX: This possibly breaks guards
           n.revert_to_vote(prev_votes.vote_map[n.idhex])
       else: # No prev vote, pure consensus feedback this round
         n.new_bw = n.ns_bw + K_p*n.ns_bw*n.pid_error
@@ -465,10 +471,10 @@ def main(argv):
       else:
         n.ratio = n.fbw_ratio
 
-      n.pid_bw = 0
       n.pid_error = 0
       n.pid_error_sum = 0
       n.new_bw = n.desc_bw*n.ratio
+      n.pid_bw = n.new_bw # for transition between pid/no-pid
 
     n.change = n.new_bw - n.desc_bw
 
