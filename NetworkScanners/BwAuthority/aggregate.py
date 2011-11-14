@@ -83,7 +83,7 @@ class Node:
     self.prev_error = 0
     self.prev_measured_at = 0
     self.pid_error_sum = 0
-    self.derror_dt = 0
+    self.pid_delta = 0
     self.ratio = None
     self.new_bw = None
     self.change = None
@@ -97,11 +97,12 @@ class Node:
     self.circ_fail_rate = 0
     self.strm_fail_rate = 0
 
-  # FIXME: Need to set pid_error_sum.. It is getting lost when we don't vote
   def revert_to_vote(self, vote):
     self.new_bw = vote.bw*1000
     self.pid_bw = vote.pid_bw
     self.pid_error = vote.pid_error
+    self.pid_error_sum = vote.pid_error_sum
+    self.pid_delta = vote.pid_delta
     self.measured_at = vote.measured_at
 
   # Derivative of error for pid control
@@ -127,10 +128,10 @@ class Node:
   # Rate of change in error from the last measurement sample
   def d_error_dt(self):
     if self.prev_measured_at == 0 or self.prev_error == 0:
-      self.derror_dt = 0
+      self.pid_delta = 0
     else:
-      self.derror_dt = self.pid_error - self.prev_error
-    return self.derror_dt
+      self.pid_delta = self.pid_error - self.prev_error
+    return self.pid_delta
 
   def add_line(self, line):
     if self.idhex and self.idhex != line.idhex:
@@ -176,11 +177,13 @@ class Vote:
     try:
       self.pid_error = float(re.search("[\s]*pid_error=([\S]+)[\s]*", line).group(1))
       self.pid_error_sum = float(re.search("[\s]*pid_error_sum=([\S]+)[\s]*", line).group(1))
+      self.pid_delta = float(re.search("[\s]*pid_delta=([\S]+)[\s]*", line).group(1))
       self.pid_bw = float(re.search("[\s]*pid_bw=([\S]+)[\s]*", line).group(1))
     except:
       plog("NOTICE", "No previous PID data.")
       self.pid_bw = self.bw
       self.pid_error = 0
+      self.pid_delta = 0
       self.pid_error_sum = 0
 
 class VoteSet:
@@ -476,18 +479,10 @@ def main(argv):
                                       cs_junk.K_i_decay)
             else:
               pid_error = n.pid_error
-              # FIXME: We possibly lose the pid_error_sum here
               n.revert_to_vote(prev_votes.vote_map[n.idhex])
               # Don't use feedback here, but we might as well use our
               # new measurement against the previous vote.
-              if prev_votes.vote_map[n.idhex].pid_bw == 0:
-                # This should no longer happen
-                plog("NOTICE", "Zero bw for Guard node "+n.nick+"="+n.idhex)
-                n.new_bw = prev_votes.vote_map[n.idhex].bw + \
-                       cs_junk.K_p*prev_votes.vote_map[n.idhex].bw*pid_error
-                n.pid_bw = n.new_bw
-              else:
-                n.new_bw = prev_votes.vote_map[n.idhex].pid_bw + \
+              n.new_bw = prev_votes.vote_map[n.idhex].pid_bw + \
                        cs_junk.K_p*prev_votes.vote_map[n.idhex].pid_bw*pid_error
           else:
             # Everyone else should be pretty instantenous to respond.
@@ -553,8 +548,10 @@ def main(argv):
       n.new_bw = 0xffffffff*1000
     if n.new_bw > tot_net_bw*NODE_CAP:
       plog("INFO", "Clipping extremely fast node "+n.idhex+"="+n.nick+
-           " at "+str(100*NODE_CAP)+"% of network capacity ("
-           +str(n.new_bw)+"->"+str(int(tot_net_bw*NODE_CAP))+")")
+           " at "+str(100*NODE_CAP)+"% of network capacity ("+
+           str(n.new_bw)+"->"+str(int(tot_net_bw*NODE_CAP))+") "+
+           " pid_error="+str(n.pid_error)+
+           " pid_error_sum="+str(n.pid_error_sum))
       n.new_bw = int(tot_net_bw*NODE_CAP)
       n.pid_error_sum = 0 # Don't let unused error accumulate...
     if n.new_bw <= 0:
@@ -607,7 +604,7 @@ def main(argv):
   # FIXME: Split out debugging data
   for n in n_print:
     if not n.ignore:
-      out.write("node_id="+n.idhex+" bw="+str(base10_round(n.new_bw))+" nick="+n.nick+ " measured_at="+str(int(n.measured_at))+" pid_error="+str(n.pid_error)+" pid_error_sum="+str(n.pid_error_sum)+" pid_bw="+str(int(n.pid_bw))+" pid_delta="+str(n.derror_dt)+" circ_fail="+str(n.circ_fail_rate)+"\n")
+      out.write("node_id="+n.idhex+" bw="+str(base10_round(n.new_bw))+" nick="+n.nick+ " measured_at="+str(int(n.measured_at))+" pid_error="+str(n.pid_error)+" pid_error_sum="+str(n.pid_error_sum)+" pid_bw="+str(int(n.pid_bw))+" pid_delta="+str(n.pid_delta)+" circ_fail="+str(n.circ_fail_rate)+"\n")
   out.close()
 
   write_file_list(argv[1])
