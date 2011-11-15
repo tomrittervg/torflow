@@ -280,17 +280,24 @@ def write_file_list(datadir):
   file_sizes.sort(reverse=True)
   node_fbws.sort()
   prev_size = file_sizes[-1]
+  prev_pct = 0
   i = 0
 
   # The idea here is to grab the largest file size such
   # that 5*bw < file, and do this for each file size.
   for bw in node_fbws:
     i += 1
+    pct = 100-(100*i)/len(node_fbws)
+    # If two different file sizes serve one percentile, go with the
+    # smaller file size (ie skip this one)
+    if pct == prev_pct:
+      continue
     for f in xrange(len(file_sizes)):
       if bw > file_sizes[f]*1024 and file_sizes[f] > prev_size:
         next_f = max(f-1,0)
-        file_pairs.append((100-(100*i)/len(node_fbws),files[file_sizes[next_f]]))
+        file_pairs.append((pct,files[file_sizes[next_f]]))
         prev_size = file_sizes[f]
+        prev_pct = pct
         break
 
   file_pairs.reverse()
