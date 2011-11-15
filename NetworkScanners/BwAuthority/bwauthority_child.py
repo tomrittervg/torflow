@@ -225,8 +225,11 @@ def speedrace(hdlr, start_pct, stop_pct, circs_per_node, save_every, out_dir,
     hdlr.new_exit()
     attempt += 1
 
-    # FIXME: This noise is due to a difficult to find Tor bug that
+    # TODO: This noise is due to a difficult to find Tor bug that
     # causes some exits to hang forever on streams :(
+    # FIXME: Hrmm, should we change the reason on this? Right now,
+    # 7 == TIMEOUT, which means we do not count the bandwidth of this
+    # stream.. however, we count it as 'successful' below
     timer = threading.Timer(max_fetch_time, lambda: hdlr.close_streams(7))
     timer.start()
     url = choose_url(start_pct)
@@ -240,6 +243,8 @@ def speedrace(hdlr, start_pct, stop_pct, circs_per_node, save_every, out_dir,
       plog('WARN', 'Timer exceeded limit: ' + str(delta_build) + '\n')
 
     build_exit = hdlr.get_exit_node()
+    # FIXME: Timeouts get counted as 'sucessful' here, but do not
+    # count in the SQL stats!
     if ret == 1 and build_exit:
       successful += 1
       plog('DEBUG', str(start_pct) + '-' + str(stop_pct) + '% circuit build+fetch took ' + str(delta_build) + ' for ' + str(build_exit))
