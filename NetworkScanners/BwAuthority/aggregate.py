@@ -88,6 +88,7 @@ class Node:
     self.ratio = None
     self.new_bw = None
     self.change = None
+    self.use_bw = -1
 
     # measurement vars from bwauth lines
     self.measured_at = 0
@@ -100,24 +101,32 @@ class Node:
     self.updated_at = 0
 
   def revert_to_vote(self, vote):
-    self.new_bw = vote.bw*1000
-    self.pid_bw = vote.pid_bw
-    self.pid_error = vote.pid_error
-    self.pid_error_sum = vote.pid_error_sum
-    self.pid_delta = vote.pid_delta
-    self.measured_at = vote.measured_at
+    self.copy_vote(vote)
+    self.pid_error = vote.pid_error # Set
+    self.measured_at = vote.measured_at # Set
 
-  # Derivative of error for pid control
-  def get_pid_bw(self, prev_vote, kp, ki, kd, kidecay):
+  def copy_vote(self, vote):
+    self.new_bw = vote.bw*1000 # Not set yet
+    self.pid_bw = vote.pid_bw  # Not set yet
+    self.pid_error_sum = vote.pid_error_sum # Not set yet
+    self.pid_delta = vote.pid_delta # Not set yet
+
+  def get_pid_bw(self, prev_vote, kp, ki, kd, kidecay, update=True):
+    if not update:
+      return self.use_bw \
+                  + kp*self.use_bw*self.pid_error \
+                  + ki*self.use_bw*self.pid_error_sum \
+                  + kd*self.use_bw*self.pid_delta
+
     self.prev_error = prev_vote.pid_error
     # We decay the interval each round to keep it bounded.
     # This decay is non-standard. We do it to avoid overflow
     self.pid_error_sum = prev_vote.pid_error_sum*kidecay + self.pid_error
 
-    self.pid_bw = self.ns_bw \
-                             + kp*self.ns_bw*self.pid_error \
-                             + ki*self.ns_bw*self.integral_error() \
-                             + kd*self.ns_bw*self.d_error_dt()
+    self.pid_bw = self.use_bw \
+                             + kp*self.use_bw*self.pid_error \
+                             + ki*self.use_bw*self.integral_error() \
+                             + kd*self.use_bw*self.d_error_dt()
     return self.pid_bw
 
   # Time-weighted sum of error per unit of time (measurement sample)
@@ -212,6 +221,7 @@ class ConsensusJunk:
     self.bwauth_pid_control = False
     self.use_circ_fails = False
     self.use_best_ratio = False
+    self.use_desc_bw = False
 
     self.K_p = K_p
     self.T_i = T_i
@@ -224,6 +234,9 @@ class ConsensusJunk:
       for p in cs_params:
         if p == "bwauthpid=1":
           self.bwauth_pid_control = True
+        elif p == "bwauthdescbw=1":
+          self.use_desc_bw = True
+          plog("INFO", "Using descriptor bandwidth")
         elif p == "bwauthcircs=1":
           self.use_circ_fails = True
           plog("INFO", "Counting circuit failures")
@@ -472,6 +485,11 @@ def main(argv):
     n.sbw_ratio = n.strm_bw/true_strm_avg
 
     if cs_junk.bwauth_pid_control:
+      if cs_junk.use_desc_bw:
+        n.use_bw = n.desc_bw
+      else:
+        n.use_bw = n.ns_bw
+
       # Penalize nodes for circ failure rate
       if cs_junk.use_best_ratio and n.sbw_ratio > n.fbw_ratio:
         n.pid_error = (n.strm_bw*(1.0-n.circ_fail_rate) - true_strm_avg)/true_strm_avg
@@ -496,13 +514,28 @@ def main(argv):
                                       cs_junk.K_d,
                                       cs_junk.K_i_decay)
             else:
-              pid_error = n.pid_error
-              n.revert_to_vote(prev_votes.vote_map[n.idhex])
               # Don't use feedback here, but we might as well use our
               # new measurement against the previous vote.
-              n.new_bw = prev_votes.vote_map[n.idhex].pid_bw + \
-                       cs_junk.K_p*prev_votes.vote_map[n.idhex].pid_bw*pid_error
+              n.copy_vote(prev_votes.vote_map[n.idhex])
 
+              if cs_junk.use_desc_bw:
+                n.new_bw = n.get_pid_bw(prev_votes.vote_map[n.idhex],
+                                    cs_junk.K_p,
+                                    cs_junk.K_i,
+                                    cs_junk.K_d,
+                                    0.0, False)
+              else:
+                # Use previous vote's feedback bw
+                n.use_bw = prev_votes.vote_map[n.idhex].pid_bw
+                n.new_bw = n.get_pid_bw(prev_votes.vote_map[n.idhex],
+                                    cs_junk.K_p,
+                                    0.0,
+                                    0.0,
+                                    0.0, False)
+
+              # Reset the remaining vote data..
+              n.measured_at = prev_votes.vote_map[n.idhex].measured_at
+              n.pid_error = prev_votes.vote_map[n.idhex].pid_error
           else:
             # Everyone else should be pretty instantenous to respond.
             # Full feedback should be fine for them (we hope),
@@ -529,7 +562,7 @@ def main(argv):
           # Reset values. Don't vote/sample this measurement round.
           n.revert_to_vote(prev_votes.vote_map[n.idhex])
       else: # No prev vote, pure consensus feedback this round
-        n.new_bw = n.ns_bw + cs_junk.K_p*n.ns_bw*n.pid_error
+        n.new_bw = n.use_bw + cs_junk.K_p*n.use_bw*n.pid_error
         n.pid_error_sum = n.pid_error
         n.pid_bw = n.new_bw
         plog("INFO", "No prev vote for node "+n.nick+": Consensus feedback")
@@ -565,8 +598,9 @@ def main(argv):
     if n.new_bw >= 0xffffffff*1000:
       plog("WARN", "Bandwidth of node "+n.nick+"="+n.idhex+" exceeded maxint32: "+str(n.new_bw))
       n.new_bw = 0xffffffff*1000
-    if cs_junk.T_i > 0 and math.fabs(n.pid_error_sum) > \
-       math.fabs(2*cs_junk.T_i*n.pid_error/cs_junk.T_i_decay):
+    if cs_junk.T_i > 0 and cs_junk.T_i_decay > 0 \
+       and math.fabs(n.pid_error_sum) > \
+           math.fabs(2*cs_junk.T_i*n.pid_error/cs_junk.T_i_decay):
       plog("NOTICE", "Large pid_error_sum for node "+n.idhex+"="+n.nick+": "+
                    str(n.pid_error_sum)+" vs "+str(n.pid_error))
     if n.new_bw > tot_net_bw*NODE_CAP:
