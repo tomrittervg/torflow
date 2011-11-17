@@ -364,7 +364,7 @@
    should cause convergence to this balanced ideal.
 
    See https://en.wikipedia.org/wiki/PID_controller for background,
-   especially: https://en.wikipedia.org/wiki/PID_controller#Pseudocode
+   especially https://en.wikipedia.org/wiki/PID_controller#Pseudocode
 
 3.1. Modeling Measurement as PID Control
 
@@ -463,7 +463,7 @@
 
    pid_delta is purely informational, and is not used in feedback.
 
-3.5. Tuning Parameters
+3.5. Tuning PID Constants
 
    Internally, the source uses the Standard PID Form:
    https://en.wikipedia.org/wiki/PID_controller#Ideal_versus_standard_PID_form
@@ -480,4 +480,54 @@
    only gives us useful information for a fraction of a measurement
    interval, until clients begin to migrate to the new measurements.
 
+3.6. Consensus Parameters
 
+   The bandwidth auths listen for several consensus parameters to tweak
+   behavior:
+
+    "bwauthpid=1"  
+       If present, enables the PID control features in Section 3.
+
+    "bwauthcircs=1"
+       If present, F_node is multiplied by (1.0 - circ_fail_rate)
+       as described in Section 3.1.
+      
+    "bwauthkp=N"
+       Sets K_p to N/10000.0
+
+    "bwauthti=N"
+       Sets T_i to N/10000.0. For T_i=0, K_i is set to 0.
+
+    "bwauthtd=N"
+       Sets T_d to N/10000.0.
+     
+    "bwauthtidecay=N"
+       Sets T_i_decay to N/10000.0. T_i_decay is an parameter
+       used to dampen the pid_error_sum accumulation. If non-zero,
+       the pid_error_sum integration becomes:
+
+           K_i_decay = (1.0 - T_i_decay/T_i)
+           pid_control_sum = pid_control_sum*K_i_decay + pid_error
+
+       Intuitively, this means that after T_i sample rounds,
+       the T_i'th round has experienced a reduction by T_i_decay
+       for the values of T_i that are relevant to us.
+
+       If T_i is 0, K_i_decay is set to 0.
+
+    "bwauthbestratio=1"
+       If present, the larger of stream bandwidth vs filtered bandwidth
+       is used to compute F_node.
+ 
+    "bwauthdescbw=1"
+       If present, uses descriptor bandwidth instead of feeding back
+       PID control values. This may be functionally equivalent to NS
+       bandwidth so long as T_i is non-zero, because error will get
+       accumulated in pid_error_sum as opposed to the consensus value
+       itself.
+
+       It also has the advantage of allowing the PID control code to be
+       exercised, yet produce identical results to Section 2 with
+       the following additional constants:
+
+ 
