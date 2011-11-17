@@ -13,54 +13,45 @@ from TorCtl import TorCtl,TorUtil
 from TorCtl.PathSupport import VersionRangeRestriction, NodeRestrictionList, NotNodeRestriction
 
 bw_files = []
-timestamps = {}
 nodes = {}
 prev_consensus = {}
 
 # Hack to kill voting on guards while the network rebalances
 IGNORE_GUARDS = 0
 
-# BETA is the parameter that governs the proportion that we use previous
-# consensus values in creating new bandwitdhs versus descriptor values.
-#    1.0 -> all consensus
-#      0 -> all descriptor,
-#     -1 -> compute from %age of nodes upgraded to 0.2.1.17+
-# Note that guard nodes may not quickly change load in the presence of
-# changes to their advertised bandwidths. To address this and other
-# divergent behaviors, we only apply this value to nodes with ratios < 1.0
-#BETA = -1
-BETA = 0
+# The guard measurement period is based on the client turnover
+# rate for guard nodes
+GUARD_SAMPLE_RATE = 2*7*24*60*60 # 2wks
 
-# GUARD_BETA is the version of BETA used for guard nodes. It needs
-# to be computed similarly to BETA, but using 0.2.1.22+ and 0.2.2.7+
-# because guard nodes were weighted uniformly by clients up until then.
-#GUARD_BETA = -1
-GUARD_BETA = 0
+# PID constant defaults. May be overridden by consensus
+# https://en.wikipedia.org/wiki/PID_controller#Ideal_versus_standard_PID_form
+K_p = 1.0
 
-# ALPHA is the parameter that controls the amount measurement
-# values count for. It is used to dampen feedback loops to prevent
-# values from changing too rapidly. Thus it only makes sense to
-# have a value below 1.0 if BETA is nonzero.
-# ALPHA is only applied for nodes with ratio < 1 if BETA is nonzero.
-#ALPHA = 0.25
-ALPHA = 0
+# We expect to correct steady state error in 5 samples (guess)
+T_i = 5.0
 
-# There are cases where our updates may not cause node
-# traffic to quickly relocate, such as Guard-only nodes. These nodes
-# get a special ALPHA when BETA is being used:
-# GUARD_ALPHA is only applied for Guard-only nodes with ratio < 1 if BETA is
-# nonzero.
-#GUARD_ALPHA = 0.1
-GUARD_ALPHA = 0
+# T_i_decay is a weight factor to govern how fast integral sums
+# decay. For the values of T_i that we care about, T_i_decay represents
+# the fraction of integral sum that is eliminated after T_i sample rounds.
+# This decay is non-standard, but we do it to avoid overflow
+T_i_decay = 0.5
+
+# We can only expect to predict less than one sample into the future, as
+# after 1 sample, clients will have migrated
+# FIXME: Our prediction ability is a function of the consensus uptake time
+# vs measurement rate
+T_d = 0.5
 
 NODE_CAP = 0.05
 
 MIN_REPORT = 60 # Percent of the network we must measure before reporting
 
 # Keep most measurements in consideration. The code below chooses
-# the most recent one. 15 days is just to stop us from choking up 
+# the most recent one. 28 days is just to stop us from choking up 
 # all the CPU once these things run for a year or so.
-MAX_AGE = 60*60*24*15
+# Note that the Guard measurement interval of 2 weeks means that this
+# value can't get much below that.
+MAX_AGE = 2*GUARD_SAMPLE_RATE
 
 # If the resultant scan file is older than 1.5 days, something is wrong
 MAX_SCAN_AGE = 60*60*24*1.5
@@ -82,118 +73,89 @@ def base10_round(bw_val):
       return 1
     return ret
 
-
-
-def closest_to_one(ratio_list):
-  min_dist = 0x7fffffff
-  min_item = -1
-  for i in xrange(len(ratio_list)):
-    if abs(1.0-ratio_list[i]) < min_dist:
-      min_dist = abs(1.0-ratio_list[i])
-      min_item = i
-  return min_item
-
-class NodeData:
-  def __init__(self, timestamp):
-    self.strm_bw = []
-    self.filt_bw = []
-    self.ns_bw = []
-    self.desc_bw = []
-    self.timestamp = timestamp
-
 class Node:
   def __init__(self):
-    self.node_data = {}
     self.ignore = False
     self.idhex = None
     self.nick = None
-    self.chosen_time = None
-    self.chosen_sbw = None
-    self.chosen_fbw = None
     self.sbw_ratio = None
     self.fbw_ratio = None
+    self.pid_bw = 0
+    self.pid_error = 0
+    self.prev_error = 0
+    self.pid_error_sum = 0
+    self.pid_delta = 0
     self.ratio = None
     self.new_bw = None
     self.change = None
-    self.strm_bw = []
-    self.filt_bw = []
-    self.ns_bw = []
-    self.desc_bw = []
-    self.timestamps = []
+    self.use_bw = -1
+
+    # measurement vars from bwauth lines
+    self.measured_at = 0
+    self.strm_bw = 0
+    self.filt_bw = 0
+    self.ns_bw = 0
+    self.desc_bw = 0
+    self.circ_fail_rate = 0
+    self.strm_fail_rate = 0
+    self.updated_at = 0
+
+  def revert_to_vote(self, vote):
+    self.copy_vote(vote)
+    self.pid_error = vote.pid_error # Set
+    self.measured_at = vote.measured_at # Set
+
+  def copy_vote(self, vote):
+    self.new_bw = vote.bw*1000 # Not set yet
+    self.pid_bw = vote.pid_bw  # Not set yet
+    self.pid_error_sum = vote.pid_error_sum # Not set yet
+    self.pid_delta = vote.pid_delta # Not set yet
+
+  def get_pid_bw(self, prev_vote, kp, ki, kd, kidecay, update=True):
+    if not update:
+      return self.use_bw \
+                  + kp*self.use_bw*self.pid_error \
+                  + ki*self.use_bw*self.pid_error_sum \
+                  + kd*self.use_bw*self.pid_delta
+
+    self.prev_error = prev_vote.pid_error
+    # We decay the interval each round to keep it bounded.
+    # This decay is non-standard. We do it to avoid overflow
+    self.pid_error_sum = prev_vote.pid_error_sum*kidecay + self.pid_error
+
+    self.pid_bw = self.use_bw \
+                             + kp*self.use_bw*self.pid_error \
+                             + ki*self.use_bw*self.integral_error() \
+                             + kd*self.use_bw*self.d_error_dt()
+    return self.pid_bw
+
+  # Time-weighted sum of error per unit of time (measurement sample)
+  def integral_error(self):
+    if self.prev_error == 0:
+      return 0
+    return self.pid_error_sum
+
+  # Rate of change in error from the last measurement sample
+  def d_error_dt(self):
+    if self.prev_error == 0:
+      self.pid_delta = 0
+    else:
+      self.pid_delta = self.pid_error - self.prev_error
+    return self.pid_delta
 
   def add_line(self, line):
     if self.idhex and self.idhex != line.idhex:
       raise Exception("Line mismatch")
     self.idhex = line.idhex
     self.nick = line.nick
-    if line.slice_file not in self.node_data \
-      or self.node_data[line.slice_file].timestamp < line.timestamp:
-      self.node_data[line.slice_file] = NodeData(line.timestamp)
-
-    # FIXME: This is kinda nutty. Can we simplify? For instance,
-    # do these really need to be lists inside the nd?
-    nd = self.node_data[line.slice_file]
-    nd.strm_bw.append(line.strm_bw)
-    nd.filt_bw.append(line.filt_bw)
-    nd.ns_bw.append(line.ns_bw)
-    nd.desc_bw.append(line.desc_bw)
-
-    self.strm_bw = []
-    self.filt_bw = []
-    self.ns_bw = []
-    self.desc_bw = []
-    self.timestamps = []
-
-    for nd in self.node_data.itervalues():
-      self.strm_bw.extend(nd.strm_bw)
-      self.filt_bw.extend(nd.filt_bw)
-      self.ns_bw.extend(nd.ns_bw)
-      self.desc_bw.extend(nd.desc_bw)
-      for i in xrange(len(nd.ns_bw)):
-        self.timestamps.append(nd.timestamp)
-
-  def avg_strm_bw(self):
-    return sum(self.strm_bw)/float(len(self.strm_bw))
-
-  def avg_filt_bw(self):
-    return sum(self.filt_bw)/float(len(self.filt_bw))
-
-  def avg_ns_bw(self):
-    return sum(self.ns_bw)/float(len(self.ns_bw))
-
-  def avg_desc_bw(self):
-    return sum(self.desc_bw)/float(len(self.desc_bw))
-
-  # This can be bad for bootstrapping or highly bw-variant nodes... 
-  # we will choose an old measurement in that case.. We need
-  # to build some kind of time-bias here..
-  def _choose_strm_bw_one(self, net_avg):
-    i = closest_to_one(map(lambda f: f/net_avg, self.strm_bw))
-    self.chosen_sbw = i
-    return self.chosen_sbw
-
-  def _choose_filt_bw_one(self, net_avg):
-    i = closest_to_one(map(lambda f: f/net_avg, self.filt_bw))
-    self.chosen_fbw = i
-    return self.chosen_fbw
-
-  # Simply return the most recent one instead of this
-  # closest-to-one stuff
-  def choose_filt_bw(self, net_avg):
-    max_idx = 0
-    for i in xrange(len(self.timestamps)):
-      if self.timestamps[i] > self.timestamps[max_idx]:
-        max_idx = i
-    self.chosen_fbw = max_idx
-    return self.chosen_fbw
-
-  def choose_strm_bw(self, net_avg):
-    max_idx = 0
-    for i in xrange(len(self.timestamps)):
-      if self.timestamps[i] > self.timestamps[max_idx]:
-        max_idx = i
-    self.chosen_sbw = max_idx
-    return self.chosen_sbw
+    if line.measured_at > self.measured_at:
+      self.measured_at = self.updated_at = line.measured_at
+      self.strm_bw = line.strm_bw
+      self.filt_bw = line.filt_bw
+      self.ns_bw = line.ns_bw
+      self.desc_bw = line.desc_bw
+      self.circ_fail_rate = line.circ_fail_rate
+      self.strm_fail_rate = line.strm_fail_rate
 
 class Line:
   def __init__(self, line, slice_file, timestamp):
@@ -204,12 +166,167 @@ class Line:
     self.ns_bw = int(re.search("[\s]*ns_bw=([\S]+)[\s]*", line).group(1))
     self.desc_bw = int(re.search("[\s]*desc_bw=([\S]+)[\s]*", line).group(1))
     self.slice_file = slice_file
-    self.timestamp = timestamp
+    self.measured_at = timestamp
+    try:
+      self.circ_fail_rate = float(re.search("[\s]*circ_fail_rate=([\S]+)[\s]*", line).group(1))
+    except:
+      self.circ_fail_rate = 0
+    try:
+      self.strm_fail_rate = float(re.search("[\s]*strm_fail_rate=([\S]+)[\s]*", line).group(1))
+    except:
+      self.strm_fail_rate = 0
+
+
+class Vote:
+  def __init__(self, line):
+    # node_id=$DB8C6D8E0D51A42BDDA81A9B8A735B41B2CF95D1 bw=231000 diff=209281 nick=rainbowwarrior measured_at=1319822504
+    self.idhex = re.search("[\s]*node_id=([\S]+)[\s]*", line).group(1)
+    self.nick = re.search("[\s]*nick=([\S]+)[\s]*", line).group(1)
+    self.bw = int(re.search("[\s]+bw=([\S]+)[\s]*", line).group(1))
+    self.measured_at = int(re.search("[\s]*measured_at=([\S]+)[\s]*", line).group(1))
+    try:
+      self.pid_error = float(re.search("[\s]*pid_error=([\S]+)[\s]*", line).group(1))
+      self.pid_error_sum = float(re.search("[\s]*pid_error_sum=([\S]+)[\s]*", line).group(1))
+      self.pid_delta = float(re.search("[\s]*pid_delta=([\S]+)[\s]*", line).group(1))
+      self.pid_bw = float(re.search("[\s]*pid_bw=([\S]+)[\s]*", line).group(1))
+    except:
+      plog("NOTICE", "No previous PID data.")
+      self.pid_bw = self.bw
+      self.pid_error = 0
+      self.pid_delta = 0
+      self.pid_error_sum = 0
+    try:
+      self.updated_at = int(re.search("[\s]*updated_at=([\S]+)[\s]*", line).group(1))
+    except:
+      plog("INFO", "No updated_at field for "+self.nick+"="+self.idhex)
+      self.updated_at = self.measured_at
+
+
+class VoteSet:
+  def __init__(self, filename):
+    self.vote_map = {}
+    try:
+      f = file(filename, "r")
+      f.readline()
+      for line in f.readlines():
+        vote = Vote(line)
+        self.vote_map[vote.idhex] = vote
+    except IOError:
+      plog("NOTICE", "No previous vote data.")
+
+# Misc items we need to get out of the consensus
+class ConsensusJunk:
+  def __init__(self, c):
+    cs_bytes = c.sendAndRecv("GETINFO dir/status-vote/current/consensus\r\n")[0][2]
+    self.bwauth_pid_control = False
+    self.use_circ_fails = False
+    self.use_best_ratio = False
+    self.use_desc_bw = False
+
+    self.K_p = K_p
+    self.T_i = T_i
+    self.T_d = T_d
+    self.T_i_decay = T_i_decay
+
+    try:
+      cs_params = re.search("^params ((?:[\S]+=[\d]+[\s]?)+)",
+                                     cs_bytes, re.M).group(1).split()
+      for p in cs_params:
+        if p == "bwauthpid=1":
+          self.bwauth_pid_control = True
+        elif p == "bwauthdescbw=1":
+          self.use_desc_bw = True
+          plog("INFO", "Using descriptor bandwidth")
+        elif p == "bwauthcircs=1":
+          self.use_circ_fails = True
+          plog("INFO", "Counting circuit failures")
+        elif p == "bwauthbestratio=1":
+          self.use_best_ratio = True
+          plog("INFO", "Choosing larger of sbw vs fbw")
+        elif p.startswith("bwauthkp="):
+          self.K_p = int(p.split("=")[1])/10000.0
+          plog("INFO", "Got K_p=%f from consensus." % self.K_p)
+        elif p.startswith("bwauthti="):
+          self.T_i = (int(p.split("=")[1])/10000.0)
+          plog("INFO", "Got T_i=%f from consensus." % self.T_i)
+        elif p.startswith("bwauthtd="):
+          self.T_d = (int(p.split("=")[1])/10000.0)
+          plog("INFO", "Got T_d=%f from consensus." % self.T_d)
+        elif p.startswith("bwauthtidecay="):
+          self.T_i_decay = (int(p.split("=")[1])/10000.0)
+          plog("INFO", "Got T_i_decay=%f from consensus." % self.T_i_decay)
+    except:
+      plog("NOTICE", "Bw auth PID control disabled due to parse error.")
+      traceback.print_exc()
+
+    if self.T_i == 0:
+      self.K_i = 0
+      self.K_i_decay = 0
+    else:
+      self.K_i = self.K_p/self.T_i
+      self.K_i_decay = (1.0-self.T_i_decay/self.T_i)
+
+    self.K_d = self.K_p*self.T_d
+
+    plog("INFO", "Got K_p=%f K_i=%f K_d=%f K_i_decay=%f" %
+                  (self.K_p, self.K_i, self.K_d, self.K_i_decay))
+
+    self.bw_weights = {}
+    try:
+      bw_weights = re.search("^bandwidth-weights ((?:[\S]+=[\d]+[\s]?)+)",
+                           cs_bytes, re.M).group(1).split()
+      for b in bw_weights:
+        pair = b.split("=")
+        self.bw_weights[pair[0]] = int(pair[1])/10000.0
+    except:
+      plog("WARN", "No bandwidth weights in consensus!")
+      self.bw_weights["Wgd"] = 0
+      self.bw_weights["Wgg"] = 1.0
+
+def write_file_list(datadir):
+  files = {64*1024:"64M", 32*1024:"32M", 16*1024:"16M", 8*1024:"8M",
+                4*1024:"4M", 2*1024:"2M", 1024:"1M", 512:"512k",
+                256:"256k", 128:"128k", 64:"64k", 32:"32k", 16:"16k", 0:"16k"}
+  file_sizes = files.keys()
+  node_fbws = map(lambda x: 5*x.filt_bw, nodes.itervalues())
+  file_pairs = []
+  file_sizes.sort(reverse=True)
+  node_fbws.sort()
+  prev_size = file_sizes[-1]
+  prev_pct = 0
+  i = 0
+
+  # The idea here is to grab the largest file size such
+  # that 5*bw < file, and do this for each file size.
+  for bw in node_fbws:
+    i += 1
+    pct = 100-(100*i)/len(node_fbws)
+    # If two different file sizes serve one percentile, go with the
+    # smaller file size (ie skip this one)
+    if pct == prev_pct:
+      continue
+    for f in xrange(len(file_sizes)):
+      if bw > file_sizes[f]*1024 and file_sizes[f] > prev_size:
+        next_f = max(f-1,0)
+        file_pairs.append((pct,files[file_sizes[next_f]]))
+        prev_size = file_sizes[f]
+        prev_pct = pct
+        break
+
+  file_pairs.reverse()
+
+  outfile = file(datadir+"/bwfiles.new", "w")
+  for f in file_pairs:
+   outfile.write(str(f[0])+" "+f[1]+"\n")
+  outfile.write(".\n")
+  outfile.close()
+  # atomic on POSIX
+  os.rename(datadir+"/bwfiles.new", datadir+"/bwfiles")
 
 def main(argv):
   TorUtil.read_config(argv[1]+"/scanner.1/bwauthority.cfg")
   TorUtil.loglevel = "NOTICE"
- 
+
   s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
   s.connect((TorUtil.control_host,TorUtil.control_port))
   c = TorCtl.Connection(s)
@@ -226,40 +343,9 @@ def main(argv):
   got_ns_bw = False
   max_rank = len(ns_list)
 
-  global BETA
-  sorted_rlist = None
-  if BETA == -1:
-    # Compute beta based on the upgrade rate for nsbw obeying routers
-    # (karsten's data show this slightly underestimates client upgrade rate)
-    nsbw_yes = VersionRangeRestriction("0.2.1.17")
-    sorted_rlist = c.read_routers(ns_list)
+  cs_junk = ConsensusJunk(c)
 
-    nsbw_cnt = 0
-    non_nsbw_cnt = 0
-    for r in sorted_rlist:
-      if nsbw_yes.r_is_ok(r): nsbw_cnt += 1
-      else: non_nsbw_cnt += 1
-    BETA = float(nsbw_cnt)/(nsbw_cnt+non_nsbw_cnt)
-
-  global GUARD_BETA
-  if GUARD_BETA == -1:
-    # Compute GUARD_BETA based on the upgrade rate for nsbw obeying routers
-    # (karsten's data show this slightly underestimates client upgrade rate)
-    guardbw_yes = NodeRestrictionList([VersionRangeRestriction("0.2.1.23"),
-       NotNodeRestriction(VersionRangeRestriction("0.2.2.0", "0.2.2.6"))])
-
-    if not sorted_rlist:
-      sorted_rlist = c.read_routers(ns_list)
-
-    guardbw_cnt = 0
-    non_guardbw_cnt = 0
-    for r in sorted_rlist:
-      if guardbw_yes.r_is_ok(r): guardbw_cnt += 1
-      else: non_guardbw_cnt += 1
-    GUARD_BETA = float(guardbw_cnt)/(guardbw_cnt+non_guardbw_cnt)
-
-
-  # FIXME: This is poor form.. We should subclass the Networkstatus class
+  # TODO: This is poor form.. We should subclass the Networkstatus class
   # instead of just adding members
   for i in xrange(max_rank):
     n = ns_list[i]
@@ -300,15 +386,17 @@ def main(argv):
                 # measure hibernating routers for days.
                 # This filter is just to remove REALLY old files
                 if time.time() - timestamp > MAX_AGE:
-                  plog("DEBUG", "Skipping old file "+f)
+                  sqlf = f.replace("bws-", "sql-")
+                  plog("INFO", "Removing old file "+f+" and "+sqlf)
+                  os.remove(sr+"/"+f)
+                  try:
+                    os.remove(sr+"/"+sqlf)
+                  except:
+                    pass # In some cases the sql file may not exist
                   continue
                 if timestamp > newest_timestamp:
                   newest_timestamp = timestamp
                 bw_files.append((slicenum, timestamp, sr+"/"+f))
-                # FIXME: Can we kill this?
-                if slicenum not in timestamps or \
-                     timestamps[slicenum] < timestamp:
-                  timestamps[slicenum] = timestamp
           scanner_timestamps[ds] = newest_timestamp
 
   # Need to only use most recent slice-file for each node..
@@ -337,63 +425,160 @@ def main(argv):
   if len(nodes) == 0:
     plog("NOTICE", "No scan results yet.")
     sys.exit(1)
- 
-  pre_strm_avg = sum(map(lambda n: n.avg_strm_bw(), nodes.itervalues()))/ \
-                  float(len(nodes))
-  pre_filt_avg = sum(map(lambda n: n.avg_filt_bw(), nodes.itervalues()))/ \
-                  float(len(nodes))
 
-  plog("DEBUG", "Network pre_strm_avg: "+str(pre_strm_avg))
-  plog("DEBUG", "Network pre_filt_avg: "+str(pre_filt_avg))
+  if not cs_junk.use_circ_fails:
+    plog("INFO", "Ignoring circuit failures")
+    for n in nodes.itervalues():
+      n.circ_fail_rate = 0.0
 
-  for n in nodes.itervalues():
-    n.choose_strm_bw(pre_strm_avg)
-    n.choose_filt_bw(pre_filt_avg)
-    plog("DEBUG", "Node "+n.nick+" chose sbw: "+\
-                str(n.strm_bw[n.chosen_sbw])+" fbw: "+\
-                str(n.filt_bw[n.chosen_fbw]))
+  if cs_junk.bwauth_pid_control:
+    # Penalize nodes for circuit failure: it indicates CPU pressure
+    # TODO: Potentially penalize for stream failure, if we run into
+    # socket exhaustion issues..
+    plog("INFO", "PID control enabled")
+    true_filt_avg = sum(map(lambda n: n.filt_bw*(1.0-n.circ_fail_rate),
+                         nodes.itervalues()))/float(len(nodes))
+    true_strm_avg = sum(map(lambda n: n.strm_bw*(1.0-n.circ_fail_rate),
+                         nodes.itervalues()))/float(len(nodes))
+  else:
+    plog("INFO", "PID control disabled")
+    true_filt_avg = sum(map(lambda n: n.filt_bw,
+                         nodes.itervalues()))/float(len(nodes))
+    true_strm_avg = sum(map(lambda n: n.strm_bw,
+                         nodes.itervalues()))/float(len(nodes))
 
-  true_strm_avg = sum(map(lambda n: n.strm_bw[n.chosen_sbw],
-                       nodes.itervalues()))/float(len(nodes))
-  true_filt_avg = sum(map(lambda n: n.filt_bw[n.chosen_fbw],
-                       nodes.itervalues()))/float(len(nodes))
-
-  plog("DEBUG", "Network true_strm_avg: "+str(true_strm_avg))
   plog("DEBUG", "Network true_filt_avg: "+str(true_filt_avg))
+
+  prev_votes = None
+  if cs_junk.bwauth_pid_control:
+    prev_votes = VoteSet(argv[-1])
+
+    guard_cnt = 0
+    node_cnt = 0
+    guard_measure_time = 0
+    node_measure_time = 0
+    for n in nodes.itervalues():
+      if n.idhex in prev_votes.vote_map and n.idhex in prev_consensus:
+        if "Guard" in prev_consensus[n.idhex].flags and \
+           "Exit" not in prev_consensus[n.idhex].flags:
+          if n.measured_at != prev_votes.vote_map[n.idhex].measured_at:
+            guard_cnt += 1
+            guard_measure_time += (n.measured_at - \
+                                    prev_votes.vote_map[n.idhex].measured_at)
+        else:
+          if n.updated_at != prev_votes.vote_map[n.idhex].updated_at:
+            node_cnt += 1
+            node_measure_time += (n.updated_at - \
+                                  prev_votes.vote_map[n.idhex].updated_at)
+
+    # TODO: We may want to try to use this info to autocompute T_d and
+    # maybe T_i?
+    if node_cnt > 0:
+      plog("INFO", "Avg of "+str(node_cnt)+" node update intervals: "+str((node_measure_time/node_cnt)/3600.0))
+
+    if guard_cnt > 0:
+      plog("INFO", "Avg of "+str(guard_cnt)+" guard measurement interval: "+str((guard_measure_time/guard_cnt)/3600.0))
 
   tot_net_bw = 0
   for n in nodes.itervalues():
-    n.fbw_ratio = n.filt_bw[n.chosen_fbw]/true_filt_avg
-    n.sbw_ratio = n.strm_bw[n.chosen_sbw]/true_strm_avg
-    chosen_bw_idx = 0
-    if n.sbw_ratio > n.fbw_ratio:
-      n.ratio = n.sbw_ratio
-      chosen_bw_idx = n.chosen_sbw
-    else:
-      n.ratio = n.fbw_ratio
-      chosen_bw_idx = n.chosen_fbw
+    n.fbw_ratio = n.filt_bw/true_filt_avg
+    n.sbw_ratio = n.strm_bw/true_strm_avg
 
-    n.chosen_time = n.timestamps[chosen_bw_idx]
-
-    if n.ratio < 1.0:
-      # XXX: Blend together BETA and GUARD_BETA for Guard+Exit nodes?
-      if GUARD_BETA > 0 and n.idhex in prev_consensus \
-         and ("Guard" in prev_consensus[n.idhex].flags and not "Exit" in \
-                prev_consensus[n.idhex].flags):
-        use_bw = GUARD_BETA*n.ns_bw[chosen_bw_idx] \
-                       + (1.0-GUARD_BETA)*n.desc_bw[chosen_bw_idx]
-        n.new_bw = use_bw*((1.0-GUARD_ALPHA) + GUARD_ALPHA*n.ratio)
-      elif BETA > 0:
-        use_bw = BETA*n.ns_bw[chosen_bw_idx] \
-                    + (1.0-BETA)*n.desc_bw[chosen_bw_idx]
-        n.new_bw = use_bw*((1.0-ALPHA) + ALPHA*n.ratio)
+    if cs_junk.bwauth_pid_control:
+      if cs_junk.use_desc_bw:
+        n.use_bw = n.desc_bw
       else:
-        use_bw = n.desc_bw[chosen_bw_idx]
-        n.new_bw = use_bw*n.ratio
-    else: # Use ALPHA=0, BETA=0 for faster nodes.
-      use_bw = n.desc_bw[chosen_bw_idx]
-      n.new_bw = use_bw*n.ratio
-    n.change = n.new_bw - n.desc_bw[chosen_bw_idx]
+        n.use_bw = n.ns_bw
+
+      # Penalize nodes for circ failure rate
+      if cs_junk.use_best_ratio and n.sbw_ratio > n.fbw_ratio:
+        n.pid_error = (n.strm_bw*(1.0-n.circ_fail_rate) - true_strm_avg)/true_strm_avg
+      else:
+        n.pid_error = (n.filt_bw*(1.0-n.circ_fail_rate) - true_filt_avg)/true_filt_avg
+
+      if n.idhex in prev_votes.vote_map:
+        # If there is a new sample, let's use it for all but guards
+        if n.measured_at > prev_votes.vote_map[n.idhex].measured_at:
+          # Nodes with the Guard flag will respond slowly to feedback,
+          # so they should be sampled less often, and in proportion to
+          # the appropriate Wgx weight.
+          if n.idhex in prev_consensus and \
+            ("Guard" in prev_consensus[n.idhex].flags \
+             and "Exit" not in prev_consensus[n.idhex].flags):
+            # Do full feedback if our previous vote > 2.5 weeks old
+            if n.idhex not in prev_votes.vote_map or \
+                n.measured_at - prev_votes.vote_map[n.idhex].measured_at > GUARD_SAMPLE_RATE:
+              n.new_bw = n.get_pid_bw(prev_votes.vote_map[n.idhex],
+                                      cs_junk.K_p,
+                                      cs_junk.K_i,
+                                      cs_junk.K_d,
+                                      cs_junk.K_i_decay)
+            else:
+              # Don't use feedback here, but we might as well use our
+              # new measurement against the previous vote.
+              n.copy_vote(prev_votes.vote_map[n.idhex])
+
+              if cs_junk.use_desc_bw:
+                n.new_bw = n.get_pid_bw(prev_votes.vote_map[n.idhex],
+                                    cs_junk.K_p,
+                                    cs_junk.K_i,
+                                    cs_junk.K_d,
+                                    0.0, False)
+              else:
+                # Use previous vote's feedback bw
+                n.use_bw = prev_votes.vote_map[n.idhex].pid_bw
+                n.new_bw = n.get_pid_bw(prev_votes.vote_map[n.idhex],
+                                    cs_junk.K_p,
+                                    0.0,
+                                    0.0,
+                                    0.0, False)
+
+              # Reset the remaining vote data..
+              n.measured_at = prev_votes.vote_map[n.idhex].measured_at
+              n.pid_error = prev_votes.vote_map[n.idhex].pid_error
+          else:
+            # Everyone else should be pretty instantenous to respond.
+            # Full feedback should be fine for them (we hope),
+            # except for Guard+Exits, we want to dampen just a little
+            # bit for them. Wgd seems a good choice, but might not be exact.
+            # We really want to magically combine Wgd and something that
+            # represents the client migration rate for Guards.. But who
+            # knows how to represent that and still KISS?
+            if n.idhex in prev_consensus and \
+              ("Guard" in prev_consensus[n.idhex].flags \
+               and "Exit" in prev_consensus[n.idhex].flags):
+              n.new_bw = n.get_pid_bw(prev_votes.vote_map[n.idhex],
+                              cs_junk.K_p*(1.0-cs_junk.bw_weights["Wgd"]),
+                              cs_junk.K_i,
+                              cs_junk.K_d,
+                              cs_junk.K_i_decay)
+            else:
+              n.new_bw = n.get_pid_bw(prev_votes.vote_map[n.idhex],
+                              cs_junk.K_p,
+                              cs_junk.K_i,
+                              cs_junk.K_d,
+                              cs_junk.K_i_decay)
+        else:
+          # Reset values. Don't vote/sample this measurement round.
+          n.revert_to_vote(prev_votes.vote_map[n.idhex])
+      else: # No prev vote, pure consensus feedback this round
+        n.new_bw = n.use_bw + cs_junk.K_p*n.use_bw*n.pid_error
+        n.pid_error_sum = n.pid_error
+        n.pid_bw = n.new_bw
+        plog("INFO", "No prev vote for node "+n.nick+": Consensus feedback")
+    else: # No PID feedback
+      # Choose the larger between sbw and fbw
+      if n.sbw_ratio > n.fbw_ratio:
+        n.ratio = n.sbw_ratio
+      else:
+        n.ratio = n.fbw_ratio
+
+      n.pid_error = 0
+      n.pid_error_sum = 0
+      n.new_bw = n.desc_bw*n.ratio
+      n.pid_bw = n.new_bw # for transition between pid/no-pid
+
+    n.change = n.new_bw - n.desc_bw
 
     if n.idhex in prev_consensus:
       if prev_consensus[n.idhex].bandwidth != None:
@@ -410,17 +595,38 @@ def main(argv):
 
   # Go through the list and cap them to NODE_CAP
   for n in nodes.itervalues():
+    if n.new_bw >= 0xffffffff*1000:
+      plog("WARN", "Bandwidth of node "+n.nick+"="+n.idhex+" exceeded maxint32: "+str(n.new_bw))
+      n.new_bw = 0xffffffff*1000
+    if cs_junk.T_i > 0 and cs_junk.T_i_decay > 0 \
+       and math.fabs(n.pid_error_sum) > \
+           math.fabs(2*cs_junk.T_i*n.pid_error/cs_junk.T_i_decay):
+      plog("NOTICE", "Large pid_error_sum for node "+n.idhex+"="+n.nick+": "+
+                   str(n.pid_error_sum)+" vs "+str(n.pid_error))
     if n.new_bw > tot_net_bw*NODE_CAP:
       plog("INFO", "Clipping extremely fast node "+n.idhex+"="+n.nick+
-           " at "+str(100*NODE_CAP)+"% of network capacity ("
-           +str(n.new_bw)+"->"+str(int(tot_net_bw*NODE_CAP))+")")
+           " at "+str(100*NODE_CAP)+"% of network capacity ("+
+           str(n.new_bw)+"->"+str(int(tot_net_bw*NODE_CAP))+") "+
+           " pid_error="+str(n.pid_error)+
+           " pid_error_sum="+str(n.pid_error_sum))
       n.new_bw = int(tot_net_bw*NODE_CAP)
+      n.pid_error_sum = 0 # Don't let unused error accumulate...
+    if n.new_bw <= 0:
+      if n.idhex in prev_consensus:
+        plog("INFO", str(prev_consensus[n.idhex].flags)+" node "+n.idhex+"="+n.nick+" has bandwidth <= 0: "+str(n.new_bw))
+      else:
+        plog("INFO", "New node "+n.idhex+"="+n.nick+" has bandwidth < 0: "+str(n.new_bw))
+      n.new_bw = 1
 
-  # WTF is going on here?
-  oldest_timestamp = min(map(lambda n: n.chosen_time,
+  oldest_measured = min(map(lambda n: n.measured_at,
              filter(lambda n: n.idhex in prev_consensus,
                        nodes.itervalues())))
-  plog("INFO", "Oldest measured node: "+time.ctime(oldest_timestamp))
+  plog("INFO", "Oldest measured node: "+time.ctime(oldest_measured))
+
+  oldest_updated = min(map(lambda n: n.updated_at,
+             filter(lambda n: n.idhex in prev_consensus,
+                       nodes.itervalues())))
+  plog("INFO", "Oldest updated node: "+time.ctime(oldest_updated))
 
   missed_nodes = 0.0
   for n in prev_consensus.itervalues():
@@ -446,7 +652,7 @@ def main(argv):
   plog("INFO", "Measured "+str(measured_pct)+"% of all tor nodes.")
 
   n_print = nodes.values()
-  n_print.sort(lambda x,y: int(y.change) - int(x.change))
+  n_print.sort(lambda x,y: int(y.pid_error*1000) - int(x.pid_error*1000))
 
   for scanner in scanner_timestamps.iterkeys():
     scan_age = int(round(scanner_timestamps[scanner],0))
@@ -456,12 +662,15 @@ def main(argv):
   out = file(argv[-1], "w")
   out.write(str(scan_age)+"\n")
 
-
+  # FIXME: Split out debugging data
   for n in n_print:
     if not n.ignore:
-      out.write("node_id="+n.idhex+" bw="+str(base10_round(n.new_bw))+" diff="+str(int(round(n.change/1000.0,0)))+ " nick="+n.nick+ " measured_at="+str(int(n.chosen_time))+"\n")
+      # Turns out str() is more accurate than %lf
+      out.write("node_id="+n.idhex+" bw="+str(base10_round(n.new_bw))+" nick="+n.nick+ " measured_at="+str(int(n.measured_at))+" updated_at="+str(int(n.updated_at))+" pid_error="+str(n.pid_error)+" pid_error_sum="+str(n.pid_error_sum)+" pid_bw="+str(int(n.pid_bw))+" pid_delta="+str(n.pid_delta)+" circ_fail="+str(n.circ_fail_rate)+"\n")
   out.close()
- 
+
+  write_file_list(argv[1])
+
 if __name__ == "__main__":
   try:
     main(sys.argv)

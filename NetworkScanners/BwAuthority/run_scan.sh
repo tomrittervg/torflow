@@ -6,7 +6,7 @@ SCANNER_COUNT=4
 # This tor must have the w status line fix as well as the stream bw fix
 # Ie git master or 0.2.2.x
 TOR_EXE=../../../tor.git/src/or/tor
-PYTHONPATH=../../../SQLAlchemy-0.5.5/lib:../../../Elixir-0.6.1/
+PYTHONPATH=../../../SQLAlchemy-0.7.3/lib:../../../Elixir-0.7.1/
 
 for n in `seq $SCANNER_COUNT`; do
     PIDFILE=./data/scanner.${n}/bwauthority.pid
