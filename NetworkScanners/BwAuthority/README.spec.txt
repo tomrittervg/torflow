@@ -527,7 +527,11 @@
        itself.
 
        It also has the advantage of allowing the PID control code to be
-       exercised, yet produce identical results to Section 2 with
-       the following additional constants:
+       exercised, yet to still produce identical results to Section 2
+       by using the following consensus parameters:
 
- 
+           bwauthpid=1 bwauthdescbw=1 bwauthbestratio=1 bwauthcircs=0
+           bwauthkp=10000 bwauthti=0 bwauthtd=0 
+
+       This equivalence was proved in Section 3.1, and has been observed
+       in practice. 
