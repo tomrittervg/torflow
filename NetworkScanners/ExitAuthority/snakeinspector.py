@@ -274,7 +274,20 @@ def main(argv):
           text += traceback.format_exc()
         # TODO: Attach files? Or is that too much.. Maybe serve
         # them via http and include links?
-        send_mail(mail_from_email, mail_to_email, subject, text)
+        if isinstance(r, HttpTestResult) or \
+           isinstance(r, JsTestResult) or \
+           isinstance(r, HtmlTestResult):
+          attach = []
+          if r.content:
+            attach.append(r.content)
+          if r.content_old:
+            attach.append(r.content_old)
+          if r.content_exit:
+            attach.append(r.content_exit)
+          send_mail(mail_from_email, mail_to_email, subject, text,
+                    attach)
+        else:
+          send_mail(mail_from_email, mail_to_email, subject, text)
 
 if __name__ == "__main__":
   main(sys.argv)
