@@ -652,7 +652,9 @@ def main(argv):
           #if time.mktime(r.published.utctimetuple()) - r.uptime \
           #       < oldest_timestamp:
           missed_nodes += 1.0
-          if n.bandwidth != None:
+          if n.bandwidth == None:
+            missed_bw += r.bw
+          else:
             missed_bw += n.bandwidth
           # We still tend to miss about 80 nodes even with these
           # checks.. Possibly going in and out of hibernation?
