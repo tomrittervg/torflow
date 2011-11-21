@@ -664,6 +664,16 @@ def main(argv):
     plog("NOTICE", "Did not measure "+str(MIN_REPORT)+"% of nodes yet ("+str(measured_pct)+"%)")
     sys.exit(1)
 
+  # Notification hack because #2286/#4359 is annoying arma
+  if measured_bw_pct < 75:
+    plog("WARN",
+         "Only measured %f of the previous consensus bandwidth despite measuring %f of the nodes" %
+         (measured_bw_pct, measured_pct))
+  elif measured_bw_pct < 95:
+    plog("NOTICE",
+         "Only measured %f of the previous consensus bandwidth despite measuring %f of the nodes" %
+         (measured_bw_pct, measured_pct))
+
   plog("INFO",
        "Measured "+str(measured_pct) +"% of all tor nodes ("
        +str(measured_bw_pct)+"% of previous consensus bw).")
