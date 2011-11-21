@@ -637,7 +637,11 @@ def main(argv):
   plog("INFO", "Oldest updated node: "+time.ctime(oldest_updated))
 
   missed_nodes = 0.0
+  missed_bw = 0
+  tot_bw = 0
   for n in prev_consensus.itervalues():
+    if n.bandwidth != None:
+      tot_bw += n.bandwidth
     if not n.measured:
       if "Fast" in n.flags and "Running" in n.flags:
         try:
@@ -648,16 +652,21 @@ def main(argv):
           #if time.mktime(r.published.utctimetuple()) - r.uptime \
           #       < oldest_timestamp:
           missed_nodes += 1.0
+          if n.bandwidth != None:
+            missed_bw += n.bandwidth
           # We still tend to miss about 80 nodes even with these
           # checks.. Possibly going in and out of hibernation?
           plog("DEBUG", "Didn't measure "+n.idhex+"="+n.nickname+" at "+str(round((100.0*n.list_rank)/max_rank,1))+" "+str(n.bandwidth))
 
   measured_pct = round(100.0*len(nodes)/(len(nodes)+missed_nodes),1)
+  measured_bw_pct = round((100.0*missed_bw)/tot_bw,1)
   if measured_pct < MIN_REPORT:
     plog("NOTICE", "Did not measure "+str(MIN_REPORT)+"% of nodes yet ("+str(measured_pct)+"%)")
     sys.exit(1)
 
-  plog("INFO", "Measured "+str(measured_pct)+"% of all tor nodes.")
+  plog("INFO",
+       "Measured "+str(measured_pct) +"% of all tor nodes ("
+       +str(measured_bw_pct)+"% of previous consensus bw).")
 
   n_print = nodes.values()
   n_print.sort(lambda x,y: int(y.pid_error*1000) - int(x.pid_error*1000))
