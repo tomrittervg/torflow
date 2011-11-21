@@ -56,6 +56,9 @@ MAX_AGE = 2*GUARD_SAMPLE_RATE
 # If the resultant scan file is older than 1.5 days, something is wrong
 MAX_SCAN_AGE = 60*60*24*1.5
 
+# path to git repos (.git)
+PATH_TO_TORFLOW_REPO = '../../.git/'
+PATH_TO_TORCTL_REPO = '../../TorCtl/.git/'
 
 def base10_round(bw_val):
   # This keeps the first 3 decimal digits of the bw value only
@@ -326,6 +329,11 @@ def write_file_list(datadir):
 def main(argv):
   TorUtil.read_config(argv[1]+"/scanner.1/bwauthority.cfg")
   TorUtil.loglevel = "NOTICE"
+
+  (branch, head) = TorUtil.get_git_version(PATH_TO_TORFLOW_REPO)
+  plog('INFO', 'TorFlow Version: %s' % branch+' '+head)
+  (branch, head) = TorUtil.get_git_version(PATH_TO_TORCTL_REPO)
+  plog('INFO', 'TorCtl Version: %s' % branch+' '+head)
 
   s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
   s.connect((TorUtil.control_host,TorUtil.control_port))
