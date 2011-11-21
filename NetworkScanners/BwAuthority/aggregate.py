@@ -557,8 +557,8 @@ def main(argv):
                and "Exit" in prev_consensus[n.idhex].flags):
               n.new_bw = n.get_pid_bw(prev_votes.vote_map[n.idhex],
                               cs_junk.K_p*(1.0-cs_junk.bw_weights["Wgd"]),
-                              cs_junk.K_i,
-                              cs_junk.K_d,
+                              cs_junk.K_i*(1.0-cs_junk.bw_weights["Wgd"]),
+                              cs_junk.K_d*(1.0-cs_junk.bw_weights["Wgd"]),
                               cs_junk.K_i_decay)
             else:
               n.new_bw = n.get_pid_bw(prev_votes.vote_map[n.idhex],
@@ -659,7 +659,7 @@ def main(argv):
           plog("DEBUG", "Didn't measure "+n.idhex+"="+n.nickname+" at "+str(round((100.0*n.list_rank)/max_rank,1))+" "+str(n.bandwidth))
 
   measured_pct = round(100.0*len(nodes)/(len(nodes)+missed_nodes),1)
-  measured_bw_pct = round((100.0*missed_bw)/tot_bw,1)
+  measured_bw_pct = 100.0 - round((100.0*missed_bw)/tot_bw,1)
   if measured_pct < MIN_REPORT:
     plog("NOTICE", "Did not measure "+str(MIN_REPORT)+"% of nodes yet ("+str(measured_pct)+"%)")
     sys.exit(1)
