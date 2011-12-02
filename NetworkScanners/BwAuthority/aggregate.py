@@ -345,7 +345,7 @@ def main(argv):
   ns_list = c.get_network_status()
   for n in ns_list:
     if n.bandwidth == None: n.bandwidth = -1
-  ns_list.sort(lambda x, y: y.bandwidth - x.bandwidth)
+  ns_list.sort(lambda x, y: int(y.bandwidth/10000.0 - x.bandwidth/10000.0))
   for n in ns_list:
     if n.bandwidth == -1: n.bandwidth = None
   got_ns_bw = False
