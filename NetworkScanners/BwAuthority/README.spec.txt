@@ -528,6 +528,11 @@
        accumulated in pid_error_sum as opposed to the consensus value
        itself.
 
+    "bwauthbyclass=1"
+       If present, computes F_avg (see Section 3.1) for each class
+       of Guard, Middle, Exit, and Guard+Exit nodes, and uses these
+       flag-specific averages to compute pid_error.
+
     "bwauthkp=N"
        Sets K_p to N/10000.0. If absent, K_p=1.0.
 

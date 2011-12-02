@@ -92,6 +92,7 @@ class Node:
     self.new_bw = None
     self.change = None
     self.use_bw = -1
+    self.flags = ""
 
     # measurement vars from bwauth lines
     self.measured_at = 0
@@ -131,6 +132,16 @@ class Node:
                              + ki*self.use_bw*self.integral_error() \
                              + kd*self.use_bw*self.d_error_dt()
     return self.pid_bw
+
+  def node_class(self):
+    if "Guard" in self.flags and "Exit" in self.flags:
+      return "Guard+Exit"
+    elif "Guard" in self.flags:
+      return "Guard"
+    elif "Exit" in self.flags:
+      return "Exit"
+    else:
+      return "Middle"
 
   # Time-weighted sum of error per unit of time (measurement sample)
   def integral_error(self):
@@ -222,6 +233,7 @@ class ConsensusJunk:
   def __init__(self, c):
     cs_bytes = c.sendAndRecv("GETINFO dir/status-vote/current/consensus\r\n")[0][2]
     self.bwauth_pid_control = True
+    self.group_by_class = False
     self.use_circ_fails = False
     self.use_best_ratio = True
     self.use_desc_bw = True
@@ -246,6 +258,9 @@ class ConsensusJunk:
         elif p == "bwauthbestratio=0":
           self.use_best_ratio = False
           plog("INFO", "Choosing larger of sbw vs fbw")
+        elif p == "bwauthbyclass=1":
+          self.group_by_class = True
+          plog("INFO", "Grouping nodes by flag-class")
         elif p.startswith("bwauthkp="):
           self.K_p = int(p.split("=")[1])/10000.0
           plog("INFO", "Got K_p=%f from consensus." % self.K_p)
@@ -439,23 +454,45 @@ def main(argv):
     for n in nodes.itervalues():
       n.circ_fail_rate = 0.0
 
+  for idhex in nodes.iterkeys():
+    if idhex in prev_consensus:
+      nodes[idhex].flags = prev_consensus[idhex].flags
+
+  true_filt_avg = {}
+  true_strm_avg = {}
+
   if cs_junk.bwauth_pid_control:
     # Penalize nodes for circuit failure: it indicates CPU pressure
     # TODO: Potentially penalize for stream failure, if we run into
     # socket exhaustion issues..
     plog("INFO", "PID control enabled")
-    true_filt_avg = sum(map(lambda n: n.filt_bw*(1.0-n.circ_fail_rate),
-                         nodes.itervalues()))/float(len(nodes))
-    true_strm_avg = sum(map(lambda n: n.strm_bw*(1.0-n.circ_fail_rate),
-                         nodes.itervalues()))/float(len(nodes))
+
+    if cs_junk.group_by_class:
+      for c in ["Guard+Exit", "Guard", "Exit", "Middle"]:
+        c_nodes = filter(lambda n: n.node_class() == c, nodes.itervalues())
+        true_filt_avg[c] = sum(map(lambda n: n.filt_bw*(1.0-n.circ_fail_rate),
+                             c_nodes))/float(len(c_nodes))
+        true_strm_avg[c] = sum(map(lambda n: n.strm_bw*(1.0-n.circ_fail_rate),
+                             c_nodes))/float(len(c_nodes))
+        plog("INFO", "Network true_filt_avg["+c+"]: "+str(true_filt_avg[c]))
+    else:
+      filt_avg = sum(map(lambda n: n.filt_bw*(1.0-n.circ_fail_rate),
+                      nodes.itervalues()))/float(len(nodes))
+      strm_avg = sum(map(lambda n: n.strm_bw*(1.0-n.circ_fail_rate),
+                           nodes.itervalues()))/float(len(nodes))
+      for c in ["Guard+Exit", "Guard", "Exit", "Middle"]:
+        true_filt_avg[c] = filt_avg
+        true_strm_avg[c] = strm_avg
   else:
     plog("INFO", "PID control disabled")
-    true_filt_avg = sum(map(lambda n: n.filt_bw,
+    filt_avg = sum(map(lambda n: n.filt_bw*(1.0-n.circ_fail_rate),
+                    nodes.itervalues()))/float(len(nodes))
+    strm_avg = sum(map(lambda n: n.strm_bw*(1.0-n.circ_fail_rate),
                          nodes.itervalues()))/float(len(nodes))
-    true_strm_avg = sum(map(lambda n: n.strm_bw,
-                         nodes.itervalues()))/float(len(nodes))
+    for c in ["Guard+Exit", "Guard", "Exit", "Middle"]:
+      true_filt_avg[c] = filt_avg
+      true_strm_avg[c] = strm_avg
 
-  plog("DEBUG", "Network true_filt_avg: "+str(true_filt_avg))
 
   prev_votes = None
   if cs_junk.bwauth_pid_control:
@@ -489,8 +526,8 @@ def main(argv):
 
   tot_net_bw = 0
   for n in nodes.itervalues():
-    n.fbw_ratio = n.filt_bw/true_filt_avg
-    n.sbw_ratio = n.strm_bw/true_strm_avg
+    n.fbw_ratio = n.filt_bw/true_filt_avg[n.node_class()]
+    n.sbw_ratio = n.strm_bw/true_strm_avg[n.node_clasS()]
 
     if cs_junk.bwauth_pid_control:
       if cs_junk.use_desc_bw:
@@ -500,9 +537,13 @@ def main(argv):
 
       # Penalize nodes for circ failure rate
       if cs_junk.use_best_ratio and n.sbw_ratio > n.fbw_ratio:
-        n.pid_error = (n.strm_bw*(1.0-n.circ_fail_rate) - true_strm_avg)/true_strm_avg
+        n.pid_error = (n.strm_bw*(1.0-n.circ_fail_rate) -
+                                  true_strm_avg[n.node_class()]) \
+                         / true_strm_avg[n.node_class()]
       else:
-        n.pid_error = (n.filt_bw*(1.0-n.circ_fail_rate) - true_filt_avg)/true_filt_avg
+        n.pid_error = (n.filt_bw*(1.0-n.circ_fail_rate) -
+                                  true_filt_avg[n.node_class()]) \
+                         / true_filt_avg[n.node_class()]
 
       if n.idhex in prev_votes.vote_map:
         # If there is a new sample, let's use it for all but guards
