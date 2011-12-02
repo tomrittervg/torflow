@@ -542,6 +542,14 @@
        of Guard, Middle, Exit, and Guard+Exit nodes, and uses these
        flag-specific averages to compute pid_error.
 
+    "bwauthpidtgt=1"
+       If present, the PID setpoint bandwidth F_avg will be re-computed
+       by averaging the F_node values for only those nodes whose
+       descriptor bandwidth exceeds the F_avg computed from Section 3.1.
+
+       Note that this parameter causes bwauthbestratio to have no 
+       effect.
+
     "bwauthkp=N"
        Sets K_p to N/10000.0. If absent, K_p=1.0.
 

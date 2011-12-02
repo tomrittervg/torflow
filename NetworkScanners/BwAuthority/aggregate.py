@@ -234,6 +234,7 @@ class ConsensusJunk:
     cs_bytes = c.sendAndRecv("GETINFO dir/status-vote/current/consensus\r\n")[0][2]
     self.bwauth_pid_control = True
     self.group_by_class = False
+    self.use_pid_tgt = False
     self.use_circ_fails = False
     self.use_best_ratio = True
     self.use_desc_bw = True
@@ -261,6 +262,9 @@ class ConsensusJunk:
         elif p == "bwauthbyclass=1":
           self.group_by_class = True
           plog("INFO", "Grouping nodes by flag-class")
+        elif p == "bwauthpidtgt=1":
+          self.use_pid_tgt = True
+          plog("INFO", "Using filtered PID target")
         elif p.startswith("bwauthkp="):
           self.K_p = int(p.split("=")[1])/10000.0
           plog("INFO", "Got K_p=%f from consensus." % self.K_p)
@@ -454,6 +458,7 @@ def main(argv):
       nodes[idhex].flags = prev_consensus[idhex].flags
 
   true_filt_avg = {}
+  pid_tgt_avg = {}
   true_strm_avg = {}
   true_circ_avg = {}
 
@@ -470,18 +475,31 @@ def main(argv):
         true_strm_avg[cl] = sum(map(lambda n: n.strm_bw, c_nodes))/float(len(c_nodes))
         true_circ_avg[cl] = sum(map(lambda n: (1.0-n.circ_fail_rate),
                                c_nodes))/float(len(c_nodes))
+
+        f_nodes = filter(lambda n: n.desc_bw >= true_filt_avg[cl], c_nodes)
+
+        pid_tgt_avg[cl] = sum(map(lambda n: n.filt_bw, f_nodes))/float(len(f_nodes))
+
         plog("INFO", "Network true_filt_avg["+cl+"]: "+str(true_filt_avg[cl]))
+        plog("INFO", "Network pid_tgt_avg["+cl+"]: "+str(pid_tgt_avg[cl]))
         plog("INFO", "Network true_circ_avg["+cl+"]: "+str(true_circ_avg[cl]))
     else:
       filt_avg = sum(map(lambda n: n.filt_bw, nodes.itervalues()))/float(len(nodes))
       strm_avg = sum(map(lambda n: n.strm_bw, nodes.itervalues()))/float(len(nodes))
       circ_avg = sum(map(lambda n: (1.0-n.circ_fail_rate),
                          nodes.itervalues()))/float(len(nodes))
+      f_nodes = filter(lambda n: n.desc_bw >= strm_avg, nodes.itervalues)
+
+      pid_avg = sum(map(lambda n: n.filt_bw, f_nodes))/float(len(f_nodes))
+
       for cl in ["Guard+Exit", "Guard", "Exit", "Middle"]:
         true_filt_avg[cl] = filt_avg
         true_strm_avg[cl] = strm_avg
         true_circ_avg[cl] = circ_avg
+        pid_tgt_avg[cl] = pid_avg
+
       plog("INFO", "Network true_filt_avg: "+str(true_filt_avg["Middle"]))
+      plog("INFO", "Network pid_tgt_avg: "+str(pid_tgt_avg["Middle"]))
       plog("INFO", "Network true_circ_avg: "+str(true_circ_avg["Middle"]))
   else:
     plog("INFO", "PID control disabled")
@@ -535,12 +553,16 @@ def main(argv):
       else:
         n.use_bw = n.ns_bw
 
-      if cs_junk.use_best_ratio and n.sbw_ratio > n.fbw_ratio:
-        n.pid_error = (n.strm_bw - true_strm_avg[n.node_class()]) \
-                         / true_strm_avg[n.node_class()]
+      if cs_junk.use_pid_tgt:
+          n.pid_error = (n.filt_bw - pid_tgt_avg[n.node_class()]) \
+                           / pid_tgt_avg[n.node_class()]
       else:
-        n.pid_error = (n.filt_bw - true_filt_avg[n.node_class()]) \
-                         / true_filt_avg[n.node_class()]
+        if cs_junk.use_best_ratio and n.sbw_ratio > n.fbw_ratio:
+          n.pid_error = (n.strm_bw - true_strm_avg[n.node_class()]) \
+                           / true_strm_avg[n.node_class()]
+        else:
+          n.pid_error = (n.filt_bw - true_filt_avg[n.node_class()]) \
+                           / true_filt_avg[n.node_class()]
 
       # Penalize nodes for circ failure rate
       if cs_junk.use_circ_fails:
