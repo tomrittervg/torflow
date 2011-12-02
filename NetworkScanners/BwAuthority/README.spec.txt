@@ -369,9 +369,7 @@
 3.1. Modeling Measurement as PID Control
 
    The bandwidth authorities measure F_node: the filtered stream
-   capacity through a given node (filtering is described in Section 1.6)
-   times the circuit success rate of circuit EXTENDs to the node
-   (1.0 - circ_fail_rate).
+   capacity through a given node (filtering is described in Section 1.6).
 
    In PID control, we add in this extra failure rate as a damper, to prevent
    the PID control system from driving nodes to CPU overload. Once nodes
@@ -509,8 +507,16 @@
        retaining PID state.
 
     "bwauthcircs=1"
-       If present, F_node is multiplied by (1.0 - circ_fail_rate)
-       as described in Section 3.1.
+       If present, an additional circ_error value is computed for each
+       node similar to pid_error of Section 3.1. This value is:
+
+          circ_error = (circ_rate - circ_avg_rate)/circ_avg_rate
+
+       Where circ_rate and circ_avg_rate are the EXTEND success rates 
+       to the node, and the average success rate for the entire node class,
+       respectively.
+
+       This error value is then added to pid_error. 
 
     "bwauthbestratio=0"
        If absent, the larger of stream bandwidth vs filtered bandwidth

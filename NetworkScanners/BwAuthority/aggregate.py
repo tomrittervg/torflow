@@ -449,17 +449,13 @@ def main(argv):
     plog("NOTICE", "No scan results yet.")
     sys.exit(1)
 
-  if not cs_junk.use_circ_fails:
-    plog("INFO", "Ignoring circuit failures")
-    for n in nodes.itervalues():
-      n.circ_fail_rate = 0.0
-
   for idhex in nodes.iterkeys():
     if idhex in prev_consensus:
       nodes[idhex].flags = prev_consensus[idhex].flags
 
   true_filt_avg = {}
   true_strm_avg = {}
+  true_circ_avg = {}
 
   if cs_junk.bwauth_pid_control:
     # Penalize nodes for circuit failure: it indicates CPU pressure
@@ -470,19 +466,21 @@ def main(argv):
     if cs_junk.group_by_class:
       for c in ["Guard+Exit", "Guard", "Exit", "Middle"]:
         c_nodes = filter(lambda n: n.node_class() == c, nodes.itervalues())
-        true_filt_avg[c] = sum(map(lambda n: n.filt_bw*(1.0-n.circ_fail_rate),
-                             c_nodes))/float(len(c_nodes))
-        true_strm_avg[c] = sum(map(lambda n: n.strm_bw*(1.0-n.circ_fail_rate),
-                             c_nodes))/float(len(c_nodes))
+        true_filt_avg[c] = sum(map(lambda n: n.filt_bw, c_nodes))/float(len(c_nodes))
+        true_strm_avg[c] = sum(map(lambda n: n.strm_bw, c_nodes))/float(len(c_nodes))
+        true_circ_avg[c] = sum(map(lambda n: (1.0-n.circ_fail_rate),
+                               c_nodes))/float(len(c_nodes))
         plog("INFO", "Network true_filt_avg["+c+"]: "+str(true_filt_avg[c]))
+        plog("INFO", "Network true_circ_avg["+c+"]: "+str(true_circ_avg[c]))
     else:
-      filt_avg = sum(map(lambda n: n.filt_bw*(1.0-n.circ_fail_rate),
-                      nodes.itervalues()))/float(len(nodes))
-      strm_avg = sum(map(lambda n: n.strm_bw*(1.0-n.circ_fail_rate),
-                           nodes.itervalues()))/float(len(nodes))
+      filt_avg = sum(map(lambda n: n.filt_bw, nodes.itervalues()))/float(len(nodes))
+      strm_avg = sum(map(lambda n: n.strm_bw, nodes.itervalues()))/float(len(nodes))
+      circ_avg = sum(map(lambda n: (1.0-n.circ_fail_rate),
+                         nodes.itervalues()))/float(len(nodes))
       for c in ["Guard+Exit", "Guard", "Exit", "Middle"]:
         true_filt_avg[c] = filt_avg
         true_strm_avg[c] = strm_avg
+        true_circ_avg[c] = circ_avg
   else:
     plog("INFO", "PID control disabled")
     filt_avg = sum(map(lambda n: n.filt_bw*(1.0-n.circ_fail_rate),
@@ -535,15 +533,21 @@ def main(argv):
       else:
         n.use_bw = n.ns_bw
 
-      # Penalize nodes for circ failure rate
       if cs_junk.use_best_ratio and n.sbw_ratio > n.fbw_ratio:
-        n.pid_error = (n.strm_bw*(1.0-n.circ_fail_rate) -
-                                  true_strm_avg[n.node_class()]) \
+        n.pid_error = (n.strm_bw - true_strm_avg[n.node_class()]) \
                          / true_strm_avg[n.node_class()]
       else:
-        n.pid_error = (n.filt_bw*(1.0-n.circ_fail_rate) -
-                                  true_filt_avg[n.node_class()]) \
+        n.pid_error = (n.filt_bw - true_filt_avg[n.node_class()]) \
                          / true_filt_avg[n.node_class()]
+
+      # Penalize nodes for circ failure rate
+      if cs_junk.use_circ_fails:
+        circ_error = ((1.0-n.circ_fail_rate) - true_circ_avg[n.node_class()]) \
+                        / true_circ_avg[n.node_class()]
+        # FIXME: Hrmm, should we only penalize for circ successes, or should
+        # we reward, too? Let's try both for now.
+        # if circ_error < 0:
+        n.pid_error += circ_error
 
       if n.idhex in prev_votes.vote_map:
         # If there is a new sample, let's use it for all but guards
