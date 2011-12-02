@@ -464,32 +464,34 @@ def main(argv):
     plog("INFO", "PID control enabled")
 
     if cs_junk.group_by_class:
-      for c in ["Guard+Exit", "Guard", "Exit", "Middle"]:
-        c_nodes = filter(lambda n: n.node_class() == c, nodes.itervalues())
-        true_filt_avg[c] = sum(map(lambda n: n.filt_bw, c_nodes))/float(len(c_nodes))
-        true_strm_avg[c] = sum(map(lambda n: n.strm_bw, c_nodes))/float(len(c_nodes))
-        true_circ_avg[c] = sum(map(lambda n: (1.0-n.circ_fail_rate),
+      for cl in ["Guard+Exit", "Guard", "Exit", "Middle"]:
+        c_nodes = filter(lambda n: n.node_class() == cl, nodes.itervalues())
+        true_filt_avg[cl] = sum(map(lambda n: n.filt_bw, c_nodes))/float(len(c_nodes))
+        true_strm_avg[cl] = sum(map(lambda n: n.strm_bw, c_nodes))/float(len(c_nodes))
+        true_circ_avg[cl] = sum(map(lambda n: (1.0-n.circ_fail_rate),
                                c_nodes))/float(len(c_nodes))
-        plog("INFO", "Network true_filt_avg["+c+"]: "+str(true_filt_avg[c]))
-        plog("INFO", "Network true_circ_avg["+c+"]: "+str(true_circ_avg[c]))
+        plog("INFO", "Network true_filt_avg["+cl+"]: "+str(true_filt_avg[cl]))
+        plog("INFO", "Network true_circ_avg["+cl+"]: "+str(true_circ_avg[cl]))
     else:
       filt_avg = sum(map(lambda n: n.filt_bw, nodes.itervalues()))/float(len(nodes))
       strm_avg = sum(map(lambda n: n.strm_bw, nodes.itervalues()))/float(len(nodes))
       circ_avg = sum(map(lambda n: (1.0-n.circ_fail_rate),
                          nodes.itervalues()))/float(len(nodes))
-      for c in ["Guard+Exit", "Guard", "Exit", "Middle"]:
-        true_filt_avg[c] = filt_avg
-        true_strm_avg[c] = strm_avg
-        true_circ_avg[c] = circ_avg
+      for cl in ["Guard+Exit", "Guard", "Exit", "Middle"]:
+        true_filt_avg[cl] = filt_avg
+        true_strm_avg[cl] = strm_avg
+        true_circ_avg[cl] = circ_avg
+      plog("INFO", "Network true_filt_avg: "+str(true_filt_avg["Middle"]))
+      plog("INFO", "Network true_circ_avg: "+str(true_circ_avg["Middle"]))
   else:
     plog("INFO", "PID control disabled")
     filt_avg = sum(map(lambda n: n.filt_bw*(1.0-n.circ_fail_rate),
                     nodes.itervalues()))/float(len(nodes))
     strm_avg = sum(map(lambda n: n.strm_bw*(1.0-n.circ_fail_rate),
                          nodes.itervalues()))/float(len(nodes))
-    for c in ["Guard+Exit", "Guard", "Exit", "Middle"]:
-      true_filt_avg[c] = filt_avg
-      true_strm_avg[c] = strm_avg
+    for cl in ["Guard+Exit", "Guard", "Exit", "Middle"]:
+      true_filt_avg[cl] = filt_avg
+      true_strm_avg[cl] = strm_avg
 
 
   prev_votes = None
@@ -525,7 +527,7 @@ def main(argv):
   tot_net_bw = 0
   for n in nodes.itervalues():
     n.fbw_ratio = n.filt_bw/true_filt_avg[n.node_class()]
-    n.sbw_ratio = n.strm_bw/true_strm_avg[n.node_clasS()]
+    n.sbw_ratio = n.strm_bw/true_strm_avg[n.node_class()]
 
     if cs_junk.bwauth_pid_control:
       if cs_junk.use_desc_bw:
