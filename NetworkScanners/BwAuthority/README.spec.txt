@@ -517,7 +517,8 @@
        respectively.
 
        If this error value is negative (meaning the node is failing
-       more circuits than the network average), we use it as the
+       more circuits than the network average), we use the smaller
+       of the circ_error and the original pid_error as the new
        pid_error.
 
     "bwauthbestratio=0"

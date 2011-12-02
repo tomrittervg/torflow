@@ -549,7 +549,7 @@ def main(argv):
         # FIXME: Hrmm, should we only penalize for circ fails, or should
         # we reward, too?
         if circ_error < 0:
-          n.pid_error = circ_error
+          n.pid_error = min(circ_error,n.pid_error)
 
       if n.idhex in prev_votes.vote_map:
         # If there is a new sample, let's use it for all but guards
