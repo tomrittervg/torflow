@@ -546,10 +546,10 @@ def main(argv):
       if cs_junk.use_circ_fails:
         circ_error = ((1.0-n.circ_fail_rate) - true_circ_avg[n.node_class()]) \
                         / true_circ_avg[n.node_class()]
-        # FIXME: Hrmm, should we only penalize for circ successes, or should
-        # we reward, too? Let's try both for now.
-        # if circ_error < 0:
-        n.pid_error += circ_error
+        # FIXME: Hrmm, should we only penalize for circ fails, or should
+        # we reward, too?
+        if circ_error < 0:
+          n.pid_error = circ_error
 
       if n.idhex in prev_votes.vote_map:
         # If there is a new sample, let's use it for all but guards

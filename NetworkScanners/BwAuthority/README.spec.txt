@@ -516,7 +516,9 @@
        to the node, and the average success rate for the entire node class,
        respectively.
 
-       This error value is then added to pid_error. 
+       If this error value is negative (meaning the node is failing
+       more circuits than the network average), we use it as the
+       pid_error.
 
     "bwauthbestratio=0"
        If absent, the larger of stream bandwidth vs filtered bandwidth
