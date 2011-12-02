@@ -28,19 +28,19 @@ GUARD_SAMPLE_RATE = 2*7*24*60*60 # 2wks
 K_p = 1.0
 
 # We expect to correct steady state error in 5 samples (guess)
-T_i = 5.0
+T_i = 0
 
 # T_i_decay is a weight factor to govern how fast integral sums
 # decay. For the values of T_i that we care about, T_i_decay represents
 # the fraction of integral sum that is eliminated after T_i sample rounds.
 # This decay is non-standard, but we do it to avoid overflow
-T_i_decay = 0.5
+T_i_decay = 0
 
 # We can only expect to predict less than one sample into the future, as
 # after 1 sample, clients will have migrated
 # FIXME: Our prediction ability is a function of the consensus uptake time
 # vs measurement rate
-T_d = 0.5
+T_d = 0
 
 NODE_CAP = 0.05
 
@@ -221,10 +221,10 @@ class VoteSet:
 class ConsensusJunk:
   def __init__(self, c):
     cs_bytes = c.sendAndRecv("GETINFO dir/status-vote/current/consensus\r\n")[0][2]
-    self.bwauth_pid_control = False
+    self.bwauth_pid_control = True
     self.use_circ_fails = False
-    self.use_best_ratio = False
-    self.use_desc_bw = False
+    self.use_best_ratio = True
+    self.use_desc_bw = True
 
     self.K_p = K_p
     self.T_i = T_i
@@ -235,16 +235,16 @@ class ConsensusJunk:
       cs_params = re.search("^params ((?:[\S]+=[\d]+[\s]?)+)",
                                      cs_bytes, re.M).group(1).split()
       for p in cs_params:
-        if p == "bwauthpid=1":
-          self.bwauth_pid_control = True
-        elif p == "bwauthdescbw=1":
-          self.use_desc_bw = True
+        if p == "bwauthpid=0":
+          self.bwauth_pid_control = False
+        elif p == "bwauthnsbw=1":
+          self.use_desc_bw = False
           plog("INFO", "Using descriptor bandwidth")
         elif p == "bwauthcircs=1":
           self.use_circ_fails = True
           plog("INFO", "Counting circuit failures")
-        elif p == "bwauthbestratio=1":
-          self.use_best_ratio = True
+        elif p == "bwauthbestratio=0":
+          self.use_best_ratio = False
           plog("INFO", "Choosing larger of sbw vs fbw")
         elif p.startswith("bwauthkp="):
           self.K_p = int(p.split("=")[1])/10000.0

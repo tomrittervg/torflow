@@ -483,23 +483,59 @@
 3.6. Consensus Parameters
 
    The bandwidth auths listen for several consensus parameters to tweak
-   behavior:
+   behavior.
 
-    "bwauthpid=1"  
-       If present, enables the PID control features in Section 3.
+   In the absence of any consensus parameters, the default behavior is
+   to use the PID control code to produce values identical to Section 2,
+   by using default values of:
+
+     K_p = 1.0, K_i = 0, K_d = 0, as well as bwauthcircs=0.
+
+   This equivalence was proved in Section 3.1, and has been observed
+   in practice.
+
+   The available consensus parameters are:
+
+    "bwauthpid=0"  
+       If present, entirely disables the PID control features in 
+       Section 3 and computes bandwidths according to Section 2.
+
+       Setting this value to temporarily disable PID feedback is not
+       recommended, because it causes the PID code to lose interim
+       recorded state.
+
+       To temporarily disable PID feedback, simply remove all consensus
+       parameters, and the system will compute Section 2 values while
+       retaining PID state.
 
     "bwauthcircs=1"
        If present, F_node is multiplied by (1.0 - circ_fail_rate)
        as described in Section 3.1.
-      
+
+    "bwauthbestratio=0"
+       If absent, the larger of stream bandwidth vs filtered bandwidth
+       is used to compute F_node.
+
+       If present, only filtered stream bandwidth ratios are used.
+ 
+    "bwauthnsbw=1"
+       If present, uses consensus bandwidth to determine new bandwidth
+       values.
+
+       If absent, uses descriptor bandwidth instead of feeding back
+       PID control values. This may be functionally equivalent to NS
+       bandwidth so long as T_i is non-zero, because error will get
+       accumulated in pid_error_sum as opposed to the consensus value
+       itself.
+
     "bwauthkp=N"
-       Sets K_p to N/10000.0
+       Sets K_p to N/10000.0. If absent, K_p=1.0.
 
     "bwauthti=N"
-       Sets T_i to N/10000.0. For T_i=0, K_i is set to 0.
+       Sets T_i to N/10000.0. If T_i=0 or absent, K_i is set to 0.
 
     "bwauthtd=N"
-       Sets T_d to N/10000.0.
+       Sets T_d to N/10000.0. If absent, K_d=0.
      
     "bwauthtidecay=N"
        Sets T_i_decay to N/10000.0. T_i_decay is an parameter
@@ -513,25 +549,4 @@
        the T_i'th round has experienced a reduction by T_i_decay
        for the values of T_i that are relevant to us.
 
-       If T_i is 0, K_i_decay is set to 0.
-
-    "bwauthbestratio=1"
-       If present, the larger of stream bandwidth vs filtered bandwidth
-       is used to compute F_node.
- 
-    "bwauthdescbw=1"
-       If present, uses descriptor bandwidth instead of feeding back
-       PID control values. This may be functionally equivalent to NS
-       bandwidth so long as T_i is non-zero, because error will get
-       accumulated in pid_error_sum as opposed to the consensus value
-       itself.
-
-       It also has the advantage of allowing the PID control code to be
-       exercised, yet to still produce identical results to Section 2
-       by using the following consensus parameters:
-
-           bwauthpid=1 bwauthdescbw=1 bwauthbestratio=1 bwauthcircs=0
-           bwauthkp=10000 bwauthti=0 bwauthtd=0 
-
-       This equivalence was proved in Section 3.1, and has been observed
-       in practice. 
+       If T_i is 0 or absent, K_i_decay is set to 0.
