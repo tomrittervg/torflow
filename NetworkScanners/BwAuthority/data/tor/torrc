@@ -12,3 +12,7 @@ __LeaveStreamsUnattached 1
 # Bad idea? Too much consensus update activity?
 FetchDirInfoExtraEarly 1
 FetchDirInfoEarly 1
+
+# Use CREATE cells for first hop, so we can still measure CPU overload via 
+# circ failure
+FastFirstHopPK 0
