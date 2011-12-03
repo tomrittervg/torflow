@@ -550,6 +550,14 @@
        Note that this parameter causes bwauthbestratio to have no 
        effect.
 
+    "bwauthmercy=1"
+       If present, we do not accumulate a negative pid_error_sum for
+       nodes with already negative pid_error. This prevents us from
+       punishing relays down to 0 bandwidth.
+
+       Note that this parameter has no effect unless you omit bwauthnsbw=1
+       and also set a bwauthti value of non-zero.
+
     "bwauthkp=N"
        Sets K_p to N/10000.0. If absent, K_p=1.0.
 

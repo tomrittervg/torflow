@@ -123,14 +123,16 @@ class Node:
                   + kd*self.use_bw*self.pid_delta
 
     self.prev_error = prev_vote.pid_error
-    # We decay the interval each round to keep it bounded.
-    # This decay is non-standard. We do it to avoid overflow
-    self.pid_error_sum = prev_vote.pid_error_sum*kidecay + self.pid_error
 
     self.pid_bw = self.use_bw \
                              + kp*self.use_bw*self.pid_error \
                              + ki*self.use_bw*self.integral_error() \
                              + kd*self.use_bw*self.d_error_dt()
+
+    # We decay the interval each round to keep it bounded.
+    # This decay is non-standard. We do it to avoid overflow
+    self.pid_error_sum = prev_vote.pid_error_sum*kidecay + self.pid_error
+
     return self.pid_bw
 
   def node_class(self):
@@ -238,6 +240,7 @@ class ConsensusJunk:
     self.use_circ_fails = False
     self.use_best_ratio = True
     self.use_desc_bw = True
+    self.use_mercy = False
 
     self.K_p = K_p
     self.T_i = T_i
@@ -252,7 +255,7 @@ class ConsensusJunk:
           self.bwauth_pid_control = False
         elif p == "bwauthnsbw=1":
           self.use_desc_bw = False
-          plog("INFO", "Using descriptor bandwidth")
+          plog("INFO", "Using NS bandwidth directly for feedback")
         elif p == "bwauthcircs=1":
           self.use_circ_fails = True
           plog("INFO", "Counting circuit failures")
@@ -265,6 +268,9 @@ class ConsensusJunk:
         elif p == "bwauthpidtgt=1":
           self.use_pid_tgt = True
           plog("INFO", "Using filtered PID target")
+        elif p == "bwauthmercy=1":
+          self.use_mercy = True
+          plog("INFO", "Showing mercy on gimpy nodes")
         elif p.startswith("bwauthkp="):
           self.K_p = int(p.split("=")[1])/10000.0
           plog("INFO", "Got K_p=%f from consensus." % self.K_p)
@@ -572,6 +578,14 @@ def main(argv):
         # we reward, too?
         if circ_error < 0:
           n.pid_error = min(circ_error,n.pid_error)
+
+      # Don't punish gimpy nodes too hard
+      if cs_junk.use_mercy:
+        if not cs_junk.use_desc_bw:
+          plog("WARN",
+               "Can't be merciful w/ NS feedback! Set bwauthnsbw=0 and bwauthti!=0")
+        if n.pid_error_sum < 0 and n.pid_error < 0:
+          n.pid_error_sum = 0
 
       if n.idhex in prev_votes.vote_map:
         # If there is a new sample, let's use it for all but guards
