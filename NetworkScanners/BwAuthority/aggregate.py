@@ -482,9 +482,14 @@ def main(argv):
         true_circ_avg[cl] = sum(map(lambda n: (1.0-n.circ_fail_rate),
                                c_nodes))/float(len(c_nodes))
 
-        f_nodes = filter(lambda n: n.desc_bw >= true_filt_avg[cl], c_nodes)
+        # FIXME: This may be expensive
+        pid_tgt_avg[cl] = true_filt_avg[cl]
+        prev_pid_avg = 2*pid_tgt_avg[cl]
 
-        pid_tgt_avg[cl] = sum(map(lambda n: n.filt_bw, f_nodes))/float(len(f_nodes))
+        while prev_pid_avg > pid_tgt_avg[cl]:
+          f_nodes = filter(lambda n: n.desc_bw >= pid_tgt_avg[cl], c_nodes)
+          prev_pid_avg = pid_tgt_avg[cl]
+          pid_tgt_avg[cl] = sum(map(lambda n: n.filt_bw, f_nodes))/float(len(f_nodes))
 
         plog("INFO", "Network true_filt_avg["+cl+"]: "+str(true_filt_avg[cl]))
         plog("INFO", "Network pid_tgt_avg["+cl+"]: "+str(pid_tgt_avg[cl]))
@@ -494,9 +499,15 @@ def main(argv):
       strm_avg = sum(map(lambda n: n.strm_bw, nodes.itervalues()))/float(len(nodes))
       circ_avg = sum(map(lambda n: (1.0-n.circ_fail_rate),
                          nodes.itervalues()))/float(len(nodes))
-      f_nodes = filter(lambda n: n.desc_bw >= strm_avg, nodes.itervalues)
 
-      pid_avg = sum(map(lambda n: n.filt_bw, f_nodes))/float(len(f_nodes))
+      # FIXME: This may be expensive
+      pid_avg = filt_avg
+      prev_pid_avg = 2*pid_avg
+
+      while prev_pid_avg > pid_avg:
+        f_nodes = filter(lambda n: n.desc_bw >= pid_avg, c_nodes)
+        prev_pid_avg = pid_avg
+        pid_avg = sum(map(lambda n: n.filt_bw, f_nodes))/float(len(f_nodes))
 
       for cl in ["Guard+Exit", "Guard", "Exit", "Middle"]:
         true_filt_avg[cl] = filt_avg

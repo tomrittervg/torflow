@@ -545,7 +545,7 @@
     "bwauthpidtgt=1"
        If present, the PID setpoint bandwidth F_avg will be re-computed
        by averaging the F_node values for only those nodes whose
-       descriptor bandwidth exceeds the F_avg computed from Section 3.1.
+       descriptor bandwidth exceeds the F_avg.
 
        Note that this parameter causes bwauthbestratio to have no 
        effect.
