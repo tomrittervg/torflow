@@ -582,8 +582,10 @@ def main(argv):
       # Don't punish gimpy nodes too hard
       if cs_junk.use_mercy:
         if not cs_junk.use_desc_bw:
-          plog("WARN",
-               "Can't be merciful w/ NS feedback! Set bwauthnsbw=0 and bwauthti!=0")
+          # If node was demoted in the past and we plan to demote it again,
+          # let's just not and say we did.
+          if n.desc_bw > n.ns_bw and n.pid_error < 0:
+            n.use_bw = n.desc_bw
         if n.pid_error_sum < 0 and n.pid_error < 0:
           n.pid_error_sum = 0
 
