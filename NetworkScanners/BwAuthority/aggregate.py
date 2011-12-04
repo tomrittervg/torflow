@@ -594,33 +594,37 @@ def main(argv):
         if circ_error < 0:
           n.pid_error = min(circ_error,n.pid_error)
 
-      # Don't punish gimpy nodes too hard
+      # Don't accumulate too much amplification for fast nodes
+      if cs_junk.use_desc_bw:
+        if n.pid_error_sum > cs_junk.pid_max and n.pid_error > 0:
+          plog("INFO", "Capping feedback for node %s=%s desc=%d ns=%d pid_error_sum=%f" %
+              (n.nick, n.idhex, n.desc_bw, n.ns_bw, n.pid_error_sum))
+          n.pid_error_sum = cs_junk.pid_max
+      else:
+        if float(n.ns_bw)/n.desc_bw > cs_junk.pid_max and n.pid_error > 0:
+          plog("INFO", "Capping feedback for node %s=%s desc=%d ns=%d pid_error=%f" %
+              (n.nick, n.idhex, n.desc_bw, n.ns_bw, n.pid_error))
+          n.pid_error = 0
+          n.pid_error_sum = 0
+
+      # Don't punish gimpy nodes too hard.
       if cs_junk.use_mercy:
         if not cs_junk.use_desc_bw:
           # If node was demoted in the past and we plan to demote it again,
           # let's just not and say we did.
           if n.desc_bw > n.ns_bw and n.pid_error < 0:
-            plog("INFO", "Showing mercy for node "+n.nick+"="+n.idhex)
+            plog("DEBUG", "Showing mercy for node %s=%s desc=%d ns=%d pid_error=%f" %
+                 (n.nick, n.idhex, n.desc_bw, n.ns_bw, n.pid_error))
             n.use_bw = n.desc_bw
         if n.pid_error_sum < 0 and n.pid_error < 0:
-          plog("INFO", "Showing mercy for node "+n.nick+"="+n.idhex+", pid_error_sum="+str(n.pid_error_sum))
-          n.pid_error_sum = 0
-
-      # Similarly, don't accumulate too much amplification for
-      # fast nodes
-      if cs_junk.use_desc_bw:
-        if n.pid_error_sum > cs_junk.pid_max and n.pid_error > 0:
-          plog("INFO", "Capping feedback for node "+n.nick+"="+n.idhex+", pid_error_sum="+str(n.pid_error_sum))
-          n.pid_error_sum = cs_junk.pid_max
-      else:
-        if float(n.ns_bw)/n.desc_bw > cs_junk.pid_max and n.pid_error > 0:
-          plog("INFO", "Capping feedback for node "+n.nick+"="+n.idhex)
-          n.pid_error = 0
+          plog("DEBUG", "Showing mercy for node %s=%s desc=%d ns=%d pid_error_sum=%f" %
+              (n.nick, n.idhex, n.desc_bw, n.ns_bw, n.pid_error_sum))
           n.pid_error_sum = 0
 
       if n.idhex in prev_votes.vote_map:
         # If there is a new sample, let's use it for all but guards
         if n.measured_at > prev_votes.vote_map[n.idhex].measured_at:
+
           # Nodes with the Guard flag will respond slowly to feedback,
           # so they should be sampled less often, and in proportion to
           # the appropriate Wgx weight.
