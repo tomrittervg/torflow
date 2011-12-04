@@ -577,3 +577,10 @@
        for the values of T_i that are relevant to us.
 
        If T_i is 0 or absent, K_i_decay is set to 0.
+
+    "bwauthpidmax=N"
+       Caps pid_error_sum feedback to N/10000.0. Can be used to prevent
+       runaway feedback loops for fast nodes.
+
+       If absent, the default is 500.0, which translates to a 501X
+       multiplier of descriptor bandwidth.
