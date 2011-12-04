@@ -371,10 +371,6 @@
    The bandwidth authorities measure F_node: the filtered stream
    capacity through a given node (filtering is described in Section 1.6).
 
-   In PID control, we add in this extra failure rate as a damper, to prevent
-   the PID control system from driving nodes to CPU overload. Once nodes
-   begin failing circuits, we want to stop devoting more capacity.
-
    The PID Setpoint, or target for each node is F_avg: the average F_node
    value observed across the entire network.
 
@@ -412,9 +408,9 @@
    hours. Since the bandwidth authorities also take on the order of
    hours to measure a slice of nodes, we do nothing special here.
 
-   For Guard nodes however, clients have minimum rotation rate of 4-6
+   For Guard nodes however, clients try to keep their Guards for 4-6
    weeks. However, on the assumption that they rotate more frequently
-   than this, we set our Guard feedback interval to 2 weeks.
+   than this in practice, we set our Guard feedback interval to 2 weeks.
 
    Guard measurements are also used without feedback whenever new
    measurements are available, to compensate for changes in Guard flag
@@ -428,7 +424,7 @@
    determining when to report a measurement.
 
    The integral component, pid_error_sum is subjected to a decay factor
-   of 20% per interval, to prevent unbounded growth in cases without
+   per each interval, to prevent unbounded growth in cases without
    convergence.
 
    The differential component is a simple delta, calculating by
@@ -520,6 +516,11 @@
        more circuits than the network average), we use the smaller
        of the circ_error and the original pid_error as the new
        pid_error.
+
+       We use this to prevent the PID control system from driving nodes
+       to CPU overload. Once nodes begin failing circuits, we want to stop
+       devoting additional capacity to them (and decrease it proportional
+       to their failure rate relative to the rest of the network).
 
     "bwauthbestratio=0"
        If absent, the larger of stream bandwidth vs filtered bandwidth
