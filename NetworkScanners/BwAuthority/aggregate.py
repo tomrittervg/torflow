@@ -478,32 +478,38 @@ def main(argv):
     # socket exhaustion issues..
     plog("INFO", "PID control enabled")
 
-    if cs_junk.group_by_class:
-      for cl in ["Guard+Exit", "Guard", "Exit", "Middle"]:
-        c_nodes = filter(lambda n: n.node_class() == cl, nodes.itervalues())
-        true_filt_avg[cl] = sum(map(lambda n: n.filt_bw, c_nodes))/float(len(c_nodes))
-        true_strm_avg[cl] = sum(map(lambda n: n.strm_bw, c_nodes))/float(len(c_nodes))
-        true_circ_avg[cl] = sum(map(lambda n: (1.0-n.circ_fail_rate),
-                               c_nodes))/float(len(c_nodes))
+    # TODO: Please forgive me for this, I wanted to see
+    # these loglines, so we go aead and run this code regardless of
+    # the group_by_class setting, and just reset the values if it is not set.
 
-        # FIXME: This may be expensive
-        pid_tgt_avg[cl] = true_filt_avg[cl]
-        prev_pid_avg = 2*pid_tgt_avg[cl]
+    for cl in ["Guard+Exit", "Guard", "Exit", "Middle"]:
+      c_nodes = filter(lambda n: n.node_class() == cl, nodes.itervalues())
+      true_filt_avg[cl] = sum(map(lambda n: n.filt_bw, c_nodes))/float(len(c_nodes))
+      true_strm_avg[cl] = sum(map(lambda n: n.strm_bw, c_nodes))/float(len(c_nodes))
+      true_circ_avg[cl] = sum(map(lambda n: (1.0-n.circ_fail_rate),
+                             c_nodes))/float(len(c_nodes))
 
-        while prev_pid_avg > pid_tgt_avg[cl]:
-          f_nodes = filter(lambda n: n.desc_bw >= pid_tgt_avg[cl], c_nodes)
-          prev_pid_avg = pid_tgt_avg[cl]
-          pid_tgt_avg[cl] = sum(map(lambda n: n.filt_bw, f_nodes))/float(len(f_nodes))
+      # FIXME: This may be expensive
+      pid_tgt_avg[cl] = true_filt_avg[cl]
+      prev_pid_avg = 2*pid_tgt_avg[cl]
 
-        plog("INFO", "Network true_filt_avg["+cl+"]: "+str(true_filt_avg[cl]))
-        plog("INFO", "Network pid_tgt_avg["+cl+"]: "+str(pid_tgt_avg[cl]))
-        plog("INFO", "Network true_circ_avg["+cl+"]: "+str(true_circ_avg[cl]))
-    else:
-      filt_avg = sum(map(lambda n: n.filt_bw, nodes.itervalues()))/float(len(nodes))
-      strm_avg = sum(map(lambda n: n.strm_bw, nodes.itervalues()))/float(len(nodes))
-      circ_avg = sum(map(lambda n: (1.0-n.circ_fail_rate),
-                         nodes.itervalues()))/float(len(nodes))
+      while prev_pid_avg > pid_tgt_avg[cl]:
+        f_nodes = filter(lambda n: n.desc_bw >= pid_tgt_avg[cl], c_nodes)
+        prev_pid_avg = pid_tgt_avg[cl]
+        pid_tgt_avg[cl] = sum(map(lambda n: n.filt_bw, f_nodes))/float(len(f_nodes))
 
+      plog("INFO", "Network true_filt_avg["+cl+"]: "+str(true_filt_avg[cl]))
+      plog("INFO", "Network pid_tgt_avg["+cl+"]: "+str(pid_tgt_avg[cl]))
+      plog("INFO", "Network true_circ_avg["+cl+"]: "+str(true_circ_avg[cl]))
+
+    filt_avg = sum(map(lambda n: n.filt_bw, nodes.itervalues()))/float(len(nodes))
+    strm_avg = sum(map(lambda n: n.strm_bw, nodes.itervalues()))/float(len(nodes))
+    circ_avg = sum(map(lambda n: (1.0-n.circ_fail_rate),
+                       nodes.itervalues()))/float(len(nodes))
+    plog("INFO", "Network filt_avg: "+str(filt_avg))
+    plog("INFO", "Network circ_avg: "+str(circ_avg))
+
+    if not cs_junk.group_by_class:
       # FIXME: This may be expensive
       pid_avg = filt_avg
       prev_pid_avg = 2*pid_avg
@@ -519,9 +525,8 @@ def main(argv):
         true_circ_avg[cl] = circ_avg
         pid_tgt_avg[cl] = pid_avg
 
-      plog("INFO", "Network true_filt_avg: "+str(true_filt_avg["Middle"]))
-      plog("INFO", "Network pid_tgt_avg: "+str(pid_tgt_avg["Middle"]))
-      plog("INFO", "Network true_circ_avg: "+str(true_circ_avg["Middle"]))
+      plog("INFO", "Network pid_avg: "+str(pid_avg))
+
   else:
     plog("INFO", "PID control disabled")
     filt_avg = sum(map(lambda n: n.filt_bw*(1.0-n.circ_fail_rate),
