@@ -529,10 +529,8 @@ def main(argv):
 
   else:
     plog("INFO", "PID control disabled")
-    filt_avg = sum(map(lambda n: n.filt_bw*(1.0-n.circ_fail_rate),
-                    nodes.itervalues()))/float(len(nodes))
-    strm_avg = sum(map(lambda n: n.strm_bw*(1.0-n.circ_fail_rate),
-                         nodes.itervalues()))/float(len(nodes))
+    filt_avg = sum(map(lambda n: n.filt_bw, nodes.itervalues()))/float(len(nodes))
+    strm_avg = sum(map(lambda n: n.strm_bw, nodes.itervalues()))/float(len(nodes))
     for cl in ["Guard+Exit", "Guard", "Exit", "Middle"]:
       true_filt_avg[cl] = filt_avg
       true_strm_avg[cl] = strm_avg
