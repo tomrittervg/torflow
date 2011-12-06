@@ -513,6 +513,7 @@ def main(argv):
       # FIXME: This may be expensive
       pid_avg = filt_avg
       prev_pid_avg = 2*pid_avg
+      f_nodes = nodes.values()
 
       while prev_pid_avg > pid_avg:
         f_nodes = filter(lambda n: n.desc_bw >= pid_avg, f_nodes)
