@@ -515,7 +515,7 @@ def main(argv):
       prev_pid_avg = 2*pid_avg
 
       while prev_pid_avg > pid_avg:
-        f_nodes = filter(lambda n: n.desc_bw >= pid_avg, c_nodes)
+        f_nodes = filter(lambda n: n.desc_bw >= pid_avg, f_nodes)
         prev_pid_avg = pid_avg
         pid_avg = sum(map(lambda n: n.filt_bw, f_nodes))/float(len(f_nodes))
 
