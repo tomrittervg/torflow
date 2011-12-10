@@ -656,7 +656,11 @@ def main(argv):
                                     0.0, False)
               else:
                 # Use previous vote's feedback bw
-                n.use_bw = prev_votes.vote_map[n.idhex].pid_bw
+                # FIXME: compare to ns_bw or prev_vote bw?
+                if cs_junk.use_mercy and n.desc_bw > n.ns_bw and n.pid_error < 0:
+                  n.use_bw = n.desc_bw
+                else:
+                  n.use_bw = prev_votes.vote_map[n.idhex].pid_bw
                 n.new_bw = n.get_pid_bw(prev_votes.vote_map[n.idhex],
                                     cs_junk.K_p,
                                     0.0,
@@ -677,10 +681,16 @@ def main(argv):
             if n.idhex in prev_consensus and \
               ("Guard" in prev_consensus[n.idhex].flags \
                and "Exit" in prev_consensus[n.idhex].flags):
+              # For section2-equivalent mode and/or use_mercy, we should
+              # not use Wgd
+              if n.use_bw == n.desc_bw:
+                weight = 1.0
+              else:
+                weight = (1.0-cs_junk.bw_weights["Wgd"])
               n.new_bw = n.get_pid_bw(prev_votes.vote_map[n.idhex],
-                              cs_junk.K_p*(1.0-cs_junk.bw_weights["Wgd"]),
-                              cs_junk.K_i*(1.0-cs_junk.bw_weights["Wgd"]),
-                              cs_junk.K_d*(1.0-cs_junk.bw_weights["Wgd"]),
+                              cs_junk.K_p*weight,
+                              cs_junk.K_i*weight,
+                              cs_junk.K_d*weight,
                               cs_junk.K_i_decay)
             else:
               n.new_bw = n.get_pid_bw(prev_votes.vote_map[n.idhex],
