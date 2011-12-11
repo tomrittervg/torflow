@@ -735,9 +735,9 @@ def main(argv):
 
   # Go through the list and cap them to NODE_CAP
   for n in nodes.itervalues():
-    if n.new_bw >= 0xffffffff:
+    if n.new_bw >= 0x7fffffff:
       plog("WARN", "Bandwidth of node "+n.nick+"="+n.idhex+" exceeded maxint32: "+str(n.new_bw))
-      n.new_bw = 0xffffffff
+      n.new_bw = 0x7fffffff
     if cs_junk.T_i > 0 and cs_junk.T_i_decay > 0 \
        and math.fabs(n.pid_error_sum) > \
            math.fabs(2*cs_junk.T_i*n.pid_error/cs_junk.T_i_decay):
