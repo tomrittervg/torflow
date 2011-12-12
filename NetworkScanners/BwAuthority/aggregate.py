@@ -589,8 +589,12 @@ def main(argv):
           n.pid_error = (n.filt_bw - true_filt_avg[n.node_class()]) \
                            / true_filt_avg[n.node_class()]
 
+      # XXX: Refactor the following 3 clauses out into it's own function, so we can log
+      # only in the event of update?
       # Penalize nodes for circ failure rate
       if cs_junk.use_circ_fails:
+        # FIXME: Should we compute this relative to 0? Why target anything
+        # less?
         circ_error = ((1.0-n.circ_fail_rate) - true_circ_avg[n.node_class()]) \
                         / true_circ_avg[n.node_class()]
         # FIXME: Hrmm, should we only penalize for circ fails, or should
@@ -601,13 +605,13 @@ def main(argv):
       # Don't accumulate too much amplification for fast nodes
       if cs_junk.use_desc_bw:
         if n.pid_error_sum > cs_junk.pid_max and n.pid_error > 0:
-          plog("INFO", "Capping feedback for node %s=%s desc=%d ns=%d pid_error_sum=%f" %
-              (n.nick, n.idhex, n.desc_bw, n.ns_bw, n.pid_error_sum))
+          plog("INFO", "Capping feedback for %s node %s=%s desc=%d ns=%d pid_error_sum=%f" %
+              (n.node_class(), n.nick, n.idhex, n.desc_bw, n.ns_bw, n.pid_error_sum))
           n.pid_error_sum = cs_junk.pid_max
       else:
         if float(n.ns_bw)/n.desc_bw > cs_junk.pid_max and n.pid_error > 0:
-          plog("INFO", "Capping feedback for node %s=%s desc=%d ns=%d pid_error=%f" %
-              (n.nick, n.idhex, n.desc_bw, n.ns_bw, n.pid_error))
+          plog("INFO", "Capping feedback for %s node %s=%s desc=%d ns=%d pid_error=%f" %
+              (n.node_class(), n.nick, n.idhex, n.desc_bw, n.ns_bw, n.pid_error))
           n.pid_error = 0
           n.pid_error_sum = 0
 
@@ -617,12 +621,12 @@ def main(argv):
           # If node was demoted in the past and we plan to demote it again,
           # let's just not and say we did.
           if n.desc_bw > n.ns_bw and n.pid_error < 0:
-            plog("DEBUG", "Showing mercy for node %s=%s desc=%d ns=%d pid_error=%f" %
-                 (n.nick, n.idhex, n.desc_bw, n.ns_bw, n.pid_error))
+            plog("DEBUG", "Showing mercy for %s node %s=%s desc=%d ns=%d pid_error=%f" %
+                 (n.node_class(), n.nick, n.idhex, n.desc_bw, n.ns_bw, n.pid_error))
             n.use_bw = n.desc_bw
         if n.pid_error_sum < 0 and n.pid_error < 0:
-          plog("DEBUG", "Showing mercy for node %s=%s desc=%d ns=%d pid_error_sum=%f" %
-              (n.nick, n.idhex, n.desc_bw, n.ns_bw, n.pid_error_sum))
+          plog("DEBUG", "Showing mercy for %s node %s=%s desc=%d ns=%d pid_error_sum=%f" %
+              (n.node_class(), n.nick, n.idhex, n.desc_bw, n.ns_bw, n.pid_error_sum))
           n.pid_error_sum = 0
 
       if n.idhex in prev_votes.vote_map:
@@ -736,7 +740,7 @@ def main(argv):
   # Go through the list and cap them to NODE_CAP
   for n in nodes.itervalues():
     if n.new_bw >= 0x7fffffff:
-      plog("WARN", "Bandwidth of node "+n.nick+"="+n.idhex+" exceeded maxint32: "+str(n.new_bw))
+      plog("WARN", "Bandwidth of "+n.node_class()+" node "+n.nick+"="+n.idhex+" exceeded maxint32: "+str(n.new_bw))
       n.new_bw = 0x7fffffff
     if cs_junk.T_i > 0 and cs_junk.T_i_decay > 0 \
        and math.fabs(n.pid_error_sum) > \
@@ -744,7 +748,7 @@ def main(argv):
       plog("NOTICE", "Large pid_error_sum for node "+n.idhex+"="+n.nick+": "+
                    str(n.pid_error_sum)+" vs "+str(n.pid_error))
     if n.new_bw > tot_net_bw*NODE_CAP:
-      plog("INFO", "Clipping extremely fast node "+n.idhex+"="+n.nick+
+      plog("INFO", "Clipping extremely fast "+n.node_class()+" node "+n.idhex+"="+n.nick+
            " at "+str(100*NODE_CAP)+"% of network capacity ("+
            str(n.new_bw)+"->"+str(int(tot_net_bw*NODE_CAP))+") "+
            " pid_error="+str(n.pid_error)+
@@ -753,7 +757,7 @@ def main(argv):
       n.pid_error_sum = 0 # Don't let unused error accumulate...
     if n.new_bw <= 0:
       if n.idhex in prev_consensus:
-        plog("INFO", str(prev_consensus[n.idhex].flags)+" node "+n.idhex+"="+n.nick+" has bandwidth <= 0: "+str(n.new_bw))
+        plog("INFO", n.node_class()+" node "+n.idhex+"="+n.nick+" has bandwidth <= 0: "+str(n.new_bw))
       else:
         plog("INFO", "New node "+n.idhex+"="+n.nick+" has bandwidth < 0: "+str(n.new_bw))
       n.new_bw = 1
@@ -807,6 +811,22 @@ def main(argv):
     plog("NOTICE",
          "Only measured %f of the previous consensus bandwidth despite measuring %f of the nodes" %
          (measured_bw_pct, measured_pct))
+
+  for cl in ["Guard+Exit", "Guard", "Exit", "Middle"]:
+    c_nodes = filter(lambda n: n.node_class() == cl, nodes.itervalues())
+    nc_nodes = filter(lambda n: n.pid_error < 0, c_nodes)
+    pc_nodes = filter(lambda n: n.pid_error > 0, c_nodes)
+    plog("INFO", "Avg "+cl+"  pid_error="+str(sum(map(lambda n: n.pid_error, c_nodes))/len(c_nodes)))
+    plog("INFO", "Avg "+cl+" |pid_error|="+str(sum(map(lambda n: abs(n.pid_error), c_nodes))/len(c_nodes)))
+    plog("INFO", "Avg "+cl+" +pid_error=+"+str(sum(map(lambda n: n.pid_error, pc_nodes))/len(pc_nodes)))
+    plog("INFO", "Avg "+cl+" -pid_error="+str(sum(map(lambda n: n.pid_error, nc_nodes))/len(nc_nodes)))
+
+  n_nodes = filter(lambda n: n.pid_error < 0, nodes.itervalues())
+  p_nodes = filter(lambda n: n.pid_error > 0, nodes.itervalues())
+  plog("INFO", "Avg network  pid_error="+str(sum(map(lambda n: n.pid_error, nodes.itervalues()))/len(nodes)))
+  plog("INFO", "Avg network |pid_error|="+str(sum(map(lambda n: abs(n.pid_error), nodes.itervalues()))/len(nodes)))
+  plog("INFO", "Avg network +pid_error=+"+str(sum(map(lambda n: n.pid_error, p_nodes))/len(p_nodes)))
+  plog("INFO", "Avg network -pid_error="+str(sum(map(lambda n: n.pid_error, n_nodes))/len(n_nodes)))
 
   plog("INFO",
        "Measured "+str(measured_pct) +"% of all tor nodes ("
