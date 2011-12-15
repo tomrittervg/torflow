@@ -21,7 +21,6 @@ IGNORE_GUARDS = 0
 
 # The guard measurement period is based on the client turnover
 # rate for guard nodes
-# XXX: Make this a consensus param
 GUARD_SAMPLE_RATE = 2*7*24*60*60 # 2wks
 
 # PID constant defaults. May be overridden by consensus
@@ -243,6 +242,7 @@ class ConsensusJunk:
     self.use_desc_bw = True
     self.use_mercy = False
 
+    self.guard_sample_rate = GUARD_SAMPLE_RATE
     self.pid_max = 500.0
     self.K_p = K_p
     self.T_i = T_i
@@ -288,6 +288,10 @@ class ConsensusJunk:
         elif p.startswith("bwauthpidmax="):
           self.pid_max = (int(p.split("=")[1])/10000.0)
           plog("INFO", "Got pid_max=%f from consensus." % self.pid_max)
+        elif p.startswith("bwauthguardrate="):
+          self.guard_sample_rate = int(p.split("=")[1])
+          plog("INFO", "Got guard_sample_rate=%d from consensus." %
+                       self.guard_sample_rate)
     except:
       plog("NOTICE", "Bw auth PID control disabled due to parse error.")
       traceback.print_exc()
@@ -655,7 +659,8 @@ def main(argv):
              and "Exit" not in prev_consensus[n.idhex].flags):
             # Do full feedback if our previous vote > 2.5 weeks old
             if n.idhex not in prev_votes.vote_map or \
-                n.measured_at - prev_votes.vote_map[n.idhex].measured_at > GUARD_SAMPLE_RATE:
+                n.measured_at - prev_votes.vote_map[n.idhex].measured_at \
+                    > cs_junk.guard_sample_rate:
               n.new_bw = n.get_pid_bw(prev_votes.vote_map[n.idhex],
                                       cs_junk.K_p,
                                       cs_junk.K_i,

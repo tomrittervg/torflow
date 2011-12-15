@@ -585,3 +585,9 @@
 
        If absent, the default is 500.0, which translates to a 501X
        multiplier of descriptor bandwidth.
+
+    "bwauthguardrate=N"
+       Restricts the rate at which we perform feedback on Guard nodes
+       to at most every N seconds.
+
+       If absent, the default is 2*7*24*60*60, or two weeks.
