@@ -21,6 +21,7 @@ IGNORE_GUARDS = 0
 
 # The guard measurement period is based on the client turnover
 # rate for guard nodes
+# XXX: Make this a consensus param
 GUARD_SAMPLE_RATE = 2*7*24*60*60 # 2wks
 
 # PID constant defaults. May be overridden by consensus
@@ -579,7 +580,17 @@ def main(argv):
         n.use_bw = n.ns_bw
 
       if cs_junk.use_pid_tgt:
-          n.pid_error = (n.filt_bw - pid_tgt_avg[n.node_class()]) \
+          n.pid_error = (n.strm_bw - pid_tgt_avg[n.node_class()]) \
+                           / pid_tgt_avg[n.node_class()]
+          # use filt_bw for pid_error < 0
+          if cs_junk.use_mercy:
+            if cs_junk.use_desc_bw:
+              if n.pid_error_sum < 0 and n.pid_error < 0:
+                n.pid_error = (n.filt_bw - pid_tgt_avg[n.node_class()]) \
+                           / pid_tgt_avg[n.node_class()]
+            else:
+              if n.desc_bw > n.ns_bw and n.pid_error < 0:
+                n.pid_error = (n.filt_bw - pid_tgt_avg[n.node_class()]) \
                            / pid_tgt_avg[n.node_class()]
       else:
         if cs_junk.use_best_ratio and n.sbw_ratio > n.fbw_ratio:
@@ -593,14 +604,17 @@ def main(argv):
       # only in the event of update?
       # Penalize nodes for circ failure rate
       if cs_junk.use_circ_fails:
-        # FIXME: Should we compute this relative to 0? Why target anything
-        # less?
-        circ_error = ((1.0-n.circ_fail_rate) - true_circ_avg[n.node_class()]) \
-                        / true_circ_avg[n.node_class()]
-        # FIXME: Hrmm, should we only penalize for circ fails, or should
-        # we reward, too?
-        if circ_error < 0:
-          n.pid_error = min(circ_error,n.pid_error)
+        # Compute circ_error relative to 1.0 (full success), but only
+        # apply it if it is both below the network avg and worse than
+        # the pid_error
+        if (1.0-n.circ_fail_rate) < true_circ_avg[n.node_class()]:
+          circ_error = -n.circ_fail_rate # ((1.0-fail) - 1.0)/1.0
+          if circ_error < 0 and circ_error < n.pid_error:
+            plog("INFO",
+              "CPU overload for %s node %s=%s desc=%d ns=%d pid_error=%f circ_error=%f circ_fail=%f" %
+              (n.node_class(), n.nick, n.idhex, n.desc_bw, n.ns_bw,
+               n.pid_error, circ_error, n.circ_fail_rate))
+            n.pid_error = min(circ_error,n.pid_error)
 
       # Don't accumulate too much amplification for fast nodes
       if cs_junk.use_desc_bw:
