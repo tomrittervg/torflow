@@ -1,0 +1,40 @@
+Analysis summary:
+
+1. Simulation confirms the raccoon's proof: Under a path bias attack with a
+   100% accurate correlator, P(compromise) = c/n, where c is the amount of
+   capacity the path bias adversary *actually* carries. (This may be difficult
+   to achieve in practice, since you're actively rejecting capacity during the
+   attack, but PID feedback with the bw auths would fix that for you).
+
+3. With or without the defense, simply trying to fail less than PATH_BIAS_PCT
+   of your circuits is not substantially different than failing everything you
+   want. With the defense, your overall network-wide rate of compromise
+   doesn't change. The only thing that changes is the likelihood of getting
+   caught, and the number of circuits you get to observe per client.
+
+4. Against the defense, an adversary with full knowledge of the client's
+   current path bias parameter values can expect to evade detection, yet
+   still achieve:
+   P(compromise) <= (c/n)^2 * (100/PATH_BIAS_PCT)
+   circs_per_client <= circuit_attempts*(c/n)
+
+5. An adversary conducting a probabilistic attack of failing less than
+   PATH_BIAS_PCT of circuits in the long run can achieve similar, but
+   slightly lower bounds.
+
+
+Optimization problem:
+Tradeoff a large spread between PATH_BIAS_PCT and the ambient success rate vs
+a large MIN_CIRCS rate. Need to measure ambient success rate to do this.
+
+Other Questions:
+Can the adversary really track a client's current count values? Can we
+prevent this with randomization?
+
+Action items/Conclusions:
+Parameter choice seems to be blocked on getting a good measure of the ambient
+success rate, however the following immediate conclusions seem clear:
+
+1. We should transform SCALE_FACTOR into a percent, and make it high. Like 95.
+2. We might want to use a separate, lower PATH_BIAS_PCT before SCALE_THRESHOLD.
+3. After SCALE_THRESHOLD, PATH_BIAS_PCT can be pretty high for notice and warn
