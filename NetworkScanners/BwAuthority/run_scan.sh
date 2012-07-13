@@ -8,6 +8,8 @@ SCANNER_COUNT=4
 TOR_EXE=../../../tor.git/src/or/tor
 PYTHONPATH=../../../SQLAlchemy-0.7.3/lib:../../../Elixir-0.7.1/
 
+! [ -e local.cfg ] || . local.cfg
+
 for n in `seq $SCANNER_COUNT`; do
     PIDFILE=./data/scanner.${n}/bwauthority.pid
     if [ -f $PIDFILE ]; then
