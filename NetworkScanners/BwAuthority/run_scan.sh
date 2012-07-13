@@ -11,11 +11,11 @@ PYTHONPATH=../../../SQLAlchemy-0.7.3/lib:../../../Elixir-0.7.1/
 ! [ -e local.cfg ] || . local.cfg
 
 for n in `seq $SCANNER_COUNT`; do
-    PIDFILE=./data/scanner.${n}/bwauthority.pid
-    if [ -f $PIDFILE ]; then
+  PIDFILE=./data/scanner.${n}/bwauthority.pid
+  if [ -f $PIDFILE ]; then
     echo "Killing off scanner $n."
     kill -9 `head -1 $PIDFILE` && rm $PIDFILE
-    fi
+  fi
 done
 
 KILLED_TOR=false
