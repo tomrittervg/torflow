@@ -21,9 +21,11 @@ done
 KILLED_TOR=false
 if [ -f "./data/tor/tor.pid" ]; then
   PID=`cat ./data/tor/tor.pid`
-  kill $PID
-  if [ $? -eq 0 ]; then
-    KILLED_TOR=true
+  if kill -0 "$PID" 2>/dev/null; then # it is a running process and we may send signals to it
+    kill $PID
+    if [ $? -eq 0 ]; then
+      KILLED_TOR=true
+    fi
   fi
 fi
 
