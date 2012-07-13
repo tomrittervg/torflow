@@ -41,8 +41,7 @@ if [ $KILLED_TOR ]; then
   echo "Waiting for 60 seconds to refresh tors..."
   sleep 60
 else
-  echo "We did not kill any Tor processes from any previous runs.. Waiting for
-5 min to fetch full consensus.."
+  echo "We did not kill any Tor processes from any previous runs.. Waiting for 500s to fetch full consensus.."
   sleep 500
 fi
 
