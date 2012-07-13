@@ -47,7 +47,7 @@ else
   sleep 500
 fi
 
-export PYTHONPATH
+[ -z "$PYTHONPATH" ] || export PYTHONPATH
 for n in `seq $SCANNER_COUNT`; do
     nice -n 20 ./bwauthority.py ./data/scanner.${n}/bwauthority.cfg \
          > ./data/scanner.${n}/bw.log 2>&1 &
