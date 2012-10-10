@@ -341,6 +341,24 @@ def generic_rate_test(g, trials, success_rate, adversary_capacity, path_bias_pct
 
   return rate_fcn(g)
 
+def dos_attack_test(success_rate, dos_success_rate, path_bias_pct, scale_thresh):
+  global PATH_BIAS_PCT
+  global PATH_BIAS_SCALE_THRESHOLD
+  PATH_BIAS_PCT = path_bias_pct
+  PATH_BIAS_SCALE_THRESHOLD = scale_thresh
+
+  g = Guard(success_rate)
+
+  simulate_circs_until(g, PATH_BIAS_SCALE_THRESHOLD, lambda g: False)
+  g.rejected_count = 0
+
+  g.succeed_rate = dos_success_rate
+
+  simulate_circs_until(g, 10000, lambda g: g.rejected_count > 0)
+
+  return g.first_hops_total - PATH_BIAS_SCALE_THRESHOLD
+
+
 ################ Multi-Dementianal Analysis #####################
 
 # If brute force doesn't work, you're not using enough
@@ -497,7 +515,7 @@ def main():
 
 
   if True:
-    print "\n\n===================== FALSE POSITIVES ============================"
+    print "\n\n===================== False Positives ============================"
 
     print "\nStartup false positive counts at [trials, success_rate, min_circs, path_bias_pct]:"
     print "(Results are some function of success_rate - path_bias_pct vs min_circs)"
@@ -563,6 +581,25 @@ def main():
                      #false_positive_test(trials, success_rate, scale_circs, path_bias_pct):
                      [(1000000,1000000), (0.45, 0.45), (100,500), (30, 30)],
                      [0, -0.1, 50, 5])
+
+  if True:
+    print "\n\n===================== DoS Attack Duration ========================"
+    print "\nDoS attack durations (in circs) at [success_rate, dos_success_rate, path_bias_pct, scale_thresh]:"
+    print brute_force(lambda x,y: x>y,
+                     dos_attack_test,
+                     #dos_attack_test(g, trials, success_rate, dos_success_rate, path_bias_pct):
+                     #false_positive_test(trials, success_rate, scale_circs, path_bias_pct):
+                     [(0.80, 0.80), (0.05,0.05), (30, 30), (200, 1000)],
+                     [-0.1, -0.1, 5, 100])
+
+    print "\nDoS attack durations (in circs) at [success_rate, dos_success_rate, path_bias_pct, scale_thresh]:"
+    print brute_force(lambda x,y: x<y,
+                     dos_attack_test,
+                     #dos_attack_test(g, trials, success_rate, dos_success_rate, path_bias_pct):
+                     #false_positive_test(trials, success_rate, scale_circs, path_bias_pct):
+                     [(0.80, 0.80), (0.25,0.05), (30, 30), (500, 500)],
+                     [-0.1, -0.1, 5, 100])
+
 
 
 if __name__ == "__main__":
