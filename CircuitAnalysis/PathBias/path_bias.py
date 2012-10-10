@@ -15,7 +15,7 @@ PATH_BIAS_MIN_CIRCS = 20
 # XXX: An int divisor was wrong here. Fix that in Tor. We might
 # even want a weighted moving average, but that will be trickier
 # to analyze.
-PATH_BIAS_SCALE_FACTOR = 95
+PATH_BIAS_SCALE_FACTOR = 50
 PATH_BIAS_SCALE_THRESHOLD = 250
 
 # XXX: We should only emit warnings if we are above the scaling threshhold..
@@ -33,7 +33,7 @@ def reset_globals():
 
   PATH_BIAS_PCT = 70
   PATH_BIAS_MIN_CIRCS = 20
-  PATH_BIAS_SCALE_FACTOR = 95
+  PATH_BIAS_SCALE_FACTOR = 50
   PATH_BIAS_SCALE_THRESHOLD = 250
   PATH_BIAS_WARN_CIRCS = PATH_BIAS_SCALE_THRESHOLD*(PATH_BIAS_SCALE_FACTOR/100.0)
 
@@ -294,7 +294,7 @@ def simulate_circs_until(g, circ_count, say_when):
 # success_rate
 # PATH_BIAS_MIN_CIRCS = 20
 # PATH_BIAS_PCT = 70
-def notice_false_positive_test(trials, success_rate, min_circs, path_bias_pct):
+def startup_false_positive_test(trials, success_rate, min_circs, path_bias_pct):
   # FIXME: Look it's just easier this way, ok? Get off my back already
   global PATH_BIAS_MIN_CIRCS
   global PATH_BIAS_PCT
@@ -309,7 +309,7 @@ def notice_false_positive_test(trials, success_rate, min_circs, path_bias_pct):
 
   #print g._get_rate()
 
-  return g.reject_rate()
+  return g.rejected_count
 
 def reject_false_positive_test(trials, success_rate, scale_circs, path_bias_pct):
   # FIXME: Look it's just easier this way, ok? Get off my back already
@@ -327,9 +327,7 @@ def reject_false_positive_test(trials, success_rate, scale_circs, path_bias_pct)
 
   simulate_circs_until(g, trials, lambda g: False)
 
-  #print g._get_rate()
-
-  return g.reject_rate()
+  return g.rejected_count
 
 def generic_rate_test(g, trials, success_rate, adversary_capacity, path_bias_pct, rate_fcn):
   # FIXME: Look it's just easier this way, ok? Get off my back already
@@ -501,52 +499,69 @@ def main():
   if True:
     print "\n\n===================== FALSE POSITIVES ============================"
 
-    print "\nNotice false positive rates at [trials, success_rate, min_circs, path_bias_pct]:"
+    print "\nStartup false positive counts at [trials, success_rate, min_circs, path_bias_pct]:"
     print "(Results are some function of success_rate - path_bias_pct vs min_circs)"
     print brute_force(lambda x,y: x<y,
-                     notice_false_positive_test,
+                     startup_false_positive_test,
                      #false_positive_test(trials, success_rate, min_circs, path_bias_pct):
-                     [(100000,100000), (0.65, 0.65), (50,250), (70, 70)],
-                     [0, -0.1, 50, 5])
-
-    print "\nNotice false positive rates at [trials, success_rate, min_circs, path_bias_pct]:"
-    print "(Results are some function of success_rate - path_bias_pct vs min_circs)"
-    print brute_force(lambda x,y: x<y,
-                     notice_false_positive_test,
-                     #false_positive_test(trials, success_rate, min_circs, path_bias_pct):
-                     [(100000,100000), (0.70, 0.70), (50,500), (70, 70)],
-                     [0, -0.1, 50, 5])
-
-    print "\nNotice false positives at [trials, success_rate, min_circs, path_bias_pct]:"
-    print "(Results are some function of success_rate - path_bias_pct vs min_circs)"
-    print brute_force(lambda x,y: x<y,
-                     notice_false_positive_test,
-                     #false_positive_test(trials, success_rate, min_circs, path_bias_pct):
-                     [(100000,100000), (0.75, 0.75), (20,400), (70, 70)],
+                     [(100000,100000), (0.80, 0.80), (20,200), (70, 70)],
                      [0, -0.1, 20, 5])
 
-    print "\nReject false positive rates at [trials, success_rate, scale_circs, path_bias_pct]:"
+    print "\nStartup false positive counts at [trials, success_rate, min_circs, path_bias_pct]:"
+    print "(Results are some function of success_rate - path_bias_pct vs min_circs)"
+    print brute_force(lambda x,y: x<y,
+                     startup_false_positive_test,
+                     #false_positive_test(trials, success_rate, min_circs, path_bias_pct):
+                     [(100000,100000), (0.45, 0.45), (20,200), (30, 30)],
+                     [0, -0.1, 20, 5])
+
+
+    print "\nFalse positive counts at [trials, success_rate, scale_circs, path_bias_pct]:"
     print "(Results are some function of success_rate - path_bias_pct vs scale_circs)"
     print brute_force(lambda x,y: x<y,
                      reject_false_positive_test,
                      #false_positive_test(trials, success_rate, scale_circs, path_bias_pct):
-                     [(1000000,1000000), (0.65, 0.65), (50,250), (70, 70)],
+                     [(1000000,1000000), (0.70, 0.70), (100,500), (70, 70)],
                      [0, -0.1, 50, 5])
 
-    print "\nReject false positive rates at [trials, success_rate, scale_circs, path_bias_pct]:"
+    print "\nFalse positive counts at [trials, success_rate, scale_circs, path_bias_pct]:"
     print "(Results are some function of success_rate - path_bias_pct vs scale_circs)"
     print brute_force(lambda x,y: x<y,
                      reject_false_positive_test,
                      #false_positive_test(trials, success_rate, scale_circs, path_bias_pct):
-                     [(1000000,1000000), (0.70, 0.70), (50,500), (70, 70)],
+                     [(1000000,1000000), (0.75, 0.75), (100,500), (70, 70)],
                      [0, -0.1, 50, 5])
 
-    print "\nReject false positive rates at [trials, success_rate, scale_circs, path_bias_pct]:"
+    print "\nFalse positive counts at [trials, success_rate, scale_circs, path_bias_pct]:"
     print "(Results are some function of success_rate - path_bias_pct vs scale_circs)"
     print brute_force(lambda x,y: x<y,
                      reject_false_positive_test,
                      #false_positive_test(trials, success_rate, scale_circs, path_bias_pct):
-                     [(1000000,1000000), (0.75, 0.75), (50,500), (70, 70)],
+                     [(1000000,1000000), (0.80, 0.80), (100,500), (70, 70)],
+                     [0, -0.1, 50, 5])
+
+    print "\nFalse positive counts at [trials, success_rate, scale_circs, path_bias_pct]:"
+    print "(Results are some function of success_rate - path_bias_pct vs scale_circs)"
+    print brute_force(lambda x,y: x<y,
+                     reject_false_positive_test,
+                     #false_positive_test(trials, success_rate, scale_circs, path_bias_pct):
+                     [(1000000,1000000), (0.55, 0.55), (100,500), (50, 50)],
+                     [0, -0.1, 50, 5])
+
+    print "\nFalse positive counts at [trials, success_rate, scale_circs, path_bias_pct]:"
+    print "(Results are some function of success_rate - path_bias_pct vs scale_circs)"
+    print brute_force(lambda x,y: x<y,
+                     reject_false_positive_test,
+                     #false_positive_test(trials, success_rate, scale_circs, path_bias_pct):
+                     [(1000000,1000000), (0.60, 0.60), (100,500), (50, 50)],
+                     [0, -0.1, 50, 5])
+
+    print "\nFalse positive counts at [trials, success_rate, scale_circs, path_bias_pct]:"
+    print "(Results are some function of success_rate - path_bias_pct vs scale_circs)"
+    print brute_force(lambda x,y: x<y,
+                     reject_false_positive_test,
+                     #false_positive_test(trials, success_rate, scale_circs, path_bias_pct):
+                     [(1000000,1000000), (0.45, 0.45), (100,500), (30, 30)],
                      [0, -0.1, 50, 5])
 
 
