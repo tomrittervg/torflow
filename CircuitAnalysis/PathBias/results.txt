@@ -2,11 +2,11 @@
 
 PassiveEvilGuard compromise rate at [success_rate, adversary_capacity, path_bias_pct]:
 (As expected, P(CompromisedExit|PassiveEvilGuard) ~= c/n)
-New extrema at [10000, 0.75, 0.05, 70]: 0.052610548748
-New extrema at [10000, 0.75, 0.25, 70]: 0.250574712644
-New extrema at [10000, 0.75, 0.45, 70]: 0.455518836748
-New extrema at [10000, 0.75, 0.65, 70]: 0.64692513369
-New extrema at [10000, 0.75, 0.8500000000000001, 70]: 0.851249664069
+New extrema at [10000, 0.75, 0.05, 70]: 0.0489855846236
+New extrema at [10000, 0.75, 0.25, 70]: 0.252824098978
+New extrema at [10000, 0.75, 0.45, 70]: 0.453292291221
+New extrema at [10000, 0.75, 0.65, 70]: 0.651239888609
+New extrema at [10000, 0.75, 0.8500000000000001, 70]: 0.845948471499
 [10000, 0.75, 0.8500000000000001, 70]
 
 UnrepentantEvilGuard compromise rate at [success_rate, adversary_capacity, path_bias_pct]:
@@ -16,28 +16,28 @@ New extrema at [10000, 0.75, 0.05, 70]: 1.0
 
 ProbabalisticEvilGuard compromise rate at [success_rate, adversary_capacity, path_bias_pct]:
 P(CompromisedExit|ProbabalisticEvilGuard) <= (c/n)*(100/PATH_BIAS_PCT)
-New extrema at [10000, 0.75, 0.05, 70]: 0.0615289955391
-New extrema at [10000, 0.75, 0.25, 70]: 0.381941239809
-New extrema at [10000, 0.75, 0.45, 70]: 0.686913732124
-New extrema at [10000, 0.75, 0.65, 70]: 0.993549377976
+New extrema at [10000, 0.75, 0.05, 70]: 0.0641538461538
+New extrema at [10000, 0.75, 0.25, 70]: 0.386709736964
+New extrema at [10000, 0.75, 0.45, 70]: 0.695431472081
+New extrema at [10000, 0.75, 0.65, 70]: 0.994813119756
 New extrema at [10000, 0.75, 0.8500000000000001, 70]: 1.0
 [10000, 0.75, 0.8500000000000001, 70]
 
 OmniscientEvilGuard compromise rate at [success_rate, adversary_capacity, path_bias_pct]:
 P(CompromisedExit|OmniscientEvilGuard) <= (c/n)*(100/PATH_BIAS_PCT)
-New extrema at [10000, 0.75, 0.05, 70]: 0.0680291553523
-New extrema at [10000, 0.75, 0.25, 70]: 0.356724310419
-New extrema at [10000, 0.75, 0.45, 70]: 0.646151649293
-New extrema at [10000, 0.75, 0.65, 70]: 0.917728688757
-New extrema at [10000, 0.75, 0.8500000000000001, 70]: 1.0
+New extrema at [10000, 0.75, 0.05, 70]: 0.0713570713571
+New extrema at [10000, 0.75, 0.25, 70]: 0.368157781907
+New extrema at [10000, 0.75, 0.45, 70]: 0.640582607454
+New extrema at [10000, 0.75, 0.65, 70]: 0.913658881812
+New extrema at [10000, 0.75, 0.8500000000000001, 70]: 0.999881544658
 [10000, 0.75, 0.8500000000000001, 70]
 
 OmniscientEvilGuard compromise at [success_rate, adversary_capacity, path_bias_pct]:
 P(CompromisedExit|OmniscientEvilGuard) <= (c/n)*(100/PATH_BIAS_PCT)
-New extrema at [10000, 0.75, 0.2, 20]: 0.927127409497
-New extrema at [10000, 0.75, 0.2, 40]: 0.497260956175
-New extrema at [10000, 0.75, 0.2, 60]: 0.328728362184
-New extrema at [10000, 0.75, 0.2, 80]: 0.257664872982
+New extrema at [10000, 0.75, 0.2, 20]: 0.923076923077
+New extrema at [10000, 0.75, 0.2, 40]: 0.514037267081
+New extrema at [10000, 0.75, 0.2, 60]: 0.339663501583
+New extrema at [10000, 0.75, 0.2, 80]: 0.246594175728
 [10000, 0.75, 0.2, 80]
 
 
@@ -46,107 +46,142 @@ New extrema at [10000, 0.75, 0.2, 80]: 0.257664872982
 UnrepentantEvilGuard compromised circs at [success_rate, adversary_capacity, path_bias_pct]:
 circs_per_client ~= success_rate*c/n*MIN_CIRCS      for c/n < PATH_BIAS_PCT || c/n < success_rate
                  ~= success_rate*circ_attempts*c/n  for c/n > PATH_BIAS_PCT && c/n > success_rate
-New extrema at [100000, 0.75, 0.05, 50]: 0.742451509698
-New extrema at [100000, 0.75, 0.25, 50]: 3.73414682937
-New extrema at [100000, 0.75, 0.45, 50]: 6.91443298969
-New extrema at [100000, 0.75, 0.65, 50]: 30.9604339502
-New extrema at [100000, 0.75, 0.8500000000000001, 50]: 63741.0
+New extrema at [100000, 0.75, 0.05, 50]: 0.761847630474
+New extrema at [100000, 0.75, 0.25, 50]: 3.7874
+New extrema at [100000, 0.75, 0.45, 50]: 6.9507552245
+New extrema at [100000, 0.75, 0.65, 50]: 32.9502688172
+New extrema at [100000, 0.75, 0.8500000000000001, 50]: 63872.0
 [100000, 0.75, 0.8500000000000001, 50]
 
 PassiveEvilGuard compromised circs at [success_rate, adversary_capacity, path_bias_pct]:
 circs_per_client ~= success_rate * circ_attempts * c/n
-New extrema at [100000, 0.75, 0.05, 50]: 3657.0
-New extrema at [100000, 0.75, 0.25, 50]: 18619.0
-New extrema at [100000, 0.75, 0.45, 50]: 33849.0
-New extrema at [100000, 0.75, 0.65, 50]: 49115.0
-New extrema at [100000, 0.75, 0.8500000000000001, 50]: 63625.0
+New extrema at [100000, 0.75, 0.05, 50]: 3814.0
+New extrema at [100000, 0.75, 0.25, 50]: 19004.0
+New extrema at [100000, 0.75, 0.45, 50]: 33870.0
+New extrema at [100000, 0.75, 0.65, 50]: 48850.0
+New extrema at [100000, 0.75, 0.8500000000000001, 50]: 63845.0
 [100000, 0.75, 0.8500000000000001, 50]
 
 ProbabalisticEvilGuard compromised circs at [success_rate, adversary_capacity, path_bias_pct]:
 circs_per_client ~= success_rate * circ_attempts * c/n
-New extrema at [100000, 0.75, 0.05, 50]: 4036.0
-New extrema at [100000, 0.75, 0.65, 50]: 65053.0
-New extrema at [100000, 0.75, 0.8500000000000001, 50]: 85187.0
+New extrema at [100000, 0.75, 0.05, 50]: 3971.0
+New extrema at [100000, 0.75, 0.65, 50]: 64979.0
+New extrema at [100000, 0.75, 0.8500000000000001, 50]: 84854.0
 [100000, 0.75, 0.8500000000000001, 50]
 
 OmniscientEvilGuard compromised circs at [success_rate, adversary_capacity, path_bias_pct]:
 circs_per_client ~= circ_attempts * c/n
-New extrema at [100000, 0.75, 0.05, 50]: 4936.0
-New extrema at [100000, 0.75, 0.25, 50]: 25097.0
-New extrema at [100000, 0.75, 0.45, 50]: 44944.0
-New extrema at [100000, 0.75, 0.65, 50]: 65078.0
-New extrema at [100000, 0.75, 0.8500000000000001, 50]: 84984.0
+New extrema at [100000, 0.75, 0.05, 50]: 4917.0
+New extrema at [100000, 0.75, 0.25, 50]: 25141.0
+New extrema at [100000, 0.75, 0.45, 50]: 45100.0
+New extrema at [100000, 0.75, 0.65, 50]: 64926.0
+New extrema at [100000, 0.75, 0.8500000000000001, 50]: 85085.0
 [100000, 0.75, 0.8500000000000001, 50]
 
 
-===================== FALSE POSITIVES ============================
+===================== False Positives ============================
 
-Notice false positive rates at [trials, success_rate, min_circs, path_bias_pct]:
+Startup false positive counts at [trials, success_rate, min_circs, path_bias_pct]:
 (Results are some function of success_rate - path_bias_pct vs min_circs)
-New extrema at [100000, 0.65, 50, 70]: 0.0151544227886
-New extrema at [100000, 0.65, 100, 70]: 0.00748851148851
-New extrema at [100000, 0.65, 150, 70]: 0.00394002998501
-New extrema at [100000, 0.65, 250, 70]: 0.00385037406484
-[100000, 0.65, 250, 70]
+New extrema at [100000, 0.8, 20, 70]: 1423
+New extrema at [100000, 0.8, 40, 70]: 301
+New extrema at [100000, 0.8, 60, 70]: 93
+New extrema at [100000, 0.8, 80, 70]: 38
+New extrema at [100000, 0.8, 100, 70]: 18
+New extrema at [100000, 0.8, 120, 70]: 5
+New extrema at [100000, 0.8, 160, 70]: 1
+New extrema at [100000, 0.8, 180, 70]: 0
+[100000, 0.8, 200, 70]
 
-Notice false positive rates at [trials, success_rate, min_circs, path_bias_pct]:
+Startup false positive counts at [trials, success_rate, min_circs, path_bias_pct]:
 (Results are some function of success_rate - path_bias_pct vs min_circs)
-New extrema at [100000, 0.7, 50, 70]: 0.0087836081959
-New extrema at [100000, 0.7, 100, 70]: 0.00484715284715
-New extrema at [100000, 0.7, 150, 70]: 0.00275262368816
-New extrema at [100000, 0.7, 200, 70]: 0.00241916167665
-New extrema at [100000, 0.7, 250, 70]: 0.00180548628429
-New extrema at [100000, 0.7, 300, 70]: 0.0
-[100000, 0.7, 500, 70]
+New extrema at [100000, 0.45, 20, 30]: 811
+New extrema at [100000, 0.45, 40, 30]: 123
+New extrema at [100000, 0.45, 60, 30]: 25
+New extrema at [100000, 0.45, 80, 30]: 3
+New extrema at [100000, 0.45, 100, 30]: 0
+[100000, 0.45, 200, 30]
 
-Notice false positives at [trials, success_rate, min_circs, path_bias_pct]:
-(Results are some function of success_rate - path_bias_pct vs min_circs)
-New extrema at [100000, 0.75, 20, 70]: 0.00484143171366
-New extrema at [100000, 0.75, 40, 70]: 0.00279088364654
-New extrema at [100000, 0.75, 60, 70]: 0.00188602279544
-New extrema at [100000, 0.75, 80, 70]: 0.00137170263789
-New extrema at [100000, 0.75, 100, 70]: 0.000995004995005
-New extrema at [100000, 0.75, 120, 70]: 0.000834532374101
-New extrema at [100000, 0.75, 140, 70]: 0.000581818181818
-New extrema at [100000, 0.75, 160, 70]: 0.000472843450479
-New extrema at [100000, 0.75, 200, 70]: 0.000287425149701
-New extrema at [100000, 0.75, 240, 70]: 0.000143884892086
-New extrema at [100000, 0.75, 260, 70]: 0.0
-[100000, 0.75, 400, 70]
-
-Reject false positive rates at [trials, success_rate, scale_circs, path_bias_pct]:
+False positive counts at [trials, success_rate, scale_circs, path_bias_pct]:
 (Results are some function of success_rate - path_bias_pct vs scale_circs)
-New extrema at [1000000, 0.65, 50, 70]: 0.0346242687866
-New extrema at [1000000, 0.65, 100, 70]: 0.0328767123288
-New extrema at [1000000, 0.65, 150, 70]: 0.0322721591761
-New extrema at [1000000, 0.65, 200, 70]: 0.0318086382723
-New extrema at [1000000, 0.65, 250, 70]: 0.0317770557361
-[1000000, 0.65, 250, 70]
-
-Reject false positive rates at [trials, success_rate, scale_circs, path_bias_pct]:
-(Results are some function of success_rate - path_bias_pct vs scale_circs)
-New extrema at [1000000, 0.7, 50, 70]: 0.019617019149
-New extrema at [1000000, 0.7, 100, 70]: 0.014500549945
-New extrema at [1000000, 0.7, 150, 70]: 0.0125621156826
-New extrema at [1000000, 0.7, 200, 70]: 0.0109148170366
-New extrema at [1000000, 0.7, 250, 70]: 0.00958460384904
-New extrema at [1000000, 0.7, 300, 70]: 0.00869939018295
-New extrema at [1000000, 0.7, 350, 70]: 0.00858299595142
-New extrema at [1000000, 0.7, 400, 70]: 0.00795681727309
-New extrema at [1000000, 0.7, 450, 70]: 0.00731071018042
-New extrema at [1000000, 0.7, 500, 70]: 0.00690254872564
+New extrema at [1000000, 0.7, 100, 70]: 17156
+New extrema at [1000000, 0.7, 150, 70]: 13887
+New extrema at [1000000, 0.7, 200, 70]: 12295
+New extrema at [1000000, 0.7, 250, 70]: 11436
+New extrema at [1000000, 0.7, 300, 70]: 10390
+New extrema at [1000000, 0.7, 350, 70]: 9703
+New extrema at [1000000, 0.7, 400, 70]: 8697
+New extrema at [1000000, 0.7, 500, 70]: 8271
 [1000000, 0.7, 500, 70]
 
-Reject false positive rates at [trials, success_rate, scale_circs, path_bias_pct]:
+False positive counts at [trials, success_rate, scale_circs, path_bias_pct]:
 (Results are some function of success_rate - path_bias_pct vs scale_circs)
-New extrema at [1000000, 0.75, 50, 70]: 0.00594470276486
-New extrema at [1000000, 0.75, 100, 70]: 0.00212178782122
-New extrema at [1000000, 0.75, 150, 70]: 0.000978853172024
-New extrema at [1000000, 0.75, 200, 70]: 0.000467906418716
-New extrema at [1000000, 0.75, 250, 70]: 0.000266933266683
-New extrema at [1000000, 0.75, 300, 70]: 0.000119964010797
-New extrema at [1000000, 0.75, 350, 70]: 7.99720097966e-05
-New extrema at [1000000, 0.75, 400, 70]: 3.59856057577e-05
-New extrema at [1000000, 0.75, 450, 70]: 1.99910040482e-05
-New extrema at [1000000, 0.75, 500, 70]: 2.99850074963e-06
+New extrema at [1000000, 0.75, 100, 70]: 3679
+New extrema at [1000000, 0.75, 150, 70]: 1826
+New extrema at [1000000, 0.75, 200, 70]: 1134
+New extrema at [1000000, 0.75, 250, 70]: 577
+New extrema at [1000000, 0.75, 300, 70]: 365
+New extrema at [1000000, 0.75, 350, 70]: 228
+New extrema at [1000000, 0.75, 400, 70]: 117
+New extrema at [1000000, 0.75, 450, 70]: 77
 [1000000, 0.75, 500, 70]
+
+False positive counts at [trials, success_rate, scale_circs, path_bias_pct]:
+(Results are some function of success_rate - path_bias_pct vs scale_circs)
+New extrema at [1000000, 0.8, 100, 70]: 123
+New extrema at [1000000, 0.8, 150, 70]: 29
+New extrema at [1000000, 0.8, 200, 70]: 9
+New extrema at [1000000, 0.8, 250, 70]: 3
+New extrema at [1000000, 0.8, 300, 70]: 0
+[1000000, 0.8, 500, 70]
+
+False positive counts at [trials, success_rate, scale_circs, path_bias_pct]:
+(Results are some function of success_rate - path_bias_pct vs scale_circs)
+New extrema at [1000000, 0.55, 100, 50]: 4739
+New extrema at [1000000, 0.55, 150, 50]: 2754
+New extrema at [1000000, 0.55, 200, 50]: 1618
+New extrema at [1000000, 0.55, 250, 50]: 1123
+New extrema at [1000000, 0.55, 300, 50]: 682
+New extrema at [1000000, 0.55, 350, 50]: 326
+New extrema at [1000000, 0.55, 400, 50]: 322
+New extrema at [1000000, 0.55, 450, 50]: 189
+New extrema at [1000000, 0.55, 500, 50]: 152
+[1000000, 0.55, 500, 50]
+
+False positive counts at [trials, success_rate, scale_circs, path_bias_pct]:
+(Results are some function of success_rate - path_bias_pct vs scale_circs)
+New extrema at [1000000, 0.6, 100, 50]: 519
+New extrema at [1000000, 0.6, 150, 50]: 103
+New extrema at [1000000, 0.6, 200, 50]: 17
+New extrema at [1000000, 0.6, 250, 50]: 5
+New extrema at [1000000, 0.6, 300, 50]: 2
+New extrema at [1000000, 0.6, 350, 50]: 1
+New extrema at [1000000, 0.6, 450, 50]: 0
+[1000000, 0.6, 500, 50]
+
+False positive counts at [trials, success_rate, scale_circs, path_bias_pct]:
+(Results are some function of success_rate - path_bias_pct vs scale_circs)
+New extrema at [1000000, 0.45, 100, 30]: 17
+New extrema at [1000000, 0.45, 150, 30]: 0
+[1000000, 0.45, 500, 30]
+
+
+===================== DoS Attack Duration ========================
+
+DoS attack durations (in circs) at [success_rate, dos_success_rate, path_bias_pct, scale_thresh]:
+New extrema at [0.8, 0.05, 30, 200]: 150
+New extrema at [0.8, 0.05, 30, 300]: 215
+New extrema at [0.8, 0.05, 30, 400]: 330
+New extrema at [0.8, 0.05, 30, 500]: 368
+New extrema at [0.8, 0.05, 30, 600]: 460
+New extrema at [0.8, 0.05, 30, 700]: 539
+New extrema at [0.8, 0.05, 30, 800]: 593
+New extrema at [0.8, 0.05, 30, 900]: 660
+New extrema at [0.8, 0.05, 30, 1000]: 760
+[0.8, 0.05, 30, 1000]
+
+DoS attack durations (in circs) at [success_rate, dos_success_rate, path_bias_pct, scale_thresh]:
+New extrema at [0.8, 0.25, 30, 500]: 828
+New extrema at [0.8, 0.15, 30, 500]: 503
+New extrema at [0.8, 0.04999999999999999, 30, 500]: 355
+[0.8, 0.04999999999999999, 30, 500]
