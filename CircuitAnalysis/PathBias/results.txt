@@ -170,19 +170,33 @@ New extrema at [1000000, 0.45, 150, 30]: 0
 ===================== DoS Attack Duration ========================
 
 DoS attack durations (in circs) at [success_rate, dos_success_rate, path_bias_pct, scale_thresh]:
-New extrema at [0.8, 0.05, 30, 200]: 150
-New extrema at [0.8, 0.05, 30, 300]: 215
-New extrema at [0.8, 0.05, 30, 400]: 310
-New extrema at [0.8, 0.05, 30, 500]: 380
-New extrema at [0.8, 0.05, 30, 600]: 465
-New extrema at [0.8, 0.05, 30, 700]: 510
-New extrema at [0.8, 0.05, 30, 800]: 658
-New extrema at [0.8, 0.05, 30, 900]: 675
-New extrema at [0.8, 0.05, 30, 1000]: 755
-[0.8, 0.05, 30, 1000]
+New extrema at [0.8, 0.25, 30, 300]: 426
+New extrema at [0.8, 0.2, 30, 300]: 348
+New extrema at [0.8, 0.15000000000000002, 30, 300]: 304
+New extrema at [0.8, 0.10000000000000002, 30, 300]: 295
+New extrema at [0.8, 0.05000000000000002, 30, 300]: 226
+New extrema at [0.8, 1.3877787807814457e-17, 30, 300]: 205
+[0.8, 1.3877787807814457e-17, 30, 300]
 
 DoS attack durations (in circs) at [success_rate, dos_success_rate, path_bias_pct, scale_thresh]:
-New extrema at [0.8, 0.25, 30, 500]: 805
-New extrema at [0.8, 0.15, 30, 500]: 503
-New extrema at [0.8, 0.04999999999999999, 30, 500]: 362
-[0.8, 0.04999999999999999, 30, 500]
+New extrema at [0.8, 0.25, 30, 200]: 219
+New extrema at [0.8, 0.25, 30, 300]: 618
+New extrema at [0.8, 0.25, 30, 400]: 861
+New extrema at [0.8, 0.25, 30, 500]: 1050
+New extrema at [0.8, 0.25, 30, 700]: 1069
+New extrema at [0.8, 0.25, 30, 800]: 1224
+New extrema at [0.8, 0.25, 30, 900]: 1472
+New extrema at [0.8, 0.25, 30, 1000]: 1715
+[0.8, 0.25, 30, 1000]
+
+DoS attack durations (in circs) at [success_rate, dos_success_rate, path_bias_pct, scale_thresh]:
+New extrema at [0.8, 0.05, 30, 200]: 138
+New extrema at [0.8, 0.05, 30, 300]: 230
+New extrema at [0.8, 0.05, 30, 400]: 302
+New extrema at [0.8, 0.05, 30, 500]: 415
+New extrema at [0.8, 0.05, 30, 600]: 439
+New extrema at [0.8, 0.05, 30, 700]: 561
+New extrema at [0.8, 0.05, 30, 800]: 594
+New extrema at [0.8, 0.05, 30, 900]: 670
+New extrema at [0.8, 0.05, 30, 1000]: 747
+[0.8, 0.05, 30, 1000]

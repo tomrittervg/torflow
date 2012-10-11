@@ -585,19 +585,27 @@ def main():
   if True:
     print "\n\n===================== DoS Attack Duration ========================"
     print "\nDoS attack durations (in circs) at [success_rate, dos_success_rate, path_bias_pct, scale_thresh]:"
+    print brute_force(lambda x,y: x<y,
+                     dos_attack_test,
+                     #dos_attack_test(g, num_circs, success_rate, dos_success_rate, path_bias_pct):
+                     #false_positive_test(num_circs, success_rate, scale_circs, path_bias_pct):
+                     [(0.80, 0.80), (0.25,0.05), (30, 30), (300, 300)],
+                     [-0.1, -0.05, 5, 100])
+
+    print "\nDoS attack durations (in circs) at [success_rate, dos_success_rate, path_bias_pct, scale_thresh]:"
+    print brute_force(lambda x,y: x>y,
+                     dos_attack_test,
+                     #dos_attack_test(g, num_circs, success_rate, dos_success_rate, path_bias_pct):
+                     #false_positive_test(num_circs, success_rate, scale_circs, path_bias_pct):
+                     [(0.80, 0.80), (0.25,0.25), (30, 30), (200, 1000)],
+                     [-0.1, -0.1, 5, 100])
+
+    print "\nDoS attack durations (in circs) at [success_rate, dos_success_rate, path_bias_pct, scale_thresh]:"
     print brute_force(lambda x,y: x>y,
                      dos_attack_test,
                      #dos_attack_test(g, num_circs, success_rate, dos_success_rate, path_bias_pct):
                      #false_positive_test(num_circs, success_rate, scale_circs, path_bias_pct):
                      [(0.80, 0.80), (0.05,0.05), (30, 30), (200, 1000)],
-                     [-0.1, -0.1, 5, 100])
-
-    print "\nDoS attack durations (in circs) at [success_rate, dos_success_rate, path_bias_pct, scale_thresh]:"
-    print brute_force(lambda x,y: x<y,
-                     dos_attack_test,
-                     #dos_attack_test(g, num_circs, success_rate, dos_success_rate, path_bias_pct):
-                     #false_positive_test(num_circs, success_rate, scale_circs, path_bias_pct):
-                     [(0.80, 0.80), (0.25,0.05), (30, 30), (500, 500)],
                      [-0.1, -0.1, 5, 100])
 
 
