@@ -81,87 +81,88 @@ New extrema at [100000, 0.75, 0.8500000000000001, 50]: 85085.0
 
 ===================== False Positives ============================
 
-Startup false positive counts at [trials, success_rate, min_circs, path_bias_pct]:
+Startup false positive counts at [num_circs, success_rate, min_circs, path_bias_pct]:
 (Results are some function of success_rate - path_bias_pct vs min_circs)
-New extrema at [100000, 0.8, 20, 70]: 1423
-New extrema at [100000, 0.8, 40, 70]: 301
-New extrema at [100000, 0.8, 60, 70]: 93
-New extrema at [100000, 0.8, 80, 70]: 38
-New extrema at [100000, 0.8, 100, 70]: 18
-New extrema at [100000, 0.8, 120, 70]: 5
-New extrema at [100000, 0.8, 160, 70]: 1
-New extrema at [100000, 0.8, 180, 70]: 0
-[100000, 0.8, 200, 70]
+New extrema at [1000000, 0.8, 25, 70]: 9704
+New extrema at [1000000, 0.8, 50, 70]: 1571
+New extrema at [1000000, 0.8, 75, 70]: 469
+New extrema at [1000000, 0.8, 100, 70]: 143
+New extrema at [1000000, 0.8, 125, 70]: 54
+New extrema at [1000000, 0.8, 150, 70]: 31
+New extrema at [1000000, 0.8, 175, 70]: 6
+New extrema at [1000000, 0.8, 225, 70]: 3
+New extrema at [1000000, 0.8, 250, 70]: 0
+[1000000, 0.8, 250, 70]
 
-Startup false positive counts at [trials, success_rate, min_circs, path_bias_pct]:
+Startup false positive counts at [num_circs, success_rate, min_circs, path_bias_pct]:
 (Results are some function of success_rate - path_bias_pct vs min_circs)
-New extrema at [100000, 0.45, 20, 30]: 811
-New extrema at [100000, 0.45, 40, 30]: 123
-New extrema at [100000, 0.45, 60, 30]: 25
-New extrema at [100000, 0.45, 80, 30]: 3
-New extrema at [100000, 0.45, 100, 30]: 0
-[100000, 0.45, 200, 30]
+New extrema at [1000000, 0.45, 25, 30]: 4893
+New extrema at [1000000, 0.45, 50, 30]: 497
+New extrema at [1000000, 0.45, 75, 30]: 96
+New extrema at [1000000, 0.45, 100, 30]: 15
+New extrema at [1000000, 0.45, 125, 30]: 8
+New extrema at [1000000, 0.45, 150, 30]: 2
+New extrema at [1000000, 0.45, 175, 30]: 0
+[1000000, 0.45, 250, 30]
 
-False positive counts at [trials, success_rate, scale_circs, path_bias_pct]:
+False positive counts at [num_circs, success_rate, scale_circs, path_bias_pct]:
 (Results are some function of success_rate - path_bias_pct vs scale_circs)
-New extrema at [1000000, 0.7, 100, 70]: 17156
-New extrema at [1000000, 0.7, 150, 70]: 13887
-New extrema at [1000000, 0.7, 200, 70]: 12295
-New extrema at [1000000, 0.7, 250, 70]: 11436
-New extrema at [1000000, 0.7, 300, 70]: 10390
-New extrema at [1000000, 0.7, 350, 70]: 9703
-New extrema at [1000000, 0.7, 400, 70]: 8697
-New extrema at [1000000, 0.7, 500, 70]: 8271
+New extrema at [1000000, 0.7, 100, 70]: 16805
+New extrema at [1000000, 0.7, 150, 70]: 13963
+New extrema at [1000000, 0.7, 200, 70]: 11911
+New extrema at [1000000, 0.7, 250, 70]: 11067
+New extrema at [1000000, 0.7, 300, 70]: 10310
+New extrema at [1000000, 0.7, 350, 70]: 9828
+New extrema at [1000000, 0.7, 400, 70]: 9273
+New extrema at [1000000, 0.7, 450, 70]: 8294
 [1000000, 0.7, 500, 70]
 
-False positive counts at [trials, success_rate, scale_circs, path_bias_pct]:
+False positive counts at [num_circs, success_rate, scale_circs, path_bias_pct]:
 (Results are some function of success_rate - path_bias_pct vs scale_circs)
-New extrema at [1000000, 0.75, 100, 70]: 3679
-New extrema at [1000000, 0.75, 150, 70]: 1826
-New extrema at [1000000, 0.75, 200, 70]: 1134
-New extrema at [1000000, 0.75, 250, 70]: 577
-New extrema at [1000000, 0.75, 300, 70]: 365
-New extrema at [1000000, 0.75, 350, 70]: 228
-New extrema at [1000000, 0.75, 400, 70]: 117
-New extrema at [1000000, 0.75, 450, 70]: 77
+New extrema at [1000000, 0.75, 100, 70]: 3554
+New extrema at [1000000, 0.75, 150, 70]: 1833
+New extrema at [1000000, 0.75, 200, 70]: 1126
+New extrema at [1000000, 0.75, 250, 70]: 544
+New extrema at [1000000, 0.75, 300, 70]: 412
+New extrema at [1000000, 0.75, 350, 70]: 237
+New extrema at [1000000, 0.75, 400, 70]: 132
+New extrema at [1000000, 0.75, 450, 70]: 54
+New extrema at [1000000, 0.75, 500, 70]: 33
 [1000000, 0.75, 500, 70]
 
-False positive counts at [trials, success_rate, scale_circs, path_bias_pct]:
+False positive counts at [num_circs, success_rate, scale_circs, path_bias_pct]:
 (Results are some function of success_rate - path_bias_pct vs scale_circs)
-New extrema at [1000000, 0.8, 100, 70]: 123
-New extrema at [1000000, 0.8, 150, 70]: 29
-New extrema at [1000000, 0.8, 200, 70]: 9
-New extrema at [1000000, 0.8, 250, 70]: 3
-New extrema at [1000000, 0.8, 300, 70]: 0
+New extrema at [1000000, 0.8, 100, 70]: 147
+New extrema at [1000000, 0.8, 150, 70]: 17
+New extrema at [1000000, 0.8, 200, 70]: 2
+New extrema at [1000000, 0.8, 250, 70]: 0
 [1000000, 0.8, 500, 70]
 
-False positive counts at [trials, success_rate, scale_circs, path_bias_pct]:
+False positive counts at [num_circs, success_rate, scale_circs, path_bias_pct]:
 (Results are some function of success_rate - path_bias_pct vs scale_circs)
-New extrema at [1000000, 0.55, 100, 50]: 4739
-New extrema at [1000000, 0.55, 150, 50]: 2754
-New extrema at [1000000, 0.55, 200, 50]: 1618
-New extrema at [1000000, 0.55, 250, 50]: 1123
-New extrema at [1000000, 0.55, 300, 50]: 682
-New extrema at [1000000, 0.55, 350, 50]: 326
-New extrema at [1000000, 0.55, 400, 50]: 322
-New extrema at [1000000, 0.55, 450, 50]: 189
-New extrema at [1000000, 0.55, 500, 50]: 152
+New extrema at [1000000, 0.55, 100, 50]: 4878
+New extrema at [1000000, 0.55, 150, 50]: 2765
+New extrema at [1000000, 0.55, 200, 50]: 1619
+New extrema at [1000000, 0.55, 250, 50]: 1136
+New extrema at [1000000, 0.55, 300, 50]: 681
+New extrema at [1000000, 0.55, 350, 50]: 462
+New extrema at [1000000, 0.55, 400, 50]: 292
+New extrema at [1000000, 0.55, 450, 50]: 232
+New extrema at [1000000, 0.55, 500, 50]: 105
 [1000000, 0.55, 500, 50]
 
-False positive counts at [trials, success_rate, scale_circs, path_bias_pct]:
+False positive counts at [num_circs, success_rate, scale_circs, path_bias_pct]:
 (Results are some function of success_rate - path_bias_pct vs scale_circs)
-New extrema at [1000000, 0.6, 100, 50]: 519
-New extrema at [1000000, 0.6, 150, 50]: 103
-New extrema at [1000000, 0.6, 200, 50]: 17
-New extrema at [1000000, 0.6, 250, 50]: 5
-New extrema at [1000000, 0.6, 300, 50]: 2
-New extrema at [1000000, 0.6, 350, 50]: 1
-New extrema at [1000000, 0.6, 450, 50]: 0
+New extrema at [1000000, 0.6, 100, 50]: 545
+New extrema at [1000000, 0.6, 150, 50]: 108
+New extrema at [1000000, 0.6, 200, 50]: 25
+New extrema at [1000000, 0.6, 250, 50]: 7
+New extrema at [1000000, 0.6, 300, 50]: 0
 [1000000, 0.6, 500, 50]
 
-False positive counts at [trials, success_rate, scale_circs, path_bias_pct]:
+False positive counts at [num_circs, success_rate, scale_circs, path_bias_pct]:
 (Results are some function of success_rate - path_bias_pct vs scale_circs)
-New extrema at [1000000, 0.45, 100, 30]: 17
+New extrema at [1000000, 0.45, 100, 30]: 16
 New extrema at [1000000, 0.45, 150, 30]: 0
 [1000000, 0.45, 500, 30]
 
@@ -171,17 +172,17 @@ New extrema at [1000000, 0.45, 150, 30]: 0
 DoS attack durations (in circs) at [success_rate, dos_success_rate, path_bias_pct, scale_thresh]:
 New extrema at [0.8, 0.05, 30, 200]: 150
 New extrema at [0.8, 0.05, 30, 300]: 215
-New extrema at [0.8, 0.05, 30, 400]: 330
-New extrema at [0.8, 0.05, 30, 500]: 368
-New extrema at [0.8, 0.05, 30, 600]: 460
-New extrema at [0.8, 0.05, 30, 700]: 539
-New extrema at [0.8, 0.05, 30, 800]: 593
-New extrema at [0.8, 0.05, 30, 900]: 660
-New extrema at [0.8, 0.05, 30, 1000]: 760
+New extrema at [0.8, 0.05, 30, 400]: 310
+New extrema at [0.8, 0.05, 30, 500]: 380
+New extrema at [0.8, 0.05, 30, 600]: 465
+New extrema at [0.8, 0.05, 30, 700]: 510
+New extrema at [0.8, 0.05, 30, 800]: 658
+New extrema at [0.8, 0.05, 30, 900]: 675
+New extrema at [0.8, 0.05, 30, 1000]: 755
 [0.8, 0.05, 30, 1000]
 
 DoS attack durations (in circs) at [success_rate, dos_success_rate, path_bias_pct, scale_thresh]:
-New extrema at [0.8, 0.25, 30, 500]: 828
+New extrema at [0.8, 0.25, 30, 500]: 805
 New extrema at [0.8, 0.15, 30, 500]: 503
-New extrema at [0.8, 0.04999999999999999, 30, 500]: 355
+New extrema at [0.8, 0.04999999999999999, 30, 500]: 362
 [0.8, 0.04999999999999999, 30, 500]

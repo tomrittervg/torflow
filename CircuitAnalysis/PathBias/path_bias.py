@@ -517,68 +517,68 @@ def main():
   if True:
     print "\n\n===================== False Positives ============================"
 
-    print "\nStartup false positive counts at [trials, success_rate, min_circs, path_bias_pct]:"
+    print "\nStartup false positive counts at [num_circs, success_rate, min_circs, path_bias_pct]:"
     print "(Results are some function of success_rate - path_bias_pct vs min_circs)"
     print brute_force(lambda x,y: x<y,
                      startup_false_positive_test,
-                     #false_positive_test(trials, success_rate, min_circs, path_bias_pct):
-                     [(100000,100000), (0.80, 0.80), (20,200), (70, 70)],
-                     [0, -0.1, 20, 5])
+                     #false_positive_test(num_circs, success_rate, min_circs, path_bias_pct):
+                     [(1000000,1000000), (0.80, 0.80), (25,250), (70, 70)],
+                     [0, -0.1, 25, 5])
 
-    print "\nStartup false positive counts at [trials, success_rate, min_circs, path_bias_pct]:"
+    print "\nStartup false positive counts at [num_circs, success_rate, min_circs, path_bias_pct]:"
     print "(Results are some function of success_rate - path_bias_pct vs min_circs)"
     print brute_force(lambda x,y: x<y,
                      startup_false_positive_test,
-                     #false_positive_test(trials, success_rate, min_circs, path_bias_pct):
-                     [(100000,100000), (0.45, 0.45), (20,200), (30, 30)],
-                     [0, -0.1, 20, 5])
+                     #false_positive_test(num_circs, success_rate, min_circs, path_bias_pct):
+                     [(1000000,1000000), (0.45, 0.45), (25,250), (30, 30)],
+                     [0, -0.1, 25, 5])
 
 
-    print "\nFalse positive counts at [trials, success_rate, scale_circs, path_bias_pct]:"
+    print "\nFalse positive counts at [num_circs, success_rate, scale_circs, path_bias_pct]:"
     print "(Results are some function of success_rate - path_bias_pct vs scale_circs)"
     print brute_force(lambda x,y: x<y,
                      reject_false_positive_test,
-                     #false_positive_test(trials, success_rate, scale_circs, path_bias_pct):
+                     #false_positive_test(num_circs, success_rate, scale_circs, path_bias_pct):
                      [(1000000,1000000), (0.70, 0.70), (100,500), (70, 70)],
                      [0, -0.1, 50, 5])
 
-    print "\nFalse positive counts at [trials, success_rate, scale_circs, path_bias_pct]:"
+    print "\nFalse positive counts at [num_circs, success_rate, scale_circs, path_bias_pct]:"
     print "(Results are some function of success_rate - path_bias_pct vs scale_circs)"
     print brute_force(lambda x,y: x<y,
                      reject_false_positive_test,
-                     #false_positive_test(trials, success_rate, scale_circs, path_bias_pct):
+                     #false_positive_test(num_circs, success_rate, scale_circs, path_bias_pct):
                      [(1000000,1000000), (0.75, 0.75), (100,500), (70, 70)],
                      [0, -0.1, 50, 5])
 
-    print "\nFalse positive counts at [trials, success_rate, scale_circs, path_bias_pct]:"
+    print "\nFalse positive counts at [num_circs, success_rate, scale_circs, path_bias_pct]:"
     print "(Results are some function of success_rate - path_bias_pct vs scale_circs)"
     print brute_force(lambda x,y: x<y,
                      reject_false_positive_test,
-                     #false_positive_test(trials, success_rate, scale_circs, path_bias_pct):
+                     #false_positive_test(num_circs, success_rate, scale_circs, path_bias_pct):
                      [(1000000,1000000), (0.80, 0.80), (100,500), (70, 70)],
                      [0, -0.1, 50, 5])
 
-    print "\nFalse positive counts at [trials, success_rate, scale_circs, path_bias_pct]:"
+    print "\nFalse positive counts at [num_circs, success_rate, scale_circs, path_bias_pct]:"
     print "(Results are some function of success_rate - path_bias_pct vs scale_circs)"
     print brute_force(lambda x,y: x<y,
                      reject_false_positive_test,
-                     #false_positive_test(trials, success_rate, scale_circs, path_bias_pct):
+                     #false_positive_test(num_circs, success_rate, scale_circs, path_bias_pct):
                      [(1000000,1000000), (0.55, 0.55), (100,500), (50, 50)],
                      [0, -0.1, 50, 5])
 
-    print "\nFalse positive counts at [trials, success_rate, scale_circs, path_bias_pct]:"
+    print "\nFalse positive counts at [num_circs, success_rate, scale_circs, path_bias_pct]:"
     print "(Results are some function of success_rate - path_bias_pct vs scale_circs)"
     print brute_force(lambda x,y: x<y,
                      reject_false_positive_test,
-                     #false_positive_test(trials, success_rate, scale_circs, path_bias_pct):
+                     #false_positive_test(num_circs, success_rate, scale_circs, path_bias_pct):
                      [(1000000,1000000), (0.60, 0.60), (100,500), (50, 50)],
                      [0, -0.1, 50, 5])
 
-    print "\nFalse positive counts at [trials, success_rate, scale_circs, path_bias_pct]:"
+    print "\nFalse positive counts at [num_circs, success_rate, scale_circs, path_bias_pct]:"
     print "(Results are some function of success_rate - path_bias_pct vs scale_circs)"
     print brute_force(lambda x,y: x<y,
                      reject_false_positive_test,
-                     #false_positive_test(trials, success_rate, scale_circs, path_bias_pct):
+                     #false_positive_test(num_circs, success_rate, scale_circs, path_bias_pct):
                      [(1000000,1000000), (0.45, 0.45), (100,500), (30, 30)],
                      [0, -0.1, 50, 5])
 
@@ -587,16 +587,16 @@ def main():
     print "\nDoS attack durations (in circs) at [success_rate, dos_success_rate, path_bias_pct, scale_thresh]:"
     print brute_force(lambda x,y: x>y,
                      dos_attack_test,
-                     #dos_attack_test(g, trials, success_rate, dos_success_rate, path_bias_pct):
-                     #false_positive_test(trials, success_rate, scale_circs, path_bias_pct):
+                     #dos_attack_test(g, num_circs, success_rate, dos_success_rate, path_bias_pct):
+                     #false_positive_test(num_circs, success_rate, scale_circs, path_bias_pct):
                      [(0.80, 0.80), (0.05,0.05), (30, 30), (200, 1000)],
                      [-0.1, -0.1, 5, 100])
 
     print "\nDoS attack durations (in circs) at [success_rate, dos_success_rate, path_bias_pct, scale_thresh]:"
     print brute_force(lambda x,y: x<y,
                      dos_attack_test,
-                     #dos_attack_test(g, trials, success_rate, dos_success_rate, path_bias_pct):
-                     #false_positive_test(trials, success_rate, scale_circs, path_bias_pct):
+                     #dos_attack_test(g, num_circs, success_rate, dos_success_rate, path_bias_pct):
+                     #false_positive_test(num_circs, success_rate, scale_circs, path_bias_pct):
                      [(0.80, 0.80), (0.25,0.05), (30, 30), (500, 500)],
                      [-0.1, -0.1, 5, 100])
 
