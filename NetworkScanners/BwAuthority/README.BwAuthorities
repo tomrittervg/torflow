@@ -25,6 +25,12 @@ You can test your capacity by hitting the current test server directly:
 
 The machine will require around 4-5Gbytes/day.
 
+2. Set up TorCtl
+
+You can add TorCtl (pytorctl.git) as a git submodule by running the add_torctl.sh script in
+the root of torflow.git. BwAuthority expects pytorctl to be checked out into the root of
+torflow as TorCtl.
+
 
 3. Compile Tor for your authority and your scanner
 
