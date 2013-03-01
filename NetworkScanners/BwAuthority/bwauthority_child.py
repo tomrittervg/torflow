@@ -28,6 +28,7 @@ import random
 sys.path.append("../../")
 
 from TorCtl.TorUtil import plog
+from aggregate import write_file_list
 
 # WAAAYYYYYY too noisy.
 #import gc
@@ -64,7 +65,8 @@ __selmgr = PathSupport.SelectionManager(
       use_exit=None,
       use_guards=False,
       exit_ports=[443],
-      order_by_ratio=True) # XXX: may be a poor idea for PID control?
+      order_by_ratio=True, # XXX: may be a poor idea for PID control?
+      use_unmeasured=True) 
 
 # exit code to indicate scan completion
 # make sure to update this in bwauthority.py as well
@@ -102,7 +104,11 @@ def choose_url(percentile):
   # TODO: Maybe we don't want to read the file *every* time?
   # Maybe once per slice?
   # Read in the bw auths file
-  f = file("./data/bwfiles", "r")
+  # here is a fine place to make sure we have bwfiles
+  try:
+    f = file("./data/bwfiles", "r")
+  except IOError:
+    write_file_list('./data')
   lines = []
   valid = False
   for l in f.readlines():
@@ -209,6 +215,8 @@ def speedrace(hdlr, start_pct, stop_pct, circs_per_node, save_every, out_dir,
     if hdlr.is_count_met(circs_per_node, successful): break
     hdlr.wait_for_consensus()
 
+
+
     # Check local time. Do not scan between 01:30 and 05:30 local time
     lt = time.localtime()
     sleep_start = time.mktime(lt[0:3]+sleep_start_tp+(0,0,0)+(lt[-1],))
@@ -302,6 +310,7 @@ def main(argv):
     except Exception, e:
       traceback.print_exc()
       plog("WARN", "Can't connect to Tor: "+str(e))
+      sys.exit(STOP_PCT_REACHED)
 
     if db_url:
       hdlr.attach_sql_listener(db_url)
@@ -318,6 +327,7 @@ def main(argv):
     plog("INFO", "Set socks proxy to "+TorUtil.tor_host+":"+str(TorUtil.tor_port))
 
     hdlr.wait_for_consensus()
+
     pct_step = hdlr.rank_to_percent(nodes_per_slice)
 
     # check to see if we are done
