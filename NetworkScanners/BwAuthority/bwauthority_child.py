@@ -65,8 +65,7 @@ __selmgr = PathSupport.SelectionManager(
       use_exit=None,
       use_guards=False,
       exit_ports=[443],
-      order_by_ratio=True, # XXX: may be a poor idea for PID control?
-      use_unmeasured=True) 
+      order_by_ratio=True) # XXX: may be a poor idea for PID control?
 
 # exit code to indicate scan completion
 # make sure to update this in bwauthority.py as well
