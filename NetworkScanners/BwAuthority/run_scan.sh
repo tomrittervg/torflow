@@ -33,7 +33,7 @@ sleep 5
 
 # FIXME: We resume in a ghetto way by saving the bws-*done* files.
 # A more accurate resume could be implemented in bwauthority.py
-find data/scanner.* -name .svn -prune -o -type f -a ! -name '*-done-*' -exec rm {} +
+find data/scanner.* -name .svn -prune -o -type f -a ! -name '*-done-*' -a ! -name bwauthority.cfg -exec rm {} +
 
 rm -f ./data/tor/tor.log
 
