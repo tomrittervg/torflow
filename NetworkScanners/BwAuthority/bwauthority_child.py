@@ -296,6 +296,11 @@ def main(argv):
   (start_pct,stop_pct,nodes_per_slice,save_every,circs_per_node,out_dir,
       max_fetch_time,tor_dir,sleep_start,sleep_stop,
              min_streams,pid_file_name,db_url) = read_config(argv[1])
+
+  # make sure necessary out_dir directory exists
+  path = os.getcwd()+'/'+out_dir
+  if not os.path.exists(path):
+    os.makedirs(path)
  
   if pid_file_name:
     pidfd = file(pid_file_name, 'w')
