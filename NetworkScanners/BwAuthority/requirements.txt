@@ -1,0 +1,29 @@
+--no-use-wheel --no-index
+
+# This is pip/peep requirements.txt file specifying the pinned Python
+# dependencies for running a Bandwidth Authority.
+#
+# To use this file, first ensure that you've got a *recent* version
+# of pip.  If you already have pip, do:
+#
+#     $ pip install --upgrade pip
+#
+# Next, if you'd like to verify the correctness of the downloaded dependencies
+# with SHA-256 (rather than MD5, which is pip's default), do:
+#
+#     $ pip install peep
+#
+# Finally, to use this file, do:
+#
+#     $ peep install -r requirements.txt
+#
+# (Or, if you didn't install peep, do `$ pip install -r requirements.txt`.)
+
+# sha256: NUKQvRsYu2nhGUay2RP9mxXCpKp94uhWXSmUktt3NyE
+pysqlite==2.6.0
+
+# sha256: tYgFyp-PUSPmCfJTqRboeh4-rERqCq4Sjt5jBIXI9AY
+SQLAlchemy==0.7.2
+
+# sha256: p-9DfyW1ROT3T7Mjb8Q80l9db-tgN918ZpMQRtdUOek
+Elixir==0.7.1
