@@ -38,7 +38,41 @@ No special configure script options are needed, but again, both
 need to be running the master branch from tor git.
 
 
-4. Download SQLAlchemy 0.7.x-latest and Elixir 0.7.x-latest
+4. Install Dependencies
+
+
+4.1. Dependencies from your distribution's package manager
+
+In Debian-based systems, the following packages are required:
+
+    $ sudo apt-get install python2.6 libpython2.6-dev libsqlite3-dev
+
+If you want to use postgres support, you should also install python-psycopg2.
+
+
+4.2. Python Dependencies
+
+
+4.2.1. Using Pip or Peep:
+
+First, ensure that you've got a *recent* version of pip.  If you already have
+pip, do:
+
+    $ pip install --upgrade pip
+
+Next, if you'd like to verify the correctness of the downloaded dependencies
+with SHA-256 (rather than MD5, which is pip's default), do:
+
+    $ pip install peep
+
+Finally, do:
+
+    $ peep install -r .../NetworkScanners/BwAuthority/requirements.txt
+
+(Or, if you didn't install peep, do `$ pip install -r requirements.txt`.)
+
+
+4.2.2. The Tedious Way
 
 The latest version of SQLAlchemy is 0.7.2 and the latest version of Elixir
 is 0.7.1 at the time of writing. While TorFlow is written to be compatible
@@ -67,8 +101,6 @@ Elixir-0.7.1.tar.gz  SQLAlchemy-0.7.2.tar.gz    torflow-trunk
 
 Both these libraries also depend upon python-pysqlite2, which should be 
 a package for your distribution (you want 2.3.x for SQLite 3.x).
-
-If you want to use postgres support, you should also install python-psycopg2.
 
 
 5. Enable voting on bandwidths in your authority torrc
