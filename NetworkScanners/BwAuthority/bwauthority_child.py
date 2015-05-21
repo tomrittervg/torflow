@@ -23,6 +23,7 @@ import ConfigParser
 import sqlalchemy
 import sets
 import re
+import ssl
 import random
 
 sys.path.append("../../")
@@ -134,23 +135,31 @@ def http_request(address):
   ''' perform an http GET-request and return 1 for success or 0 for failure '''
 
   request = urllib2.Request(address)
+  try:
+    context = ssl._create_unverified_context()
+  except:
+    context = None
   request.add_header('User-Agent', user_agent)
 
   try:
-    reply = urllib2.urlopen(request)
+    if context:
+      reply = urllib2.urlopen(request, context=context)
+    else:
+      reply = urllib2.urlopen(request)
     decl_length = reply.info().get("Content-Length")
     read_len = len(reply.read())
     plog("DEBUG", "Read: "+str(read_len)+" of declared "+str(decl_length))
     return 1
-  except (ValueError, urllib2.URLError):
+  except (ValueError, urllib2.URLError) as e:
     plog('ERROR', 'The http-request address ' + address + ' is malformed')
+    plog('ERROR', str(e))
     return 0
-  except (IndexError, TypeError):
+  except (IndexError, TypeError) as e:
     plog('ERROR', 'An error occured while negotiating socks5 with Tor')
     return 0
   except KeyboardInterrupt:
     raise KeyboardInterrupt
-  except socks.Socks5Error, e:
+  except socks.Socks5Error as e:
     if e.value[0] == 6:
       plog("NOTICE", "Tor timed out our SOCKS stream request.")
     else:
