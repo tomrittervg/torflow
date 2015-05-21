@@ -362,7 +362,8 @@ def write_file_list(datadir):
 
 def main(argv):
   TorUtil.read_config(argv[1]+"/scanner.1/bwauthority.cfg")
-  TorUtil.loglevel = "NOTICE"
+  TorUtil.loglevel = "DEBUG"
+  TorUtil.logfile = "data/aggregate-debug.log"
 
   (branch, head) = TorUtil.get_git_version(PATH_TO_TORFLOW_REPO)
   plog('INFO', 'TorFlow Version: %s' % branch+' '+head)
@@ -373,7 +374,7 @@ def main(argv):
   s.connect((TorUtil.control_host,TorUtil.control_port))
   c = TorCtl.Connection(s)
   c.debug(file(argv[1]+"/aggregate-control.log", "w", buffering=0))
-  c.authenticate_cookie(file(argv[1]+"/tor/control_auth_cookie",
+  c.authenticate_cookie(file(argv[1]+"/tor.1/control_auth_cookie",
                          "r"))
 
   ns_list = c.get_network_status()
@@ -846,6 +847,7 @@ def main(argv):
   plog("INFO", "Avg network |pid_error|="+str(sum(map(lambda n: abs(n.pid_error), nodes.itervalues()))/len(nodes)))
   plog("INFO", "Avg network +pid_error=+"+str(sum(map(lambda n: n.pid_error, p_nodes))/len(p_nodes)))
   plog("INFO", "Avg network -pid_error="+str(sum(map(lambda n: n.pid_error, n_nodes))/len(n_nodes)))
+
 
   plog("INFO",
        "Measured "+str(measured_pct) +"% of all tor nodes ("

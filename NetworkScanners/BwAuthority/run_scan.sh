@@ -1,7 +1,9 @@
 #!/bin/sh
 
-# Number of scanners to run.
-SCANNER_COUNT=5
+# Number of applications to run.
+SCANNERS_PER_TOR_COUNT=4
+TOR_COUNT=2
+SCANNER_COUNT=$(($SCANNERS_PER_TOR_COUNT * $TOR_COUNT + 1))
 
 # This tor must have the w status line fix as well as the stream bw fix
 # Ie git master or 0.2.2.x
@@ -19,15 +21,17 @@ for n in `seq $SCANNER_COUNT`; do
 done
 
 KILLED_TOR=false
-if [ -f "./data/tor/tor.pid" ]; then
-  PID=`cat ./data/tor/tor.pid`
-  if kill -0 "$PID" 2>/dev/null; then # it is a running process and we may send signals to it
-    kill $PID
-    if [ $? -eq 0 ]; then
-      KILLED_TOR=true
+for n in `seq $TOR_COUNT`; do
+  PIDFILE=./data/tor.${n}/tor.pid
+  if [ -f $PIDFILE ]; then
+    if kill -0 `head -1 $PIDFILE` 2>/dev/null; then # it is a running process and we may send signals to it
+  	  kill `head -1 $PIDFILE`
+  	  if [ $? -eq 0 ]; then
+  	    KILLED_TOR=true
+  	  fi
     fi
   fi
-fi
+done
 
 sleep 5
 
@@ -35,9 +39,10 @@ sleep 5
 # A more accurate resume could be implemented in bwauthority.py
 find data/scanner.* -name .svn -prune -o -type f -a ! -name '*-done-*' -a ! -name bwauthority.cfg -a ! -name .gitignore -exec rm {} +
 
-rm -f ./data/tor/tor.log
-
-$TOR_EXE -f ./data/tor/torrc &
+for n in `seq $TOR_COUNT`; do
+	rm -f ./data/tor.${n}/tor.log
+	$TOR_EXE -f ./data/tor.${n}/torrc &
+done
 
 # If this is a fresh start, we should allow the tors time to download
 # new descriptors.
