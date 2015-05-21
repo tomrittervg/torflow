@@ -3,7 +3,10 @@
            How to Run a Bandwidth-Measuring Directory Authority
 
 
-0. Run a Directory Authority
+0. Run a Directory Authority or Find One
+
+A Directory Authority is not required to run the bw scanners, but it is
+required if you want to submit results for the consensus.
 
 See http://git.torproject.org/checkout/tor/master/doc/v3-authority-howto.txt
 
@@ -12,74 +15,68 @@ your authority. You can get it with:
 
      git clone git://git.torproject.org/git/tor.git tor.git
 
+You can also submit your results to an existing bandwidth authority.
+Basically, this will involve placing the bwscan.V3BandwidthsFile output on a
+webserver or SSH host that a bw authority can use to download that file. See
+Section 4 for more details.
 
-1. Find a machine with 10Mbit+ downstream
+
+1. Find a machine with 100Mbit+ downstream
 
 This can be the same as your directory authority, but it does not have
-to be.  You will not need the 10Mbit continuously, but it should be
+to be.  You will not need the 100Mbit continuously, but it should be
 available on demand, as some of the faster nodes actually do have this
 much slack capacity.
 
 You can test your capacity by hitting the current test server directly:
 # wget --no-check-certificate https://38.229.70.2/64M
 
-The machine will require around 4-5Gbytes/day.
 
-2. Set up TorCtl
+2. Installation and setup
 
-You can add TorCtl (pytorctl.git) as a git submodule by running the add_torctl.sh script in
-the root of torflow.git. BwAuthority expects pytorctl to be checked out into the root of
-torflow as TorCtl.
+The bandwidth authorities are sensitive to exact component versions. There are
+two ways to set them up with the versions they need: use our scripts to
+prepare a virtualenv, or run through the setup manually.
 
+2.1. Scripted virtualenv setup
 
-3. Compile Tor for your authority and your scanner
+The easiest and most reliable setup method is to use the setup.sh script
+to install a python 2.6 virtual environment. This script will download all
+of the dependencies and install them for you, but it will require that you
+have a copy of python2.6 installed and in your path.
 
-No special configure script options are needed, but again, both
-need to be running the master branch from tor git.
+There is also a install-debs.sh script for Debian and Ubuntu systems that will
+handle python2.6 and some additional package dependency installation for you.
 
+2.2. Manual setup
 
-4. Install Dependencies
+You really should at least look at the virtualenv setup.sh script before
+trying this, but if you insist, here are the step by step instructions.
 
+2.2.1. Set up TorCtl
 
-4.1. Dependencies from your distribution's package manager
+You need to add TorCtl (pytorctl.git) as a git submodule by running the
+add_torctl.sh script in the root of torflow.git. BwAuthority expects pytorctl
+to be checked out into the root of torflow as TorCtl.
 
-In Debian-based systems, the following packages are required:
+2.2.2. Set up Tor
 
-    $ sudo apt-get install python2.6 libpython2.6-dev libsqlite3-dev
+The bandwidth authorities expect a tor binary in a tor.git repository along
+side the current torflow checkout. Here is how you would set that up:
 
-If you want to use postgres support, you should also install python-psycopg2.
+  cd ../../../
+  git clone https://git.torproject.org/tor.git tor.git
+  cd tor.git
+  git checkout release-0.2.4
+  ./autogen.sh
+  ./configure --disable-asciidoc
+  make -j4
 
+2.2.3. Install Python Dependencies
 
-4.2. Python Dependencies
+The Bandwidth Authorities use the SQLAlchemy is 0.7.2 and Elixir 0.7.1.
 
-
-4.2.1. Using Pip or Peep:
-
-First, ensure that you've got a *recent* version of pip.  If you already have
-pip, do:
-
-    $ pip install --upgrade pip
-
-Next, if you'd like to verify the correctness of the downloaded dependencies
-with SHA-256 (rather than MD5, which is pip's default), do:
-
-    $ pip install peep
-
-Finally, do:
-
-    $ peep install -r .../NetworkScanners/BwAuthority/requirements.txt
-
-(Or, if you didn't install peep, do `$ pip install -r requirements.txt`.)
-
-
-4.2.2. The Tedious Way
-
-The latest version of SQLAlchemy is 0.7.2 and the latest version of Elixir
-is 0.7.1 at the time of writing. While TorFlow is written to be compatible
-with 0.4.x and 0.5.x and 0.6.x of SQLAlchemy, 0.5.5 was noted for
-problems parsing postgres database URLS, 0.4.8 seems to exhibit odd object persistence bugs.
-
-If your distribution does not provide 0.7.x or newer, you will likely want to
+If your distribution does not provide 0.7.x, you will likely want to
 download that tarball from:
 
 http://pypi.python.org/pypi/SQLAlchemy/
@@ -88,7 +85,7 @@ Untar it in the same directory that contains the TorFlow checkout and
 your git checkout (for peace of mind, you will want all three in the
 same place).
 
-If your distribution does not provide Elixir 0.7.x or above, do the
+If your distribution does not provide Elixir 0.7.x, do the
 same with Elixir:
 
 http://pypi.python.org/pypi/Elixir/
@@ -102,50 +99,13 @@ Elixir-0.7.1.tar.gz  SQLAlchemy-0.7.2.tar.gz    torflow-trunk
 Both these libraries also depend upon python-pysqlite2, which should be 
 a package for your distribution (you want 2.3.x for SQLite 3.x).
 
-
-5. Enable voting on bandwidths in your authority torrc
-
-The new configuration option is V3BandwidthsFile. It specifies the 
-file containing your measured results, which we will configure
-in the later steps. Pick a location accessible by your Tor 
-directory authority process and any rsync user you may have. 
-
-I recommend /var/lib/tor.scans/bwscan. If you try to use
-/var/lib/tor, tor will reset your permissions and exclude
-any other users from writing the file there.
-
-
-6. Create a new user capable of writing the bwscan file
-
-You will need to run the scanning scripts as a separate user. That's
-because the scripts run commands like 'killall tor' and expect it not
-to affect any other tor processes.
-
-The new user should have write access to your bwscan dir from step 5.
-
-# useradd bwscanner
-# chown toruser:bwscanner /var/lib/tor.scans/
-# chmod 770 /var/lib/tor.scans/
-
-
-7. Spot-check ./run_scan.sh
-
-This is the script that will launch the scanners. By default, it
-launches four in parallel, and expects the git checkout to be in 
-../../../tor.git/, and the SQLAlchemy extraction to be in 
-../../../SQLAlchemy-0.7.x
-
-Again, note that this is the same directory that contains the
-torflow checkout directory.
-
-
-8. Set up a cron job to submit results
+2.2.4. Set up a cron job to submit results
 
 The provided cron.sh script is meant to be used in a cron job to
 aggregate the results and provide them to your directory authority at
 least every four hours, but more often is better.
 
-Because cron.sh is likely to be updated by SVN, you're going to want to
+Because cron.sh is likely to be updated by git, you're going to want to
 make your own copy before you install the cron job:
 
 # cp cron.sh cron-mine.sh
@@ -176,7 +136,22 @@ will require the most bandwidth, and ./data/scanner.4 will require the
 least.
 
 
-9. PROFIT!
+3. Enable voting on bandwidths in your authority torrc
+
+The Bandwidth Authorities can be run without a directory authority, but for
+their results to count, they must be paired with a working dirauth.
+
+The dirauth-side configuration option is V3BandwidthsFile. It specifies the
+file containing your measured results, which we will configure in the later
+steps. Pick a location accessible by your Tor directory authority process and
+any rsync user you may have. 
+
+I recommend /var/lib/tor.scans/bwscan. If you try to use /var/lib/tor, tor
+will reset your permissions and exclude any other users from writing the file
+there.
+
+
+4. PROFIT!
 
 That's all there is to it. No '????' step needed!
 
@@ -185,8 +160,8 @@ That's all there is to it. No '????' step needed!
 Appendix A: Creating the HTTPS scanning server
 
 The scanner server will need approx 30-40Mbit of upstream available, and will
-need to serve https via a fixed IP. SSL is needed to avoid HTTP content
-caches at the various exit nodes. Self-signed certs are OK.
+need to serve https via a fixed IP. SSL is needed to avoid HTTP content caches
+at the various exit nodes. Self-signed certs are OK.
 
 The server will consume around 12-15Gbytes/day.
 
@@ -202,26 +177,3 @@ for i in 512 256 128 64 32 16; do
 done
 
 
-Appendix B: Configuring PostgreSQL backend
-
-To use postgres instead of sqlite:
-
-1. Install postgresql:
-sudo apt-get install postgresql postgresql-common postgresql-client-common
-
-2. Create role:
-sudo -u postgres psql
- CREATE USER bwscanner WITH PASSWORD 'password';
-
-3. Create databases:
-sudo -u postgres createdb BwScan1 -O bwscanner
-sudo -u postgres createdb BwScan2 -O bwscanner
-sudo -u postgres createdb BwScan3 -O bwscanner
-sudo -u postgres createdb BwScan4 -O bwscanner
-
-4. Update bwauthority.cfg files
-comment out the lines beginning with db_url=
-uncomment the line:
-#db_url = postgresql://bwscanner:password@127.0.0.1/BwScan1
-
-5. ./run_scan.sh

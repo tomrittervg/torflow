@@ -1,4 +1,4 @@
-#!/usr/bin/python
+#!/usr/bin/env python
 #
 # 2009 Mike Perry, Karsten Loesing
 

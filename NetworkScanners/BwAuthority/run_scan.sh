@@ -49,8 +49,17 @@ else
   sleep 500
 fi
 
+if [ -f bwauthenv/bin/activate ]
+then
+  echo "Using virtualenv..."
+  . bwauthenv/bin/activate
+fi
+
 [ -z "$PYTHONPATH" ] || export PYTHONPATH
 for n in `seq $SCANNER_COUNT`; do
     nice -n 20 ./bwauthority.py ./data/scanner.${n}/bwauthority.cfg \
          > ./data/scanner.${n}/bw.log 2>&1 &
 done
+
+echo "Launched $SCANNER_COUNT bandwidth scanners. Job listing: "
+jobs -l
