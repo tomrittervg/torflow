@@ -10,7 +10,7 @@ See http://git.torproject.org/checkout/tor/master/doc/v3-authority-howto.txt
 You will want the authority to use the new bandwidth voting code for
 your authority. You can get it with:
 
-     git clone git://git.torproject.org/git/tor.git tor.git
+     git clone https://git.torproject.org/tor.git
 
 
 1. Find a machine with 10Mbit+ downstream
@@ -40,7 +40,7 @@ need to be running the master branch from tor git.
 
 4. Download SQLAlchemy 0.7.x-latest and Elixir 0.7.x-latest
 
-The latest version of SQLAlchemy is 0.7.2 and the latest version of Elixir
+The latest* version of SQLAlchemy is 0.7.10 and the latest version of Elixir
 is 0.7.1 at the time of writing. While TorFlow is written to be compatible
 with 0.4.x and 0.5.x and 0.6.x of SQLAlchemy, 0.5.5 was noted for
 problems parsing postgres database URLS, 0.4.8 seems to exhibit odd object persistence bugs.
@@ -62,8 +62,8 @@ http://pypi.python.org/pypi/Elixir/
 So for example, an ls in ~/code/tor/ should look like this:
 
 # ls ~/code/tor/
-Elixir-0.7.1         SQLAlchemy-0.7.2           tor.git
-Elixir-0.7.1.tar.gz  SQLAlchemy-0.7.2.tar.gz    torflow-trunk
+Elixir-0.7.1         SQLAlchemy-0.7.10           tor
+Elixir-0.7.1.tar.gz  SQLAlchemy-0.7.10.tar.gz    torflow
 
 Both these libraries also depend upon python-pysqlite2, which should be 
 a package for your distribution (you want 2.3.x for SQLite 3.x).
@@ -100,7 +100,7 @@ The new user should have write access to your bwscan dir from step 5.
 
 This is the script that will launch the scanners. By default, it
 launches four in parallel, and expects the git checkout to be in 
-../../../tor.git/, and the SQLAlchemy extraction to be in 
+../../../tor/, and the SQLAlchemy extraction to be in 
 ../../../SQLAlchemy-0.7.x
 
 Again, note that this is the same directory that contains the

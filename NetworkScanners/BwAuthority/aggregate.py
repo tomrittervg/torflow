@@ -58,7 +58,7 @@ MAX_SCAN_AGE = 60*60*24*1.5
 
 # path to git repos (.git)
 PATH_TO_TORFLOW_REPO = '../../.git/'
-PATH_TO_TORCTL_REPO = '../../TorCtl/.git/'
+PATH_TO_TORCTL_REPO = '../../.git/modules/TorCtl/'
 
 def base10_round(bw_val):
   # This keeps the first 3 decimal digits of the bw value only
