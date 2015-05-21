@@ -290,6 +290,8 @@ def speedrace(hdlr, start_pct, stop_pct, circs_per_node, save_every, out_dir,
   plog('DEBUG', 'Wrote stats')
   #hdlr.save_sql_file(sql_file, os.getcwd()+"/"+out_dir+"/bw-db-"+str(lo)+":"+str(hi)+"-"+time.strftime("20%y-%m-%d-%H:%M:%S")+".sqlite")
 
+  return successful
+
 def main(argv):
   plog("DEBUG", "Child Process Spawning...")
   TorUtil.read_config(argv[1])
@@ -340,8 +342,8 @@ def main(argv):
         sys.exit(STOP_PCT_REACHED)
 
     plog("DEBUG", "Starting slice number %s" % slice_num)
-    speedrace(hdlr, slice_num*pct_step + start_pct, (slice_num + 1)*pct_step + start_pct, circs_per_node, save_every, out_dir,
-              max_fetch_time, sleep_start, sleep_stop, slice_num,
+    successful = speedrace(hdlr, slice_num*pct_step + start_pct, (slice_num + 1)*pct_step + start_pct, circs_per_node,
+              save_every, out_dir, max_fetch_time, sleep_start, sleep_stop, slice_num,
               min_streams, sql_file)
 
     # For debugging memory leak..
@@ -352,6 +354,12 @@ def main(argv):
 
     #circ_measure(hdlr, pct, pct+pct_step, circs_per_node, save_every, 
     #  out_dir, max_fetch_time, sleep_start, sleep_stop, slice_num, sql_file)
+
+    # XXX: Hack this to return a codelen double the slice size on failure?
+    plog("NOTICE", "Slice success count: "+str(successful))
+    if successful == 0:
+      plog("NOTICE", "Slice success count is ZERO!")
+
     sys.exit(0)
 
 def ignore_streams(c,hdlr):
