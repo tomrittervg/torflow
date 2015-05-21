@@ -15,7 +15,7 @@ STOP_PCT_REACHED = 9
 
 # path to git repos (.git)
 PATH_TO_TORFLOW_REPO = '../../.git/'
-PATH_TO_TORCTL_REPO = '../../TorCtl/.git/'
+PATH_TO_TORCTL_REPO = '../../.git/modules/TorCtl/'
 
 def main(argv):
   (branch, head) = get_git_version(PATH_TO_TORFLOW_REPO)
