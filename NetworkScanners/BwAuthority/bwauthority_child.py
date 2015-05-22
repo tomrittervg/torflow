@@ -95,9 +95,13 @@ def read_config(filename):
   pid_file = config.get('BwAuthority', 'pid_file')
   db_url = config.get('BwAuthority', 'db_url')
 
+  only_unmeasured = config.getint('BwAuthority', 'only_unmeasured')
+  min_unmeasured = config.getint('BwAuthority', 'min_unmeasured')
+
   return (start_pct,stop_pct,nodes_per_slice,save_every,
             circs_per_node,out_dir,max_fetch_time,tor_dir,
-            sleep_start,sleep_stop,min_streams,pid_file,db_url)
+            sleep_start,sleep_stop,min_streams,pid_file,db_url,only_unmeasured,
+            min_unmeasured)
 
 def choose_url(percentile):
   # TODO: Maybe we don't want to read the file *every* time?
@@ -205,7 +209,7 @@ class BwScanHandler(ScanSupport.SQLScanHandler):
 
 def speedrace(hdlr, start_pct, stop_pct, circs_per_node, save_every, out_dir,
               max_fetch_time, sleep_start_tp, sleep_stop_tp, slice_num,
-              min_streams, sql_file):
+              min_streams, sql_file, only_unmeasured):
   hdlr.set_pct_rstr(start_pct, stop_pct)
 
   attempt = 0
@@ -213,8 +217,6 @@ def speedrace(hdlr, start_pct, stop_pct, circs_per_node, save_every, out_dir,
   while True:
     if hdlr.is_count_met(circs_per_node, successful): break
     hdlr.wait_for_consensus()
-
-
 
     # Check local time. Do not scan between 01:30 and 05:30 local time
     lt = time.localtime()
@@ -239,7 +241,14 @@ def speedrace(hdlr, start_pct, stop_pct, circs_per_node, save_every, out_dir,
     # stream.. however, we count it as 'successful' below
     timer = threading.Timer(max_fetch_time, lambda: hdlr.close_streams(7))
     timer.start()
-    url = choose_url(start_pct)
+
+    # Always use median URL size for unmeasured nodes
+    # They may be too slow..
+    if only_unmeasured:
+      url = choose_url(50)
+    else:
+      url = choose_url(start_pct)
+
     plog("DEBUG", "Launching stream request for url "+url+" in "+str(start_pct)+'-'+str(stop_pct) + '%')
     ret = http_request(url)
     timer.cancel()
@@ -297,7 +306,8 @@ def main(argv):
   TorUtil.read_config(argv[1])
   (start_pct,stop_pct,nodes_per_slice,save_every,circs_per_node,out_dir,
       max_fetch_time,tor_dir,sleep_start,sleep_stop,
-             min_streams,pid_file_name,db_url) = read_config(argv[1])
+             min_streams,pid_file_name,db_url,only_unmeasured,
+             min_unmeasured) = read_config(argv[1])
 
   # make sure necessary out_dir directory exists
   path = os.getcwd()+'/'+out_dir
@@ -332,9 +342,21 @@ def main(argv):
     socket.socket = socks.socksocket
     plog("INFO", "Set socks proxy to "+TorUtil.tor_host+":"+str(TorUtil.tor_port))
 
+    hdlr.schedule_selmgr(lambda s: setattr(s, "only_unmeasured", only_unmeasured))
+
     hdlr.wait_for_consensus()
 
+    # We should go to sleep if there are less than 5 unmeasured nodes after
+    # consensus update
+    while min_unmeasured and hdlr.get_unmeasured() < min_unmeasured:
+      plog("NOTICE", "Less than "+str(min_unmeasured)+" unmeasured nodes ("+str(hdlr.get_unmeasured())+"). Sleeping for a bit")
+      time.sleep(3600) # Until next consensus arrives
+      plog("NOTICE", "Woke up from waiting for more unmeasured nodes. Getting consensus and checking again")
+      hdlr.wait_for_consensus()
+
     pct_step = hdlr.rank_to_percent(nodes_per_slice)
+    plog("INFO", "Percent per slice is: "+str(pct_step))
+    if pct_step > 100: pct_step = 100
 
     # check to see if we are done
     if (slice_num * pct_step + start_pct > stop_pct):
@@ -344,7 +366,7 @@ def main(argv):
     plog("DEBUG", "Starting slice number %s" % slice_num)
     successful = speedrace(hdlr, slice_num*pct_step + start_pct, (slice_num + 1)*pct_step + start_pct, circs_per_node,
               save_every, out_dir, max_fetch_time, sleep_start, sleep_stop, slice_num,
-              min_streams, sql_file)
+              min_streams, sql_file, only_unmeasured)
 
     # For debugging memory leak..
     #TorUtil.dump_class_ref_counts(referrer_depth=1)

@@ -1,7 +1,7 @@
 #!/bin/sh
 
 # Number of scanners to run.
-SCANNER_COUNT=4
+SCANNER_COUNT=5
 
 # This tor must have the w status line fix as well as the stream bw fix
 # Ie git master or 0.2.2.x
