@@ -10,7 +10,6 @@ OUTPUT=$SCANNER_DIR/bwscan.V3BandwidthsFile
 cd $SCANNER_DIR # Needed for import to work properly.
 if [ -f bwauthenv/bin/activate ]
 then
-  echo "Using virtualenv..."
   . bwauthenv/bin/activate
 fi
 $SCANNER_DIR/aggregate.py $SCANNER_DIR/data $OUTPUT

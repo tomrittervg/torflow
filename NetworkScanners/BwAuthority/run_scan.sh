@@ -51,7 +51,7 @@ fi
 
 if [ -f bwauthenv/bin/activate ]
 then
-  echo "Using virtualenv..."
+  echo "Using virtualenv in bwauthenv..."
   . bwauthenv/bin/activate
 fi
 

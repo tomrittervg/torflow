@@ -41,12 +41,9 @@ prepare a virtualenv, or run through the setup manually.
 2.1. Scripted virtualenv setup
 
 The easiest and most reliable setup method is to use the setup.sh script
-to install a python 2.6 virtual environment. This script will download all
+to install a python 2.6/2.7 virtual environment. This script will download all
 of the dependencies and install them for you, but it will require that you
-have a copy of python2.6 installed and in your path.
-
-There is also a install-debs.sh script for Debian and Ubuntu systems that will
-handle python2.6 and some additional package dependency installation for you.
+have a copy of python2.6 or python2.7 installed and in your path.
 
 2.2. Manual setup
 

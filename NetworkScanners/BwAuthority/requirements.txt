@@ -19,11 +19,11 @@
 #
 # (Or, if you didn't install peep, do `$ pip install -r requirements.txt`.)
 
-# sha256: NUKQvRsYu2nhGUay2RP9mxXCpKp94uhWXSmUktt3NyE
-pysqlite==2.6.0
+# sha256: _pw1IWv1bIWLNMS0yL5-NFZt3vKWcOWltD-cuOz7so0
+pysqlite==2.6.3
 
-# sha256: tYgFyp-PUSPmCfJTqRboeh4-rERqCq4Sjt5jBIXI9AY
-SQLAlchemy==0.7.2
+# sha256: d6o51lydBD66a6Mps1n_hnQk_WxAO3wMsRK2XlB-HWY
+SQLAlchemy==0.7.10
 
 # sha256: p-9DfyW1ROT3T7Mjb8Q80l9db-tgN918ZpMQRtdUOek
 Elixir==0.7.1

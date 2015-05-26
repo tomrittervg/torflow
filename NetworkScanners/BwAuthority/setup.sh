@@ -3,18 +3,21 @@
 SCANNER_DIR=$(dirname "$0")
 SCANNER_DIR=$(readlink -f "$SCANNER_DIR")
 
-# 1. Install python2.6 if needed
-if [ -z "$(which python2.6)" ]
+PYTHON=$(which python2.6 || which python2.7)
+
+# 1. Install python if needed
+if [ -z "$(which $PYTHON)" ]
 then
-  echo "We need python2.6 to be in the path."
-  echo "If you are on a Debian or Ubuntu system, you can try ./install-debs.sh"
+  echo "We need python2.6 or 2.7 to be in the path."
+  echo "If you are on a Debian or Ubuntu system, you can try: "
+  echo " sudo apt-get install python2.7 python2.7-dev libpython2.7-dev libsqlite3-dev python-virtualenv autoconf2.13 automake make libevent-dev"
   exit 1
 fi
 
 if [ -z "$(which virtualenv)" ]
 then
   echo "We need virtualenv to be in the path. If you are on a debian system, try:"
-  echo " sudo apt-get install libsqlite3-dev python-virtualenv"
+  echo " sudo apt-get install python-dev libsqlite3-dev python-virtualenv autoconf2.13 automake make libevent-dev"
   exit 1
 fi
 
@@ -39,7 +42,7 @@ fi
 # 4. Initialize virtualenv
 if [ ! -f bwauthenv/bin/activate ]
 then
-  virtualenv -p python2.6 bwauthenv
+  virtualenv -p $PYTHON bwauthenv
 fi
 source bwauthenv/bin/activate
 
