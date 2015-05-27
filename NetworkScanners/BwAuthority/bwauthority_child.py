@@ -226,20 +226,7 @@ def speedrace(hdlr, start_pct, stop_pct, circs_per_node, save_every, out_dir,
   successful = 0
   while True:
     if hdlr.is_count_met(circs_per_node, successful): break
-    hdlr.wait_for_consensus()
-
-    # Check local time. Do not scan between 01:30 and 05:30 local time
-    lt = time.localtime()
-    sleep_start = time.mktime(lt[0:3]+sleep_start_tp+(0,0,0)+(lt[-1],))
-    sleep_stop = time.mktime(lt[0:3]+sleep_stop_tp+(0,0,0)+(lt[-1],))
     t0 = time.time()
-    if sleep_start <= t0 and t0 <= sleep_stop:
-      plog("NOTICE", "It's bedtime. Sleeping for "+str(round((sleep_stop-t0)/3600.0,1))+"h")
-      try:
-        time.sleep(sleep_stop - t0)
-      except:
-        pass
-      t0 = time.time()
 
     hdlr.new_exit()
     attempt += 1
@@ -363,6 +350,13 @@ def main(argv):
       time.sleep(3600) # Until next consensus arrives
       plog("NOTICE", "Woke up from waiting for more unmeasured nodes. Getting consensus and checking again")
       hdlr.wait_for_consensus()
+
+    # Now that we have the consensus, we shouldn't need to listen
+    # for new consensus events.
+    c.set_events([TorCtl.EVENT_TYPE.STREAM,
+          TorCtl.EVENT_TYPE.BW,
+          TorCtl.EVENT_TYPE.CIRC,
+          TorCtl.EVENT_TYPE.STREAM_BW], True)
 
     pct_step = hdlr.rank_to_percent(nodes_per_slice)
     plog("INFO", "Percent per slice is: "+str(pct_step))
