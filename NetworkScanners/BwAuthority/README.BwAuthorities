@@ -156,7 +156,7 @@ That's all there is to it. No '????' step needed!
 
 Appendix A: Creating the HTTPS scanning server
 
-The scanner server will need approx 30-40Mbit of upstream available, and will
+The scanner server will need 500Mbit-1Gbit of upstream available, and will
 need to serve https via a fixed IP. SSL is needed to avoid HTTP content caches
 at the various exit nodes. Self-signed certs are OK.
 
