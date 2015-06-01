@@ -4,6 +4,7 @@ from sys import path
 from sys import exit
 from subprocess import Popen
 path.append("../../")
+import TorCtl.TorUtil
 from TorCtl.TorUtil import plog as plog
 from TorCtl.TorUtil import get_git_version as get_git_version
 from signal import signal, SIGTERM, SIGKILL
@@ -21,10 +22,11 @@ PATH_TO_TORCTL_REPO = '../../.git/modules/TorCtl/'
 p = None
 
 def main(argv):
+  TorCtl.TorUtil.read_config(argv[1])
   (branch, head) = get_git_version(PATH_TO_TORFLOW_REPO)
-  plog('INFO', 'TorFlow Version: %s' % branch+' '+head)
+  plog('NOTICE', 'TorFlow Version: %s' % branch+' '+head)
   (branch, head) = get_git_version(PATH_TO_TORCTL_REPO)
-  plog('INFO', 'TorCtl Version: %s' % branch+' '+head)
+  plog('NOTICE', 'TorCtl Version: %s' % branch+' '+head)
   slice_num = 0 
   while True:
     plog('INFO', 'Beginning time loop')
@@ -34,9 +36,9 @@ def main(argv):
     if (p.returncode == 0):
       slice_num += 1
     elif (p.returncode == RESTART_SLICE):
-      plog('INFO', 'restarting slice_num '+str(slice_num))
+      plog('NOTICE', 'restarting slice_num '+str(slice_num))
     elif (p.returncode == STOP_PCT_REACHED):
-      plog('INFO', 'restarting from slice 0')
+      plog('NOTICE', 'restarting from slice 0')
       slice_num = 0
     elif (abs(p.returncode) == SIGKILL):
       plog('WARN', 'Child process recieved SIGKILL, exiting')
@@ -67,6 +69,6 @@ if __name__ == '__main__':
   except KeyboardInterrupt:
     global p
     p.kill()
-    plog('INFO', "Ctrl + C was pressed. Exiting ... ")
-  except Exception, e:
-    plog('ERROR', "An unexpected error occured.")
+    plog('NOTICE', "Ctrl + C was pressed. Exiting ... ")
+  except Exception as e:
+    plog('ERROR', "An unexpected error occured: "+str(e))

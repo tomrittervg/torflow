@@ -221,6 +221,7 @@ class BwScanHandler(ScanSupport.SQLScanHandler):
 def speedrace(hdlr, start_pct, stop_pct, circs_per_node, save_every, out_dir,
               max_fetch_time, sleep_start_tp, sleep_stop_tp, slice_num,
               min_streams, sql_file, only_unmeasured):
+  plog("NOTICE", "Starting slice for percentiles "+str(start_pct)+"-"+str(stop_pct))
   hdlr.set_pct_rstr(start_pct, stop_pct)
 
   attempt = 0
@@ -300,12 +301,12 @@ def speedrace(hdlr, start_pct, stop_pct, circs_per_node, save_every, out_dir,
   return successful
 
 def main(argv):
-  plog("DEBUG", "Child Process Spawning...")
   TorUtil.read_config(argv[1])
   (start_pct,stop_pct,nodes_per_slice,save_every,circs_per_node,out_dir,
       max_fetch_time,tor_dir,sleep_start,sleep_stop,
              min_streams,pid_file_name,db_url,only_unmeasured,
              min_unmeasured) = read_config(argv[1])
+  plog("NOTICE", "Child Process Spawned...")
 
   # make sure necessary out_dir directory exists
   path = os.getcwd()+'/'+out_dir
@@ -365,10 +366,9 @@ def main(argv):
 
     # check to see if we are done
     if (slice_num * pct_step + start_pct > stop_pct):
-        plog('INFO', 'stop_pct: %s reached. Exiting with %s' % (stop_pct, STOP_PCT_REACHED))
+        plog('NOTICE', 'Child stop point %s reached. Exiting with %s' % (stop_pct, STOP_PCT_REACHED))
         sys.exit(STOP_PCT_REACHED)
 
-    plog("DEBUG", "Starting slice number %s" % slice_num)
     successful = speedrace(hdlr, slice_num*pct_step + start_pct, (slice_num + 1)*pct_step + start_pct, circs_per_node,
               save_every, out_dir, max_fetch_time, sleep_start, sleep_stop, slice_num,
               min_streams, sql_file, only_unmeasured)
@@ -383,9 +383,9 @@ def main(argv):
     #  out_dir, max_fetch_time, sleep_start, sleep_stop, slice_num, sql_file)
 
     # XXX: Hack this to return a codelen double the slice size on failure?
-    plog("NOTICE", "Slice success count: "+str(successful))
+    plog("INFO", "Slice success count: "+str(successful))
     if successful == 0:
-      plog("NOTICE", "Slice success count is ZERO!")
+      plog("WARN", "Slice success count was ZERO!")
 
     sys.exit(0)
 

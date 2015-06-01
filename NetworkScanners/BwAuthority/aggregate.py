@@ -362,13 +362,12 @@ def write_file_list(datadir):
 
 def main(argv):
   TorUtil.read_config(argv[1]+"/scanner.1/bwauthority.cfg")
-  TorUtil.loglevel = "DEBUG"
   TorUtil.logfile = "data/aggregate-debug.log"
 
   (branch, head) = TorUtil.get_git_version(PATH_TO_TORFLOW_REPO)
-  plog('INFO', 'TorFlow Version: %s' % branch+' '+head)
+  plog('NOTICE', 'TorFlow Version: %s' % branch+' '+head)
   (branch, head) = TorUtil.get_git_version(PATH_TO_TORCTL_REPO)
-  plog('INFO', 'TorCtl Version: %s' % branch+' '+head)
+  plog('NOTICE', 'TorCtl Version: %s' % branch+' '+head)
 
   s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
   s.connect((TorUtil.control_host,TorUtil.control_port))
@@ -849,7 +848,7 @@ def main(argv):
   plog("INFO", "Avg network -pid_error="+str(sum(map(lambda n: n.pid_error, n_nodes))/len(n_nodes)))
 
 
-  plog("INFO",
+  plog("NOTICE",
        "Measured "+str(measured_pct) +"% of all tor nodes ("
        +str(measured_bw_pct)+"% of previous consensus bw).")
 
