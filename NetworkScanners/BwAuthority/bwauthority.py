@@ -12,10 +12,13 @@ from signal import signal, SIGTERM, SIGKILL
 # exit code to indicate scan completion
 # make sure to update this in bwauthority_child.py as well
 STOP_PCT_REACHED = 9
+RESTART_SLICE = 1
 
 # path to git repos (.git)
 PATH_TO_TORFLOW_REPO = '../../.git/'
 PATH_TO_TORCTL_REPO = '../../.git/modules/TorCtl/'
+
+p = None
 
 def main(argv):
   (branch, head) = get_git_version(PATH_TO_TORFLOW_REPO)
@@ -30,6 +33,8 @@ def main(argv):
     p.wait()
     if (p.returncode == 0):
       slice_num += 1
+    elif (p.returncode == RESTART_SLICE):
+      plog('INFO', 'restarting slice_num '+str(slice_num))
     elif (p.returncode == STOP_PCT_REACHED):
       plog('INFO', 'restarting from slice 0')
       slice_num = 0
@@ -60,6 +65,7 @@ if __name__ == '__main__':
   try:
     main(s_argv)
   except KeyboardInterrupt:
+    global p
     p.kill()
     plog('INFO', "Ctrl + C was pressed. Exiting ... ")
   except Exception, e:

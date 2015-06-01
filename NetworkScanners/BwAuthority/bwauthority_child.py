@@ -72,6 +72,7 @@ __selmgr = PathSupport.SelectionManager(
 # exit code to indicate scan completion
 # make sure to update this in bwauthority.py as well
 STOP_PCT_REACHED = 9
+RESTART_SLICE = 1
 
 def read_config(filename):
   config = ConfigParser.SafeConfigParser()
@@ -343,20 +344,20 @@ def main(argv):
 
     hdlr.wait_for_consensus()
 
-    # We should go to sleep if there are less than 5 unmeasured nodes after
-    # consensus update
-    while min_unmeasured and hdlr.get_unmeasured() < min_unmeasured:
-      plog("NOTICE", "Less than "+str(min_unmeasured)+" unmeasured nodes ("+str(hdlr.get_unmeasured())+"). Sleeping for a bit")
-      time.sleep(3600) # Until next consensus arrives
-      plog("NOTICE", "Woke up from waiting for more unmeasured nodes. Getting consensus and checking again")
-      hdlr.wait_for_consensus()
-
     # Now that we have the consensus, we shouldn't need to listen
     # for new consensus events.
     c.set_events([TorCtl.EVENT_TYPE.STREAM,
           TorCtl.EVENT_TYPE.BW,
           TorCtl.EVENT_TYPE.CIRC,
           TorCtl.EVENT_TYPE.STREAM_BW], True)
+
+    # We should go to sleep if there are less than 5 unmeasured nodes after
+    # consensus update
+    if min_unmeasured and hdlr.get_unmeasured() < min_unmeasured:
+      plog("NOTICE", "Less than "+str(min_unmeasured)+" unmeasured nodes ("+str(hdlr.get_unmeasured())+"). Sleeping for a bit")
+      time.sleep(3600) # Until next consensus arrives
+      plog("NOTICE", "Woke up from waiting for more unmeasured nodes.  Requesting slice restart.")
+      sys.exit(RESTART_SLICE)
 
     pct_step = hdlr.rank_to_percent(nodes_per_slice)
     plog("INFO", "Percent per slice is: "+str(pct_step))
