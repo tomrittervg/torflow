@@ -49,7 +49,8 @@ user_agent = "Mozilla/4.0 (compatible; MSIE 6.0; Windows NT 5.1; .NET CLR 1.0.37
 # Note these urls should be https due to caching considerations.
 # If you really must make them http, be sure to change exit_ports to [80]
 # below, or else the scan will not finish.
-urls =         ["https://38.229.70.2/", "https://38.229.72.16/bwauth.torproject.org/"]
+# Doesn't work: "https://38.229.70.2/"
+urls =         ["https://38.229.72.16/bwauth.torproject.org/"]
 
 
 # Do NOT modify this object directly after it is handed to PathBuilder
