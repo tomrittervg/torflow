@@ -491,10 +491,15 @@ def main(argv):
 
     for cl in ["Guard+Exit", "Guard", "Exit", "Middle"]:
       c_nodes = filter(lambda n: n.node_class() == cl, nodes.itervalues())
-      true_filt_avg[cl] = sum(map(lambda n: n.filt_bw, c_nodes))/float(len(c_nodes))
-      true_strm_avg[cl] = sum(map(lambda n: n.strm_bw, c_nodes))/float(len(c_nodes))
-      true_circ_avg[cl] = sum(map(lambda n: (1.0-n.circ_fail_rate),
+      if len(c_nodes) > 0:
+        true_filt_avg[cl] = sum(map(lambda n: n.filt_bw, c_nodes))/float(len(c_nodes))
+        true_strm_avg[cl] = sum(map(lambda n: n.strm_bw, c_nodes))/float(len(c_nodes))
+        true_circ_avg[cl] = sum(map(lambda n: (1.0-n.circ_fail_rate),
                              c_nodes))/float(len(c_nodes))
+      else:
+        true_filt_avg[cl] = 0.0
+        true_strm_avg[cl] = 0.0
+        true_circ_avg[cl] = 0.0
 
       # FIXME: This may be expensive
       pid_tgt_avg[cl] = true_filt_avg[cl]
@@ -837,10 +842,13 @@ def main(argv):
     c_nodes = filter(lambda n: n.node_class() == cl, nodes.itervalues())
     nc_nodes = filter(lambda n: n.pid_error < 0, c_nodes)
     pc_nodes = filter(lambda n: n.pid_error > 0, c_nodes)
-    plog("INFO", "Avg "+cl+"  pid_error="+str(sum(map(lambda n: n.pid_error, c_nodes))/len(c_nodes)))
-    plog("INFO", "Avg "+cl+" |pid_error|="+str(sum(map(lambda n: abs(n.pid_error), c_nodes))/len(c_nodes)))
-    plog("INFO", "Avg "+cl+" +pid_error=+"+str(sum(map(lambda n: n.pid_error, pc_nodes))/len(pc_nodes)))
-    plog("INFO", "Avg "+cl+" -pid_error="+str(sum(map(lambda n: n.pid_error, nc_nodes))/len(nc_nodes)))
+    if len(c_nodes) > 0:
+      plog("INFO", "Avg "+cl+"  pid_error="+str(sum(map(lambda n: n.pid_error, c_nodes))/len(c_nodes)))
+      plog("INFO", "Avg "+cl+" |pid_error|="+str(sum(map(lambda n: abs(n.pid_error), c_nodes))/len(c_nodes)))
+    if len(pc_nodes) > 0:
+      plog("INFO", "Avg "+cl+" +pid_error=+"+str(sum(map(lambda n: n.pid_error, pc_nodes))/len(pc_nodes)))
+    if len(nc_nodes) > 0:
+      plog("INFO", "Avg "+cl+" -pid_error="+str(sum(map(lambda n: n.pid_error, nc_nodes))/len(nc_nodes)))
 
   n_nodes = filter(lambda n: n.pid_error < 0, nodes.itervalues())
   p_nodes = filter(lambda n: n.pid_error > 0, nodes.itervalues())
