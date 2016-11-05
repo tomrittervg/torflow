@@ -26,13 +26,13 @@ pushd ../../
 ./add_torctl.sh
 popd
 
-# 3. Compile tor 0.2.6
+# 3. Compile tor 0.2.8
 if [ ! -x ../../../tor/src/or/tor ]
 then
   pushd ../../../
   git clone https://git.torproject.org/tor.git tor
   cd tor
-  git checkout release-0.2.6
+  git checkout release-0.2.8
   ./autogen.sh
   ./configure --disable-asciidoc
   make -j4
