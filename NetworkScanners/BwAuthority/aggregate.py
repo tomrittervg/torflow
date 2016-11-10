@@ -508,7 +508,10 @@ def main(argv):
       while prev_pid_avg > pid_tgt_avg[cl]:
         f_nodes = filter(lambda n: n.desc_bw >= pid_tgt_avg[cl], c_nodes)
         prev_pid_avg = pid_tgt_avg[cl]
-        pid_tgt_avg[cl] = sum(map(lambda n: n.filt_bw, f_nodes))/float(len(f_nodes))
+        if len(f_nodes) > 0:
+          pid_tgt_avg[cl] = sum(map(lambda n: n.filt_bw, f_nodes))/float(len(f_nodes))
+        else:
+          pid_tgt_avg[cl] = 0.0
 
       plog("INFO", "Network true_filt_avg["+cl+"]: "+str(true_filt_avg[cl]))
       plog("INFO", "Network pid_tgt_avg["+cl+"]: "+str(pid_tgt_avg[cl]))
