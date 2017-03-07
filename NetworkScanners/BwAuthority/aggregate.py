@@ -855,10 +855,12 @@ def main(argv):
   n_print = nodes.values()
   n_print.sort(lambda x,y: int(y.pid_error*1000) - int(x.pid_error*1000))
 
+  scan_age = 0
   for scanner in scanner_timestamps.iterkeys():
-    scan_age = int(round(scanner_timestamps[scanner],0))
-    if scan_age < time.time() - MAX_SCAN_AGE:
-      plog("WARN", "Bandwidth scanner "+scanner+" stale. Possible dead bwauthority.py. Timestamp: "+time.ctime(scan_age))
+    this_scan_age = int(round(scanner_timestamps[scanner],0))
+    scan_age = scan_age if scan_age > this_scan_age else this_scan_age
+    if this_scan_age < time.time() - MAX_SCAN_AGE:
+      plog("WARN", "Bandwidth scanner "+scanner+" stale. Possible dead bwauthority.py. Timestamp: "+time.ctime(this_scan_age))
 
   out = file(argv[-1], "w")
   out.write(str(scan_age)+"\n")
