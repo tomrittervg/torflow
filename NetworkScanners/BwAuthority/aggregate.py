@@ -172,9 +172,10 @@ class Node:
       self.desc_bw = line.desc_bw
       self.circ_fail_rate = line.circ_fail_rate
       self.strm_fail_rate = line.strm_fail_rate
+      self.scanner = line.filename
 
 class Line:
-  def __init__(self, line, slice_file, timestamp):
+  def __init__(self, line, slice_file, timestamp, filename):
     self.idhex = re.search("[\s]*node_id=([\S]+)[\s]*", line).group(1)
     self.nick = re.search("[\s]*nick=([\S]+)[\s]*", line).group(1)
     self.strm_bw = int(re.search("[\s]*strm_bw=([\S]+)[\s]*", line).group(1))
@@ -182,6 +183,7 @@ class Line:
     self.ns_bw = int(re.search("[\s]*ns_bw=([\S]+)[\s]*", line).group(1))
     self.desc_bw = int(re.search("[\s]*desc_bw=([\S]+)[\s]*", line).group(1))
     self.slice_file = slice_file
+    self.filename = filename
     self.measured_at = timestamp
     try:
       self.circ_fail_rate = float(re.search("[\s]*circ_fail_rate=([\S]+)[\s]*", line).group(1))
@@ -448,7 +450,7 @@ def main(argv):
     fp.readline() # timestamp
     for l in fp.readlines():
       try:
-        line = Line(l,s,t)
+        line = Line(l,s,t,f.replace(argv[1], ""))
         if line.idhex not in nodes:
           n = Node()
           nodes[line.idhex] = n
@@ -869,7 +871,7 @@ def main(argv):
   for n in n_print:
     if not n.ignore:
       # Turns out str() is more accurate than %lf
-      out.write("node_id="+n.idhex+" bw="+str(base10_round(n.new_bw))+" nick="+n.nick+ " measured_at="+str(int(n.measured_at))+" updated_at="+str(int(n.updated_at))+" pid_error="+str(n.pid_error)+" pid_error_sum="+str(n.pid_error_sum)+" pid_bw="+str(int(n.pid_bw))+" pid_delta="+str(n.pid_delta)+" circ_fail="+str(n.circ_fail_rate)+"\n")
+      out.write("node_id="+n.idhex+" bw="+str(base10_round(n.new_bw))+" nick="+n.nick+ " measured_at="+str(int(n.measured_at))+" updated_at="+str(int(n.updated_at))+" pid_error="+str(n.pid_error)+" pid_error_sum="+str(n.pid_error_sum)+" pid_bw="+str(int(n.pid_bw))+" pid_delta="+str(n.pid_delta)+" circ_fail="+str(n.circ_fail_rate)+" scanner="+str(n.scanner)+"\n")
   out.close()
 
   write_file_list(argv[1])
