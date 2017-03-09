@@ -16,3 +16,6 @@ FetchDirInfoEarly 1
 # Use CREATE cells for first hop, so we can still measure CPU overload via 
 # circ failure
 FastFirstHopPK 0
+
+# Turn pathbias off, so it doesn't flood the logs
+UseEntryGuards 0
