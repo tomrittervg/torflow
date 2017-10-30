@@ -10,7 +10,6 @@ import traceback
 sys.path.append("../../")
 from TorCtl.TorUtil import plog
 from TorCtl import TorCtl,TorUtil
-from TorCtl.PathSupport import VersionRangeRestriction, NodeRestrictionList, NotNodeRestriction
 
 bw_files = []
 nodes = {}

@@ -16,8 +16,6 @@ import sys
 import urllib2
 import os
 import traceback
-import copy
-import shutil
 import threading
 import ConfigParser
 import sqlalchemy
