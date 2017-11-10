@@ -58,6 +58,7 @@ def main(argv):
       plog('WARN', 'Child process returned %s' % p.returncode)
 
 def sigterm_handler(signum, frame):
+  global p
   if p:
     p.kill()
   exit()
