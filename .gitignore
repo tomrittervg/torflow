@@ -1,3 +1,10 @@
 *.pyc
 NetworkScanners/ExitAuthority/data/
 NetworkScanners/ExitAuthority/search_cookies.lwp
+
+# We suggest operators create these files
+NetworkScanners/BwAuthority/bwauthenv/
+NetworkScanners/BwAuthority/cron-mine.sh
+
+# Tor creates these files
+NetworkScanners/BwAuthority/data/tor.*/cached-*
